@@ -4,3 +4,6 @@
 [submodule "faasd"]
 	path = faasd
 	url = git@github.com:mactavishz/faasd.git
+[submodule "faas-cli"]
+	path = faas-cli
+	url = git@github.com:mactavishz/faas-cli.git
