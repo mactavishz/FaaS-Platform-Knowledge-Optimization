@@ -1,0 +1,3 @@
+[submodule "tinyFaaS"]
+	path = tinyFaaS
+	url = git@github.com:mactavishz/tinyFaaS.git
