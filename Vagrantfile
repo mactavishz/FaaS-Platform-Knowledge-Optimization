@@ -30,4 +30,7 @@ Vagrant.configure("2") do |config|
 
   # Install faasd dependencies
   config.vm.provision "shell", name: "install-dependencies", path: "scripts/install-dependencies.sh"
+  
+  # Build and install faasd
+  config.vm.provision "shell", name: "build-faasd", path: "scripts/build-faasd.sh", run: "never", privileged: false
 end
