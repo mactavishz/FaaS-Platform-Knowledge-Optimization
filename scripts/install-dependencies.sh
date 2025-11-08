@@ -29,14 +29,28 @@ echo "Installing golang ..."
 sudo rm -rf /usr/local/go
 curl -sSL https://go.dev/dl/go$GO_VERSION.linux-$ARCH.tar.gz -o /tmp/go.tar.gz \
   && sudo tar -xzf /tmp/go.tar.gz -C /usr/local
+
+# Add Go to PATH system-wide using /etc/profile.d/
+sudo sh -c 'cat > /etc/profile.d/go.sh <<EOF
+export PATH=\$PATH:/usr/local/go/bin
+EOF'
+
+# Also add to vagrant user's bashrc for interactive shells
 echo 'export PATH=$PATH:/usr/local/go/bin' >> /home/vagrant/.bashrc
 
 # Install CNI plugins
 echo "Installing CNI plugins ..."
-sudo rm -rf /usr/local/cni
-sudo mkdir -p /usr/local/cni/bin
-curl -sSL https://github.com/containernetworking/plugins/releases/download/v${CNI_PLUGIN_VERSION}/cni-plugins-linux-${ARCH}-v${CNI_PLUGIN_VERSION}.tgz | sudo tar -xz -C /usr/local/cni/bin
-echo 'export PATH=$PATH:/usr/local/cni/bin' >> /home/vagrant/.bashrc
+sudo rm -rf /opt/cni
+sudo mkdir -p /opt/cni/bin
+curl -sSL https://github.com/containernetworking/plugins/releases/download/v${CNI_PLUGIN_VERSION}/cni-plugins-linux-${ARCH}-v${CNI_PLUGIN_VERSION}.tgz | sudo tar -xz -C /opt/cni/bin
+
+# Add CNI to PATH system-wide
+sudo sh -c 'cat > /etc/profile.d/cni.sh <<EOF
+export PATH=\$PATH:/opt/cni/bin
+EOF'
+
+# Also add to vagrant user's bashrc for interactive shells
+echo 'export PATH=$PATH:/opt/cni/bin' >> /home/vagrant/.bashrc
 
 # Make a config folder for CNI definitions
 sudo mkdir -p /etc/cni/net.d
