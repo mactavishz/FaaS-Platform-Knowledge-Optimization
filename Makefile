@@ -12,3 +12,12 @@ show-passwd:
 .PHONY: build-faasd
 build-faasd:
 	vagrant provision --provision-with build-faasd
+
+.PHONY: build-faas-cli
+build-faas-cli:
+	# run make command inside faas-cli directory
+	make -C faas-cli local-install
+
+.PHONY: clean-faas-cli
+clean-faas-cli:
+	rm -f $(GOBIN)/faas-cli
