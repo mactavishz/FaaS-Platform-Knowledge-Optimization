@@ -1,7 +1,7 @@
 #!/bin/bash
+# This script should be run as root
 
 # environment variables
-export GO_VERSION=1.25.4
 export CONTAINERD_VERSION=2.2.0
 export CNI_PLUGIN_VERSION=1.8.0
 
@@ -16,36 +16,14 @@ else
 fi
 export ARCH
 
-# Install runc 
-echo "Installing runc ..."
-sudo apt update \
-  && sudo apt install -qy \
-    runc \
-    bridge-utils \
-    make
-
-# Install golang
-echo "Installing golang ..."
-sudo rm -rf /usr/local/go
-curl -sSL https://go.dev/dl/go$GO_VERSION.linux-$ARCH.tar.gz -o /tmp/go.tar.gz \
-  && sudo tar -xzf /tmp/go.tar.gz -C /usr/local
-
-# Add Go to PATH system-wide using /etc/profile.d/
-sudo sh -c 'cat > /etc/profile.d/go.sh <<EOF
-export PATH=\$PATH:/usr/local/go/bin
-EOF'
-
-# Also add to vagrant user's bashrc for interactive shells
-echo 'export PATH=$PATH:/usr/local/go/bin' >> /home/vagrant/.bashrc
-
 # Install CNI plugins
 echo "Installing CNI plugins ..."
-sudo rm -rf /opt/cni
-sudo mkdir -p /opt/cni/bin
-curl -sSL https://github.com/containernetworking/plugins/releases/download/v${CNI_PLUGIN_VERSION}/cni-plugins-linux-${ARCH}-v${CNI_PLUGIN_VERSION}.tgz | sudo tar -xz -C /opt/cni/bin
+rm -rf /opt/cni
+mkdir -p /opt/cni/bin
+curl -sSL https://github.com/containernetworking/plugins/releases/download/v${CNI_PLUGIN_VERSION}/cni-plugins-linux-${ARCH}-v${CNI_PLUGIN_VERSION}.tgz | tar -xz -C /opt/cni/bin
 
 # Add CNI to PATH system-wide
-sudo sh -c 'cat > /etc/profile.d/cni.sh <<EOF
+sh -c 'cat > /etc/profile.d/cni.sh <<EOF
 export PATH=\$PATH:/opt/cni/bin
 EOF'
 
@@ -53,10 +31,10 @@ EOF'
 echo 'export PATH=$PATH:/opt/cni/bin' >> /home/vagrant/.bashrc
 
 # Make a config folder for CNI definitions
-sudo mkdir -p /etc/cni/net.d
+mkdir -p /etc/cni/net.d
 
 # Make an initial loopback configuration
-sudo sh -c 'cat >/etc/cni/net.d/99-loopback.conf <<-EOF
+sh -c 'cat >/etc/cni/net.d/99-loopback.conf <<-EOF
 {
     "cniVersion": "1.1.0",
     "type": "loopback"
@@ -66,7 +44,7 @@ EOF'
 # Install containerd
 echo "Installing containerd ..."
 curl -sSL https://github.com/containerd/containerd/releases/download/v$CONTAINERD_VERSION/containerd-$CONTAINERD_VERSION-linux-$ARCH.tar.gz -o /tmp/containerd.tar.gz \
-  && sudo tar -xvf /tmp/containerd.tar.gz -C /usr/local/bin/ --strip-components=1
+  && tar -xvf /tmp/containerd.tar.gz -C /usr/local/bin/ --strip-components=1
 
 containerd -version
 
@@ -78,14 +56,14 @@ curl -sLS https://raw.githubusercontent.com/containerd/containerd/v$CONTAINERD_V
 echo "[Manager]" | tee -a /tmp/containerd.service
 echo "DefaultTimeoutStartSec=3m" | tee -a /tmp/containerd.service
 
-sudo cp /tmp/containerd.service /lib/systemd/system/
-sudo systemctl enable containerd
+cp /tmp/containerd.service /lib/systemd/system/
+systemctl enable containerd
 
-sudo systemctl daemon-reload
-sudo systemctl restart containerd
+systemctl daemon-reload
+systemctl restart containerd
 
 # enable ipv4 forwarding 
-sudo /sbin/sysctl -w net.ipv4.conf.all.forwarding=1
-echo "net.ipv4.conf.all.forwarding=1" | sudo tee -a /etc/sysctl.conf
+/sbin/sysctl -w net.ipv4.conf.all.forwarding=1
+echo "net.ipv4.conf.all.forwarding=1" | tee -a /etc/sysctl.conf
 
 echo "Dependencies installed and configured."
