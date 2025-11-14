@@ -20,4 +20,15 @@ build-faas-cli:
 
 .PHONY: clean-faas-cli
 clean-faas-cli:
-	rm -f $(GOBIN)/faas-cli
+	make -C faas-cli clean
+
+.PHONY: clean-faasd
+clean-faasd:
+	make -C faasd clean
+	
+.PHONY: clean-tinyFaaS
+clean-tinyFaaS:
+	make -C tinyFaaS clean
+	
+.PHONY: clean
+clean: clean-faasd clean-faas-cli clean-tinyFaaS
