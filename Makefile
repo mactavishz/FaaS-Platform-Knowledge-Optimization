@@ -1,4 +1,6 @@
 LOCAL_OPENFAAS_URL=http://127.0.0.1:8080
+LOCAL_TINYFAAS_URL=http://127.0.0.1:9090
+LOCAL_TINYFAAS_MGMT_URL=http://127.0.0.1:9091
 FAASD_SECRETES_PATH=/var/lib/faasd/secrets
 
 .PHONY: login
@@ -32,3 +34,7 @@ clean-tinyFaaS:
 	
 .PHONY: clean
 clean: clean-faasd clean-faas-cli clean-tinyFaaS
+	
+.PHONY: clean-go-build-cache
+clean-go-build-cache:
+	go clean -cache -modcache
