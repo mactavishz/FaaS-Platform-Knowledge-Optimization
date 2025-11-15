@@ -6,40 +6,47 @@ export PROJECT_ROOT=/vagrant
 cd $PROJECT_ROOT/faasd
 make local
 
-# Stop the existing faasd services
-echo "Stopping faasd services..."
-sudo systemctl stop faasd
-sudo systemctl stop faasd-provider
-
-# Wait for services to fully stop
-echo "Waiting for services to stop..."
-sleep 3
-
-# Force kill any remaining faasd processes
-echo "Ensuring all faasd processes are stopped..."
-sudo pkill -9 faasd || true
-sleep 1
-
-# Flush old logs
-echo "Flushing old logs..."
-sudo journalctl --rotate --vacuum-time=1s -u faasd
-sudo journalctl --rotate --vacuum-time=1s -u faasd-provider
-
-# Remove the old binary and copy the new one
+# Install faasd binary first (required for faasd install command)
 echo "Installing new faasd binary..."
 sudo rm -f /usr/local/bin/faasd
 sudo cp bin/faasd /usr/local/bin/faasd
 sudo chmod +x /usr/local/bin/faasd
 
-# Verify the binary was copied
+# Verify the binary was installed
 echo "Verifying binary..."
 ls -lh /usr/local/bin/faasd
 /usr/local/bin/faasd version
 
-# Restart the services
-echo "Restarting faasd services..."
-sudo systemctl start faasd-provider
-sudo systemctl start faasd
+# Check if services are already installed
+if sudo systemctl list-unit-files | grep -q "faasd.service"; then
+    # Services exist - stop them before updating
+    echo "Stopping faasd services..."
+    sudo systemctl stop faasd || true
+    sudo systemctl stop faasd-provider || true
+
+    # Wait for services to fully stop
+    echo "Waiting for services to stop..."
+    sleep 3
+
+    # Force kill any remaining faasd processes
+    echo "Ensuring all faasd processes are stopped..."
+    sudo pkill -9 faasd || true
+    sleep 1
+
+    # Flush old logs
+    echo "Flushing old logs..."
+    sudo journalctl --rotate --vacuum-time=1s -u faasd || true
+    sudo journalctl --rotate --vacuum-time=1s -u faasd-provider || true
+    
+    # Restart the services
+    echo "Restarting faasd services..."
+    sudo systemctl start faasd-provider
+    sudo systemctl start faasd
+else
+    # First-time setup - run faasd install
+    echo "First-time setup: Installing faasd services..."
+    sudo /usr/local/bin/faasd install
+fi
 
 # Wait for services to start
 echo "Waiting for services to start..."

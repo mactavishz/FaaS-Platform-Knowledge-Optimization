@@ -3,17 +3,21 @@ LOCAL_TINYFAAS_URL=http://127.0.0.1:9090
 LOCAL_TINYFAAS_MGMT_URL=http://127.0.0.1:9091
 FAASD_SECRETES_PATH=/var/lib/faasd/secrets
 
-.PHONY: login
-login:
-	vagrant ssh -c "sudo cat $(FAASD_SECRETES_PATH)/basic-auth-password" | OPENFAAS_URL=$(LOCAL_OPENFAAS_URL) faas-cli login -s
+.PHONY: faasd-login
+faasd-login:
+	vagrant ssh faasd -c "sudo cat $(FAASD_SECRETES_PATH)/basic-auth-password" | OPENFAAS_URL=$(LOCAL_OPENFAAS_URL) faas-cli login -s
 
-.PHONY: show-passwd
-show-passwd:
-	vagrant ssh -c "sudo cat $(FAASD_SECRETES_PATH)/basic-auth-password"
+.PHONY: faasd-passwd
+faasd-passwd:
+	vagrant ssh faasd -c "sudo cat $(FAASD_SECRETES_PATH)/basic-auth-password"
 
 .PHONY: build-faasd
 build-faasd:
-	vagrant provision --provision-with build-faasd
+	vagrant provision faasd --provision-with build
+
+.PHONY: build-tinyfaas
+build-tinyfaas:
+	vagrant provision tinyfaas --provision-with build
 
 .PHONY: build-faas-cli
 build-faas-cli:
@@ -28,13 +32,15 @@ clean-faas-cli:
 clean-faasd:
 	make -C faasd clean
 	
-.PHONY: clean-tinyFaaS
-clean-tinyFaaS:
+.PHONY: clean-tinyfaas
+clean-tinyfaas:
 	make -C tinyFaaS clean
 	
 .PHONY: clean
-clean: clean-faasd clean-faas-cli clean-tinyFaaS
+clean: clean-faasd clean-faas-cli clean-tinyfaas
 	
 .PHONY: clean-go-build-cache
 clean-go-build-cache:
-	go clean -cache -modcache
+	cd faasd && go clean -cache
+	cd tinyFaaS && go clean -cache
+	cd faas-cli && go clean -cache

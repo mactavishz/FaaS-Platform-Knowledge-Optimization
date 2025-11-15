@@ -33,7 +33,7 @@ Vagrant.configure("2") do |config|
     faasd.vm.provision "shell", name: "install-faasd-dependencies", path: "scripts/install-faasd-dependencies.sh"
     
     # Build and install faasd
-    faasd.vm.provision "shell", name: "build-faasd", path: "scripts/build-faasd.sh", run: "never", privileged: false
+    faasd.vm.provision "shell", name: "build", path: "scripts/build-faasd.sh", run: "never", privileged: false
   end
 
   config.vm.define "tinyfaas" do |tinyfaas|
@@ -47,6 +47,6 @@ Vagrant.configure("2") do |config|
     tinyfaas.vm.provision "shell", name: "install-tinyfaas-dependencies", path: "scripts/install-tinyfaas-dependencies.sh"
 
     # Build and install tinyfaas
-    tinyfaas.vm.provision "shell", name: "build-tinyfaas", path: "scripts/build-tinyfaas.sh", run: "never", privileged: false
+    tinyfaas.vm.provision "shell", name: "build", path: "scripts/build-tinyfaas.sh", run: "never", privileged: false
   end
 end
