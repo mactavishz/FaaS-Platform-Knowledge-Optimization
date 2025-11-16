@@ -22,7 +22,7 @@ build-tinyfaas:
 .PHONY: build-faas-cli
 build-faas-cli:
 	# run make command inside faas-cli directory
-	make -C faas-cli local-install
+	make -C faas-cli go-build
 
 .PHONY: clean-faas-cli
 clean-faas-cli:
