@@ -6,32 +6,31 @@ export PROJECT_ROOT=/vagrant
 TINYFAAS_PID_FILE=/tmp/tinyfaas.pid
 
 echo "==> Stopping existing tinyFaaS processes..."
-# Check if PID file exists and try to kill the process
+# Check if PID file exists and send SIGTERM for graceful shutdown
 if [ -f "$TINYFAAS_PID_FILE" ]; then
     OLD_PID=$(cat "$TINYFAAS_PID_FILE")
     if ps -p "$OLD_PID" > /dev/null 2>&1; then
-        echo "Found running tinyFaaS process (PID: $OLD_PID), stopping it and its children..."
-        # Kill the process group to ensure child processes (rproxy) are also killed
-        kill -TERM -$OLD_PID 2>/dev/null || kill "$OLD_PID" || true
-        sleep 3
-        # Force kill if still running
-        if ps -p "$OLD_PID" > /dev/null 2>&1; then
-            echo "Force killing process group..."
-            kill -9 -$OLD_PID 2>/dev/null || kill -9 "$OLD_PID" || true
+        echo "Found running tinyFaaS process (PID: $OLD_PID), sending graceful shutdown signal..."
+        # Send SIGTERM for graceful shutdown - tinyFaaS now handles this properly
+        kill -TERM "$OLD_PID" 2>/dev/null || true
+        
+        # Wait for graceful shutdown (max 35 seconds: 30s for services + 5s buffer)
+        for i in {1..35}; do
+            if ! ps -p "$OLD_PID" > /dev/null 2>&1; then
+                echo "tinyFaaS stopped gracefully"
+                break
+            fi
             sleep 1
+        done
+        
+        # Force kill only if still running after graceful shutdown timeout
+        if ps -p "$OLD_PID" > /dev/null 2>&1; then
+            echo "Graceful shutdown timed out, force killing..."
+            kill -9 "$OLD_PID" 2>/dev/null || true
         fi
     fi
     rm -f "$TINYFAAS_PID_FILE"
 fi
-
-# Double-check: kill any remaining processes using the ports
-for PORT in 8000 8080 8081 5683 9000; do
-    PID=$(lsof -ti:$PORT 2>/dev/null || true)
-    if [ -n "$PID" ]; then
-        echo "Killing process using port $PORT (PID: $PID)..."
-        kill -9 $PID 2>/dev/null || true
-    fi
-done
 
 # Navigate to tinyFaaS directory
 cd $PROJECT_ROOT/tinyFaaS
@@ -45,8 +44,8 @@ echo "==> Binary name: $BINARY_NAME"
 
 echo "==> Starting tinyFaaS in background..."
 # Start tinyFaaS in background with nohup and redirect output to log file
-# Use setsid to create a new session so all child processes are in the same process group
-nohup setsid ./$BINARY_NAME > /tmp/tinyfaas.log 2>&1 &
+# No need for setsid anymore - tinyFaaS handles rproxy shutdown internally
+nohup ./$BINARY_NAME > /tmp/tinyfaas.log 2>&1 &
 TINYFAAS_PID=$!
 
 # Save PID to file
