@@ -1,0 +1,10 @@
+provider:
+  name: tinyfaas
+  gateway: http://127.0.0.1:9091
+functions:
+  hellopy:
+    lang: python3
+    handler: ../tinyFaaS/test/fns/echo
+  hellonode:
+    lang: nodejs
+    handler: ../tinyFaaS/test/fns/echo-js
