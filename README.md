@@ -150,7 +150,6 @@ For tinyFaaS, you don't have to specify the image. Instead, you provide the hand
 
 ```yaml
 # tinyfaas-stack.yml
-version: 1.0
 provider:
   name: tinyfaas
   gateway: http://127.0.0.1:9091
