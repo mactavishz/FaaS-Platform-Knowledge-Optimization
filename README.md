@@ -119,7 +119,7 @@ faas-cli remove hellopy --platform tinyfaas --gateway http://localhost:9091
 
 ### For faasd (OpenFaaS)
 
-You can use the stack file as described in the [OpenFaaS documentation](https://docs.openfaas.com/cli/deploying/)
+You can use the stack file as described in the [OpenFaaS documentation](https://docs.openfaas.com/reference/yaml/)
 
 Here is an example:
 
