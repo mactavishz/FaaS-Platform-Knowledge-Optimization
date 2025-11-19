@@ -7,3 +7,12 @@
 [submodule "faas-cli"]
 	path = faas-cli
 	url = git@github.com:mactavishz/faas-cli.git
+[submodule "templates/python-flask-template"]
+	path = templates/python-flask-template
+	url = git@github.com:mactavishz/python-flask-template.git
+[submodule "templates/golang-http-template"]
+	path = templates/golang-http-template
+	url = git@github.com:mactavishz/golang-http-template.git
+[submodule "templates/templates"]
+	path = templates/templates
+	url = git@github.com:mactavishz/templates.git
