@@ -4,6 +4,7 @@ set -e
 
 export PROJECT_ROOT=/vagrant
 TINYFAAS_PID_FILE=/tmp/tinyfaas.pid
+CADDY_PID_FILE=/tmp/caddy.pid
 
 echo "==> Stopping existing tinyFaaS processes..."
 # Check if PID file exists and send SIGTERM for graceful shutdown
@@ -32,6 +33,9 @@ if [ -f "$TINYFAAS_PID_FILE" ]; then
     rm -f "$TINYFAAS_PID_FILE"
 fi
 
+echo "==> Stopping existing caddy server..."
+sudo caddy stop --config $PROJECT_ROOT/tinyFaaS/Caddyfile || echo "Caddy server not running."
+
 # Navigate to tinyFaaS directory
 cd $PROJECT_ROOT/tinyFaaS
 
@@ -41,6 +45,9 @@ make build
 # Get the binary name from Makefile
 BINARY_NAME=$(make bin-name)
 echo "==> Binary name: $BINARY_NAME"
+
+# Start caddy server
+sudo caddy start --config $PROJECT_ROOT/tinyFaaS/Caddyfile --pidfile $CADDY_PID_FILE
 
 echo "==> Starting tinyFaaS in background..."
 # Start tinyFaaS in background with nohup and redirect output to log file
