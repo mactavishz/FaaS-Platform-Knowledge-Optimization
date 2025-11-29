@@ -1,10 +1,13 @@
 provider:
   name: tinyfaas
-  gateway: http://127.0.0.1:9091
+  gateway: http://127.0.0.1:8888/system
 functions:
-  hellopy:
+  linear-a:
     lang: python3
-    handler: ../tinyFaaS/test/fns/echo
-  hellonode:
-    lang: nodejs
-    handler: ../tinyFaaS/test/fns/echo-js
+    handler: ./workflows/tinyfaas/linear/a
+  linear-b:
+    lang: python3
+    handler: ./workflows/tinyfaas/linear/b
+  linear-c:
+    lang: python3
+    handler: ./workflows/tinyfaas/linear/c
