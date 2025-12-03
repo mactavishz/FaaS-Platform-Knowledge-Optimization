@@ -7,3 +7,6 @@
 [submodule "faas-cli"]
 	path = faas-cli
 	url = git@github.com:mactavishz/faas-cli.git
+[submodule "go-sdk"]
+	path = go-sdk
+	url = git@github.com:mactavishz/go-sdk.git
