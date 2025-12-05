@@ -15,10 +15,7 @@ sudo caddy stop --config $PROJECT_ROOT/tinyFaaS/Caddyfile || echo "Caddy server 
 # Navigate to tinyFaaS directory
 cd $PROJECT_ROOT/tinyFaaS
 
-echo "==> Building tinyFaaS..."
-make build
-
-echo "==> Installing tinyFaaS..."
+echo "==> Building and installing tinyFaaS..."
 sudo make install
 
 echo "==> Reloading systemd daemon..."
@@ -41,8 +38,6 @@ if systemctl is-active --quiet tf-rproxy && systemctl is-active --quiet tf-manag
     echo "==> View logs with:"
     echo "    journalctl -u tf-manager -f"
     echo "    journalctl -u tf-rproxy -f"
-    echo "==> HTTP endpoint: http://localhost:8000"
-    echo "==> Management API: http://localhost:8080"
 else
     echo "==> ERROR: tinyFaaS failed to start."
     if ! systemctl is-active --quiet tf-rproxy; then
