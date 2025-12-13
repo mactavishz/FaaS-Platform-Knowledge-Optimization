@@ -18,6 +18,32 @@ cd $PROJECT_ROOT/tinyFaaS
 echo "==> Building and installing tinyFaaS..."
 sudo make install
 
+echo "==> Configuring autoscaler environment..."
+# Set default values
+TF_AUTOSCALER_ENABLED=${TF_AUTOSCALER_ENABLED:-true}
+TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION=${TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION:-5m}
+
+# Load local config if exists (git-ignored)
+if [ -f "$PROJECT_ROOT/.tinyfaas.env" ]; then
+    echo "==> Loading local configuration from .tinyfaas.env"
+    source "$PROJECT_ROOT/.tinyfaas.env"
+fi
+
+echo "==> Autoscaler settings: ENABLED=$TF_AUTOSCALER_ENABLED, IDLE_DURATION=$TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION"
+
+# Create environment files for autoscaler configuration
+sudo tee /etc/default/tf-manager > /dev/null <<EOF
+# Autoscaler configuration for tinyFaaS Manager
+TF_AUTOSCALER_ENABLED=$TF_AUTOSCALER_ENABLED
+TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION=$TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION
+EOF
+
+sudo tee /etc/default/tf-rproxy > /dev/null <<EOF
+# Autoscaler configuration for tinyFaaS Reverse Proxy
+TF_AUTOSCALER_ENABLED=$TF_AUTOSCALER_ENABLED
+TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION=$TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION
+EOF
+
 echo "==> Reloading systemd daemon..."
 sudo systemctl daemon-reload
 
