@@ -1,9 +1,10 @@
 package autoscaler
 
 import (
-	"log"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // ScaleOperation defines the interface for scaling operations
@@ -28,6 +29,7 @@ type AutoScaler struct {
 	// Monitor goroutine control
 	stopChan chan struct{}
 	doneChan chan struct{}
+	logger   *zap.Logger
 }
 
 // FunctionState tracks the state and activity of a function
@@ -42,7 +44,7 @@ type FunctionState struct {
 }
 
 // New creates a new AutoScaler instance
-func New(config Config, scaleOp ScaleOperation) *AutoScaler {
+func New(config Config, scaleOp ScaleOperation, logger *zap.Logger) *AutoScaler {
 	if config.CheckInterval == 0 {
 		config.CheckInterval = DEFAULT_CHECK_INTERVAL_SECONDS * time.Second
 	}
@@ -53,18 +55,18 @@ func New(config Config, scaleOp ScaleOperation) *AutoScaler {
 		scaleOperation: scaleOp,
 		stopChan:       make(chan struct{}),
 		doneChan:       make(chan struct{}),
+		logger:         logger,
 	}
 }
 
 // Start begins the autoscaler monitoring loop
 func (as *AutoScaler) Start() {
-	log.SetPrefix("autoscaler: ")
 	if !as.config.Enabled {
-		log.Println("disabled, not starting monitor")
+		as.logger.Info("autoscaler disabled, not starting monitor")
 		return
 	}
 
-	log.Println("starting monitor loop")
+	as.logger.Info("starting monitor loop")
 	go as.startMonitor()
 }
 
@@ -74,10 +76,10 @@ func (as *AutoScaler) Stop() {
 		return
 	}
 
-	log.Println("stopping monitor loop")
+	as.logger.Info("stopping monitor loop")
 	close(as.stopChan)
 	<-as.doneChan
-	log.Println("monitor loop stopped")
+	as.logger.Info("monitor loop stopped")
 }
 
 // RegisterFunction registers a function with the autoscaler
@@ -102,8 +104,9 @@ func (as *AutoScaler) RegisterFunction(name string, labels map[string]string) {
 	}
 
 	as.functions[name] = state
-	log.Printf("registered function %s (scale-to-zero: %v, idle_duration: %v)",
-		name, scaleToZeroEnabled, idleDuration)
+	as.logger.Info("registered function", zap.String("function", name),
+		zap.Bool("scale_to_zero", scaleToZeroEnabled),
+		zap.Duration("idle_duration", idleDuration))
 }
 
 // UnregisterFunction removes a function from the autoscaler
@@ -116,7 +119,7 @@ func (as *AutoScaler) UnregisterFunction(name string) {
 	defer as.functionsMutex.Unlock()
 
 	delete(as.functions, name)
-	log.Printf("unregistered function %s", name)
+	as.logger.Info("unregistered function", zap.String("function", name))
 }
 
 // ScaleDown is a wrapper for the ScaleDown operation of the ScaleOperation interface
@@ -140,7 +143,7 @@ func (as *AutoScaler) RecordActivity(name string) {
 
 	if state, exists := as.functions[name]; exists {
 		state.LastAccessTime = time.Now()
-		log.Printf("recorded activity for function %s", name)
+		as.logger.Info("recorded activity for function", zap.String("function", name))
 	}
 }
 
@@ -185,7 +188,7 @@ func (as *AutoScaler) MarkScaledDown(name string, scaledDown bool) {
 
 	if state, exists := as.functions[name]; exists {
 		state.IsScaledDown = scaledDown
-		log.Printf("marked function %s as scaled_down=%v", name, scaledDown)
+		as.logger.Debug("marked function scaled down", zap.String("function", name), zap.Bool("scaled_down", scaledDown))
 	}
 }
 
@@ -200,7 +203,7 @@ func (as *AutoScaler) MarkScalingDown(name string, scalingDown bool) {
 
 	if state, exists := as.functions[name]; exists {
 		state.IsScalingDown = scalingDown
-		log.Printf("marked function %s as scaling_down=%v", name, scalingDown)
+		as.logger.Debug("marked function scaling down", zap.String("function", name), zap.Bool("scaling_down", scalingDown))
 	}
 }
 
@@ -218,6 +221,7 @@ func (as *AutoScaler) GetFunctionStatus() map[string]FunctionState {
 
 // startMonitor periodically checks for idle functions and scales them down
 func (as *AutoScaler) startMonitor() {
+	as.logger.Info("autoscaler monitor loop started")
 	ticker := time.NewTicker(as.config.CheckInterval)
 	defer ticker.Stop()
 	defer close(as.doneChan)
@@ -244,11 +248,13 @@ func (as *AutoScaler) checkIdleFunctions() {
 		if !state.ScaleToZeroEnabled || state.IsScaledDown {
 			continue
 		}
-
+		as.logger.Debug("checking function idle time", zap.String("function", name))
 		idleTime := now.Sub(state.LastAccessTime)
 		if idleTime > state.IdleDuration {
-			log.Printf("function %s idle for %v (threshold: %v), scaling down",
-				name, idleTime, state.IdleDuration)
+			as.logger.Info("function idle, scaling down",
+				zap.String("function", name),
+				zap.Duration("idle_time", idleTime),
+				zap.Duration("threshold", state.IdleDuration))
 			toScaleDown = append(toScaleDown, name)
 		}
 	}
@@ -262,10 +268,10 @@ func (as *AutoScaler) checkIdleFunctions() {
 		as.functionsMutex.Lock()
 		if state, exists := as.functions[name]; exists {
 			if err != nil {
-				log.Printf("error scaling down function %s: %v", name, err)
+				as.logger.Error("error scaling down function", zap.String("function", name), zap.Error(err))
 			} else {
 				state.IsScaledDown = true
-				log.Printf("successfully scaled down function %s", name)
+				as.logger.Info("successfully scaled down function", zap.String("function", name))
 			}
 		}
 		as.functionsMutex.Unlock()
@@ -310,8 +316,10 @@ func (as *AutoScaler) parseScaleConfig(labels map[string]string, defaultDuration
 		if parsed, err := time.ParseDuration(idleDurationLabel); err == nil {
 			idleDuration = parsed
 		} else {
-			log.Printf("invalid idle_duration %q, using default %v: %v",
-				idleDurationLabel, defaultDuration, err)
+			as.logger.Warn("invalid idle_duration label, using default",
+				zap.String("label_value", idleDurationLabel),
+				zap.Duration("default_duration", defaultDuration),
+				zap.Error(err))
 		}
 	}
 
