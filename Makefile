@@ -19,6 +19,10 @@ build-faasd:
 build-tinyfaas:
 	vagrant provision tinyfaas --provision-with build
 
+.PHONY: test-tinyfaas
+test-tinyfaas:
+	vagrant ssh tinyfaas -c "cd /vagrant/tinyFaaS && make test"
+
 .PHONY: build-faas-cli
 build-faas-cli:
 	# run make command inside faas-cli directory
