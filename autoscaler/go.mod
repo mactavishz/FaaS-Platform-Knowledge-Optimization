@@ -1,4 +1,4 @@
-module github.com/mactavishz/FaaS-Platform-Knowledge-Optimization
+module github.com/mactavishz/FaaS-Platform-Knowledge-Optimization/autoscaler
 
 go 1.21
 
