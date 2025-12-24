@@ -23,6 +23,11 @@ build-tinyfaas:
 test-tinyfaas:
 	vagrant ssh tinyfaas -c "cd /vagrant/tinyFaaS && make test"
 
+.PHONY: unit-test
+unit-test:
+	cd autoscaler && go test -v -cover ./...
+	cd callgraph && go test -v -cover ./...
+
 .PHONY: build-faas-cli
 build-faas-cli:
 	# run make command inside faas-cli directory
