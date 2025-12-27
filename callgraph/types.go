@@ -68,6 +68,9 @@ type CallGraphTracker struct {
 	// Callee to callers mapping for quick lookup
 	calleeToCallers map[string]map[string]bool
 
+	// Execution context tracking: requestID -> functionName -> startTime
+	executionContexts map[string]map[string]time.Time
+
 	// When tracking started
 	startTime time.Time
 

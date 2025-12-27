@@ -14,14 +14,15 @@ var ErrInvalidMaxEdges = errors.New("MaxEdges must be -1 (unlimited) or a positi
 // New creates a new CallGraphTracker with default configuration
 func New(options ...Option) *CallGraphTracker {
 	tracker := &CallGraphTracker{
-		config:          DefaultConfig(),
-		logger:          DefaultLogger(),
-		edges:           make([]CallEdge, 0),
-		edgeStats:       make(map[string]*edgeStats),
-		functionStats:   make(map[string]*FunctionStats),
-		callerToCallees: make(map[string]map[string]bool),
-		calleeToCallers: make(map[string]map[string]bool),
-		startTime:       time.Now(),
+		config:            DefaultConfig(),
+		logger:            DefaultLogger(),
+		edges:             make([]CallEdge, 0),
+		edgeStats:         make(map[string]*edgeStats),
+		functionStats:     make(map[string]*FunctionStats),
+		callerToCallees:   make(map[string]map[string]bool),
+		calleeToCallers:   make(map[string]map[string]bool),
+		executionContexts: make(map[string]map[string]time.Time),
+		startTime:         time.Now(),
 	}
 	// Default to SMA
 	WithSMA(&SMAConfig{
@@ -96,6 +97,10 @@ func (t *CallGraphTracker) GetAverageMethodConfig() any {
 // RecordEdge records a call from caller to callee with the given execution time in nanoseconds
 // caller is "" (empty string) for external calls
 func (t *CallGraphTracker) RecordEdge(caller, callee string, executionTime time.Duration) {
+	if !t.config.Enabled {
+		return
+	}
+
 	// Validate: callee cannot be empty
 	if callee == "" {
 		return
@@ -165,11 +170,182 @@ func (t *CallGraphTracker) RecordEdge(caller, callee string, executionTime time.
 
 // RecordEdgeCall records a call without execution time (uses 0)
 func (t *CallGraphTracker) RecordEdgeCall(caller, callee string) {
+	if !t.config.Enabled {
+		return
+	}
 	t.RecordEdge(caller, callee, 0)
+}
+
+// StartExecution marks the beginning of a function execution for a specific request
+func (t *CallGraphTracker) StartExecution(functionName string, requestID string, timestamp time.Time) {
+	if !t.config.Enabled {
+		return
+	}
+
+	if functionName == "" || requestID == "" {
+		return
+	}
+
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	// Initialize request context if needed
+	if t.executionContexts[requestID] == nil {
+		t.executionContexts[requestID] = make(map[string]time.Time)
+	}
+
+	// Store start time for this function in this request
+	t.executionContexts[requestID][functionName] = timestamp
+
+	t.logger.Debug("started execution",
+		zap.String("function", functionName),
+		zap.String("requestID", requestID),
+		zap.Time("timestamp", timestamp))
+}
+
+// RecordCall records when caller invokes callee and automatically calculates edge execution time
+func (t *CallGraphTracker) RecordCall(caller, callee string, requestID string, timestamp time.Time) {
+	if !t.config.Enabled {
+		return
+	}
+
+	// Validate: callee cannot be empty
+	if callee == "" {
+		return
+	}
+
+	// Prevent self-loops: a function cannot call itself
+	if caller != "" && caller == callee {
+		return
+	}
+
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	var executionTime time.Duration
+
+	// If this is an internal call (caller is not empty), calculate edge execution time
+	if caller != "" && requestID != "" {
+		// Look up when caller started in this request
+		if requestCtx, ok := t.executionContexts[requestID]; ok {
+			if startTime, ok := requestCtx[caller]; ok {
+				executionTime = timestamp.Sub(startTime)
+				t.logger.Debug("calculated edge execution time",
+					zap.String("caller", caller),
+					zap.String("callee", callee),
+					zap.String("requestID", requestID),
+					zap.Duration("executionTime", executionTime))
+			} else {
+				t.logger.Warn("caller start time not found",
+					zap.String("caller", caller),
+					zap.String("callee", callee),
+					zap.String("requestID", requestID))
+				// Can't calculate edge time, skip recording
+				return
+			}
+		} else {
+			t.logger.Warn("request context not found",
+				zap.String("requestID", requestID),
+				zap.String("caller", caller),
+				zap.String("callee", callee))
+			// Can't calculate edge time, skip recording
+			return
+		}
+	}
+
+	// Record detailed edge
+	edge := CallEdge{
+		Caller:        caller,
+		Callee:        callee,
+		ExecutionTime: executionTime,
+		Timestamp:     timestamp,
+	}
+
+	// Manage edge storage with limit
+	if t.config.MaxEdges > 0 && len(t.edges) >= t.config.MaxEdges {
+		// Remove oldest edges (FIFO)
+		t.edges = t.edges[1:]
+	}
+	t.edges = append(t.edges, edge)
+
+	// Update edge statistics
+	key := edgeKey(caller, callee)
+	stats, exists := t.edgeStats[key]
+	if !exists {
+		stats = &edgeStats{
+			caller:        caller,
+			callee:        callee,
+			minExecTime:   executionTime,
+			maxExecTime:   executionTime,
+			avgCalculator: NewAveragingCalculator(t.averagingMethod, t.GetAverageMethodConfig()),
+		}
+		t.edgeStats[key] = stats
+	}
+
+	stats.count++
+	stats.totalExecTime += executionTime
+	stats.avgCalculator.Add(executionTime)
+
+	if executionTime < stats.minExecTime || stats.count == 1 {
+		stats.minExecTime = executionTime
+	}
+	if executionTime > stats.maxExecTime {
+		stats.maxExecTime = executionTime
+	}
+
+	// Update caller-callee mappings
+	if t.callerToCallees[caller] == nil {
+		t.callerToCallees[caller] = make(map[string]bool)
+	}
+	t.callerToCallees[caller][callee] = true
+
+	if t.calleeToCallers[callee] == nil {
+		t.calleeToCallers[callee] = make(map[string]bool)
+	}
+	t.calleeToCallers[callee][caller] = true
+
+	t.logger.Debug("recorded call",
+		zap.String("caller", caller),
+		zap.String("callee", callee),
+		zap.String("requestID", requestID),
+		zap.Duration("edgeExecutionTime", executionTime))
+}
+
+// EndExecution marks the end of a function execution and cleans up execution context
+func (t *CallGraphTracker) EndExecution(functionName string, requestID string, timestamp time.Time) {
+	if !t.config.Enabled {
+		return
+	}
+
+	if functionName == "" || requestID == "" {
+		return
+	}
+
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	// Clean up execution context
+	if requestCtx, ok := t.executionContexts[requestID]; ok {
+		delete(requestCtx, functionName)
+
+		// If this was the last function in this request, clean up the entire request context
+		if len(requestCtx) == 0 {
+			delete(t.executionContexts, requestID)
+		}
+	}
+
+	t.logger.Debug("ended execution",
+		zap.String("function", functionName),
+		zap.String("requestID", requestID),
+		zap.Time("timestamp", timestamp))
 }
 
 // RecordColdStart records a cold start event for a function
 func (t *CallGraphTracker) RecordColdStart(functionName string, timestamp time.Time, coldStartDuration time.Duration) {
+	if !t.config.Enabled {
+		return
+	}
+
 	if functionName == "" {
 		return
 	}
@@ -216,6 +392,10 @@ func (t *CallGraphTracker) GetColdStartAverage(functionName string) time.Duratio
 
 // RecordFuncExec records a function whole execution with timing information
 func (t *CallGraphTracker) RecordFuncExec(functionName string, timestamp time.Time, execTime time.Duration) {
+	if !t.config.Enabled {
+		return
+	}
+
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 

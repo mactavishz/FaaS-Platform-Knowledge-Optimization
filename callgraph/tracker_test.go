@@ -759,3 +759,201 @@ func TestColdStartInFunctionStats(t *testing.T) {
 	assert.Equal(t, now, stats.LastColdStartAt)
 	assert.Equal(t, 500*time.Millisecond, stats.LastColdStartDuration)
 }
+
+// TestStartExecutionAndRecordCall tests the new requestID-based API
+func TestStartExecutionAndRecordCall(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+
+	requestID := "req-123"
+	now := time.Now()
+
+	// Start execution of funcA
+	tracker.StartExecution("funcA", requestID, now)
+
+	// 100ms later, funcA calls funcB
+	callTime := now.Add(100 * time.Millisecond)
+	tracker.RecordCall("funcA", "funcB", requestID, callTime)
+
+	// Verify edge was recorded with correct execution time
+	assert.Equal(t, 1, tracker.EdgeCount())
+
+	stats, ok := tracker.GetEdgeStats("funcA", "funcB")
+	require.True(t, ok, "edge stats not found")
+
+	assert.Equal(t, 1, stats.Count)
+	assert.Equal(t, 100*time.Millisecond, stats.TotalExecutionTime)
+	assert.Equal(t, 100*time.Millisecond, stats.AvgExecutionTime)
+}
+
+// TestRecordCallExternalEntry tests external calls (no caller)
+func TestRecordCallExternalEntry(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+
+	requestID := "req-456"
+	now := time.Now()
+
+	// External call to funcA (no StartExecution needed for caller)
+	tracker.RecordCall("", "funcA", requestID, now)
+
+	// Verify edge was recorded
+	assert.Equal(t, 1, tracker.EdgeCount())
+
+	stats, ok := tracker.GetEdgeStats("", "funcA")
+	require.True(t, ok, "edge stats not found")
+
+	assert.Equal(t, 1, stats.Count)
+	assert.Equal(t, time.Duration(0), stats.TotalExecutionTime)
+}
+
+// TestRecordCallChain tests multiple calls in a chain
+func TestRecordCallChain(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+
+	requestID := "req-789"
+	t0 := time.Now()
+
+	// External → funcA
+	tracker.RecordCall("", "funcA", requestID, t0)
+	tracker.StartExecution("funcA", requestID, t0)
+
+	// 50ms later: funcA → funcB
+	t1 := t0.Add(50 * time.Millisecond)
+	tracker.RecordCall("funcA", "funcB", requestID, t1)
+	tracker.StartExecution("funcB", requestID, t1)
+
+	// 30ms later: funcB → funcC
+	t2 := t1.Add(30 * time.Millisecond)
+	tracker.RecordCall("funcB", "funcC", requestID, t2)
+	tracker.StartExecution("funcC", requestID, t2)
+
+	// Verify all edges
+	assert.Equal(t, 3, tracker.EdgeCount())
+
+	// Check edge A→B (should be 50ms from A start to A calling B)
+	statsAB, ok := tracker.GetEdgeStats("funcA", "funcB")
+	require.True(t, ok)
+	assert.Equal(t, 50*time.Millisecond, statsAB.AvgExecutionTime)
+
+	// Check edge B→C (should be 30ms from B start to B calling C)
+	statsBC, ok := tracker.GetEdgeStats("funcB", "funcC")
+	require.True(t, ok)
+	assert.Equal(t, 30*time.Millisecond, statsBC.AvgExecutionTime)
+}
+
+// TestConcurrentRequestsWithRequestID tests multiple concurrent workflows
+func TestConcurrentRequestsWithRequestID(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+
+	now := time.Now()
+
+	// Request 1: A → B (100ms edge time)
+	req1 := "req-001"
+	tracker.StartExecution("funcA", req1, now)
+	tracker.RecordCall("funcA", "funcB", req1, now.Add(100*time.Millisecond))
+
+	// Request 2: A → B (200ms edge time)
+	req2 := "req-002"
+	tracker.StartExecution("funcA", req2, now)
+	tracker.RecordCall("funcA", "funcB", req2, now.Add(200*time.Millisecond))
+
+	// Request 3: A → C (150ms edge time)
+	req3 := "req-003"
+	tracker.StartExecution("funcA", req3, now)
+	tracker.RecordCall("funcA", "funcC", req3, now.Add(150*time.Millisecond))
+
+	// Verify edges
+	assert.Equal(t, 3, tracker.EdgeCount())
+
+	// Edge A→B should have average of 150ms (100+200)/2
+	statsAB, ok := tracker.GetEdgeStats("funcA", "funcB")
+	require.True(t, ok)
+	assert.Equal(t, 2, statsAB.Count)
+	assert.Equal(t, 300*time.Millisecond, statsAB.TotalExecutionTime)
+	assert.Equal(t, 150*time.Millisecond, statsAB.AvgExecutionTime)
+
+	// Edge A→C should have 150ms
+	statsAC, ok := tracker.GetEdgeStats("funcA", "funcC")
+	require.True(t, ok)
+	assert.Equal(t, 1, statsAC.Count)
+	assert.Equal(t, 150*time.Millisecond, statsAC.AvgExecutionTime)
+}
+
+// TestEndExecution tests cleanup of execution contexts
+func TestEndExecution(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+
+	requestID := "req-cleanup"
+	now := time.Now()
+
+	// Start execution
+	tracker.StartExecution("funcA", requestID, now)
+
+	// Verify context exists
+	tracker.mutex.RLock()
+	assert.NotNil(t, tracker.executionContexts[requestID])
+	tracker.mutex.RUnlock()
+
+	// End execution
+	tracker.EndExecution("funcA", requestID, now.Add(100*time.Millisecond))
+
+	// Verify context is cleaned up
+	tracker.mutex.RLock()
+	assert.Nil(t, tracker.executionContexts[requestID])
+	tracker.mutex.RUnlock()
+}
+
+// TestRecordCallWithoutStartExecution tests error handling
+func TestRecordCallWithoutStartExecution(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+
+	requestID := "req-missing"
+	now := time.Now()
+
+	// Try to record call without StartExecution
+	tracker.RecordCall("funcA", "funcB", requestID, now)
+
+	// Should not record the edge since caller start time is unknown
+	assert.Equal(t, 0, tracker.EdgeCount())
+}
+
+// TestMultipleFunctionsInSameRequest tests complex workflow
+func TestMultipleFunctionsInSameRequest(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+
+	requestID := "req-complex"
+	t0 := time.Now()
+
+	// Workflow: External → A → B
+	//                       A → C (A calls both B and C)
+
+	// External call to A
+	tracker.RecordCall("", "A", requestID, t0)
+	tracker.StartExecution("A", requestID, t0)
+
+	// A calls B at t=50ms
+	t1 := t0.Add(50 * time.Millisecond)
+	tracker.RecordCall("A", "B", requestID, t1)
+	tracker.StartExecution("B", requestID, t1)
+
+	// A calls C at t=100ms (A started at t=0)
+	t2 := t0.Add(100 * time.Millisecond)
+	tracker.RecordCall("A", "C", requestID, t2)
+	tracker.StartExecution("C", requestID, t2)
+
+	// Verify edges
+	assert.Equal(t, 3, tracker.EdgeCount())
+
+	// Edge A→B: 50ms (from A start to A calling B)
+	statsAB, ok := tracker.GetEdgeStats("A", "B")
+	require.True(t, ok)
+	assert.Equal(t, 50*time.Millisecond, statsAB.AvgExecutionTime)
+
+	// Edge A→C: 100ms (from A start to A calling C)
+	statsAC, ok := tracker.GetEdgeStats("A", "C")
+	require.True(t, ok)
+	assert.Equal(t, 100*time.Millisecond, statsAC.AvgExecutionTime)
+
+	// Verify caller/callee relationships
+	callees := tracker.GetCallees("A")
+	assert.ElementsMatch(t, []string{"B", "C"}, callees)
+}

@@ -4,11 +4,27 @@ import "time"
 
 // Tracker defines the interface for tracking function call graphs
 type Tracker interface {
+	// StartExecution marks the beginning of a function execution for a specific request
+	// This should be called before invoking the function container
+	StartExecution(functionName string, requestID string, timestamp time.Time)
+
+	// RecordCall records when caller invokes callee within a request workflow
+	// The tracker will automatically calculate edge execution time by looking up
+	// when the caller started execution for this requestID
+	// caller is empty string for external calls (entry points)
+	RecordCall(caller, callee string, requestID string, timestamp time.Time)
+
+	// EndExecution marks the end of a function execution for a specific request
+	// This cleans up the execution context and can be used for completion tracking
+	EndExecution(functionName string, requestID string, timestamp time.Time)
+
 	// RecordEdge records a call from caller to callee with the given execution time
+	// Deprecated: Use StartExecution + RecordCall instead
 	// caller is empty string for external calls (entry points)
 	RecordEdge(caller, callee string, executionTime time.Duration)
 
 	// RecordEdgeCall is a simplified version that records without execution time
+	// Deprecated: Use StartExecution + RecordCall instead
 	RecordEdgeCall(caller, callee string)
 
 	// RecordFuncExec records the execution of a function with the given execution time
