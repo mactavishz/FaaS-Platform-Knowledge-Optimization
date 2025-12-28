@@ -19,6 +19,7 @@ echo "==> Configuring autoscaler environment..."
 # Set default values
 TF_AUTOSCALER_ENABLED=${TF_AUTOSCALER_ENABLED:-true}
 TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION=${TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION:-5m}
+TF_GATEWAY_PORT=${TF_GATEWAY_PORT:-80}
 
 # Load local config if exists (git-ignored)
 if [ -f "$PROJECT_ROOT/.tinyfaas.env" ]; then
@@ -27,23 +28,16 @@ if [ -f "$PROJECT_ROOT/.tinyfaas.env" ]; then
 fi
 
 echo "==> Autoscaler settings: ENABLED=$TF_AUTOSCALER_ENABLED, IDLE_DURATION=$TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION"
+echo "==> Gateway port: $TF_GATEWAY_PORT"
 
 # Create environment files for autoscaler configuration
-sudo tee /etc/default/tf-manager > /dev/null <<EOF
-# Autoscaler configuration for tinyFaaS Manager
+sudo tee /etc/default/tinyfaas > /dev/null <<EOF
+# Autoscaler configuration
 TF_AUTOSCALER_ENABLED=$TF_AUTOSCALER_ENABLED
 TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION=$TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION
-EOF
 
-sudo tee /etc/default/tf-rproxy > /dev/null <<EOF
-# Autoscaler configuration for tinyFaaS Reverse Proxy
-TF_AUTOSCALER_ENABLED=$TF_AUTOSCALER_ENABLED
-TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION=$TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION
-EOF
-
-sudo tee /etc/default/tf-gateway > /dev/null <<EOF
-# Gateway configuration for tinyFaaS
-GATEWAY_PORT=80
+# Gateway configuration
+TF_GATEWAY_PORT=$TF_GATEWAY_PORT
 EOF
 
 echo "==> Reloading systemd daemon..."
