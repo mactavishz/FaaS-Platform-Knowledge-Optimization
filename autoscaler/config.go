@@ -1,7 +1,7 @@
 package autoscaler
 
 import (
-	"log"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -20,7 +20,7 @@ type Config struct {
 
 // NewConfigFromEnv loads autoscaler configuration from environment variables
 // Supports both FAASD_ and TF_ prefixes for platform compatibility
-func NewConfigFromEnv(platform string) Config {
+func NewConfigFromEnv(platform string) (Config, error) {
 	var enabledKey, durationKey string
 	platform = strings.ToLower(platform)
 
@@ -32,8 +32,7 @@ func NewConfigFromEnv(platform string) Config {
 		enabledKey = "TF_AUTOSCALER_ENABLED"
 		durationKey = "TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION"
 	default:
-		log.Printf("autoscaler: unknown platform %q, autoscaling disabled", platform)
-		return Config{Enabled: false, Platform: platform}
+		return Config{}, fmt.Errorf("invalid platform: %s", platform)
 	}
 
 	enabled := os.Getenv(enabledKey) == "true" || os.Getenv(enabledKey) == "1"
@@ -43,15 +42,8 @@ func NewConfigFromEnv(platform string) Config {
 		if parsed, err := time.ParseDuration(durationStr); err == nil {
 			defaultDuration = parsed
 		} else {
-			log.Printf("autoscaler: invalid %s value %q, using default %dm: %v",
-				durationKey, durationStr, DEFAULT_IDLE_DURATION_MINUTES, err)
+			return Config{}, fmt.Errorf("invalid duration: %s", durationStr)
 		}
-	}
-
-	if enabled {
-		log.Printf("autoscaler: enabled for %s (default_idle_duration: %v)", platform, defaultDuration)
-	} else {
-		log.Printf("autoscaler: disabled for %s", platform)
 	}
 
 	return Config{
@@ -59,5 +51,5 @@ func NewConfigFromEnv(platform string) Config {
 		Enabled:             enabled,
 		DefaultIdleDuration: defaultDuration,
 		CheckInterval:       DEFAULT_CHECK_INTERVAL_SECONDS * time.Second, // Check every 10 seconds
-	}
+	}, nil
 }
