@@ -15,7 +15,7 @@ cd $PROJECT_ROOT/tinyFaaS
 echo "==> Building and installing tinyFaaS..."
 sudo make install
 
-echo "==> Configuring autoscaler environment..."
+echo "==> Configuring tinyFaaS environment..."
 # Set default values
 TF_AUTOSCALER_ENABLED=${TF_AUTOSCALER_ENABLED:-true}
 TF_CALLGRAPH_ENABLED=${TF_CALLGRAPH_ENABLED:-true}
@@ -23,6 +23,7 @@ TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION=${TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION:
 TF_GATEWAY_PORT=${TF_GATEWAY_PORT:-80}
 TF_RPROXY_PORT=${TF_RPROXY_PORT:-8000}
 TF_MANAGER_PORT=${TF_MANAGER_PORT:-8080}
+TF_ENV=${TF_ENV:-development}
 
 # Load local config if exists (git-ignored)
 if [ -f "$PROJECT_ROOT/.tinyfaas.env" ]; then
@@ -35,6 +36,7 @@ echo "==> Callgraph settings: ENABLED=$TF_CALLGRAPH_ENABLED"
 echo "==> Gateway port: $TF_GATEWAY_PORT"
 echo "==> Manager port: $TF_MANAGER_PORT"
 echo "==> RProxy port: $TF_RPROXY_PORT"
+echo "==> Environment: $TF_ENV"
 
 # Create environment files for autoscaler configuration
 sudo tee /etc/default/tinyfaas > /dev/null <<EOF
@@ -42,8 +44,20 @@ sudo tee /etc/default/tinyfaas > /dev/null <<EOF
 TF_AUTOSCALER_ENABLED=$TF_AUTOSCALER_ENABLED
 TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION=$TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION
 
+# Callgraph configuration
+TF_CALLGRAPH_ENABLED=$TF_CALLGRAPH_ENABLED
+
 # Gateway configuration
 TF_GATEWAY_PORT=$TF_GATEWAY_PORT
+
+# RProxy configuration
+TF_RPROXY_PORT=$TF_RPROXY_PORT
+
+# Manager configuration
+TF_MANAGER_PORT=$TF_MANAGER_PORT
+
+# Environment configuration
+TF_ENV=$TF_ENV
 EOF
 
 echo "==> Reloading systemd daemon..."
