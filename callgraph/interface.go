@@ -4,31 +4,21 @@ import "time"
 
 // Tracker defines the interface for tracking function call graphs
 type Tracker interface {
+	// Enabled returns whether the call graph tracking is enabled
+	Enabled() bool
+
 	// StartExecution marks the beginning of a function execution for a specific request
 	// This should be called before invoking the function container
 	StartExecution(functionName string, requestID string, timestamp time.Time)
 
-	// RecordCall records when caller invokes callee within a request workflow
-	// The tracker will automatically calculate edge execution time by looking up
-	// when the caller started execution for this requestID
+	// RecordEdge records an edge in the call graph when caller invokes callee
+	// It automatically calculates edge execution time from the execution context
 	// caller is empty string for external calls (entry points)
-	RecordCall(caller, callee string, requestID string, timestamp time.Time)
+	RecordEdge(caller, callee string, requestID string, timestamp time.Time)
 
 	// EndExecution marks the end of a function execution for a specific request
-	// This cleans up the execution context and can be used for completion tracking
+	// It calculates and records function execution stats, then cleans up the execution context
 	EndExecution(functionName string, requestID string, timestamp time.Time)
-
-	// RecordEdge records a call from caller to callee with the given execution time
-	// Deprecated: Use StartExecution + RecordCall instead
-	// caller is empty string for external calls (entry points)
-	RecordEdge(caller, callee string, executionTime time.Duration)
-
-	// RecordEdgeCall is a simplified version that records without execution time
-	// Deprecated: Use StartExecution + RecordCall instead
-	RecordEdgeCall(caller, callee string)
-
-	// RecordFuncExec records the execution of a function with the given execution time
-	RecordFuncExec(functionName string, timestamp time.Time, executionTime time.Duration)
 
 	// RecordColdStart records a cold start event for the given function
 	RecordColdStart(functionName string, timestamp time.Time, executionTime time.Duration)
@@ -105,9 +95,28 @@ type PathAnalyzer interface {
 	GetSubgraph(functionNames []string) CallGraph
 }
 
+// Prewarmer defines the interface for prewarming prediction
+type Prewarmer interface {
+	// HasSufficientData checks if there is enough historical data to make
+	// prewarming predictions for a specific function
+	HasSufficientData(functionName string) bool
+
+	// HasSufficientEdgeData checks if there is enough historical data for a specific edge
+	HasSufficientEdgeData(caller, callee string) bool
+
+	// ShouldPrewarm determines if a specific callee should be prewarmed when caller starts
+	// Returns: shouldPrewarm (bool), leadTime (how much time we have before the call)
+	ShouldPrewarm(caller, callee string) (bool, time.Duration)
+
+	// GetPrewarmTargets returns a list of functions that should be prewarmed
+	// when the given function starts execution
+	GetPrewarmTargets(functionName string) []PrewarmTarget
+}
+
 // FullTracker combines all callgraph interfaces
 type FullTracker interface {
 	Tracker
 	Serializer
 	PathAnalyzer
+	Prewarmer
 }

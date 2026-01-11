@@ -11,6 +11,13 @@ import (
 
 var ErrInvalidMaxEdges = errors.New("MaxEdges must be -1 (unlimited) or a positive integer")
 
+const (
+	// DefaultContextTTL is the default time-to-live for execution contexts (5 minutes)
+	DefaultContextTTL = 5 * time.Minute
+	// DefaultContextCleanupInterval is the default interval for cleanup goroutine (1 minute)
+	DefaultContextCleanupInterval = 1 * time.Minute
+)
+
 // New creates a new CallGraphTracker with default configuration
 func New(options ...Option) *CallGraphTracker {
 	tracker := &CallGraphTracker{
@@ -22,7 +29,10 @@ func New(options ...Option) *CallGraphTracker {
 		callerToCallees:   make(map[string]map[string]bool),
 		calleeToCallers:   make(map[string]map[string]bool),
 		executionContexts: make(map[string]map[string]time.Time),
+		contextLastAccess: make(map[string]time.Time),
 		startTime:         time.Now(),
+		cleanupStop:       make(chan struct{}),
+		cleanupDone:       make(chan struct{}),
 	}
 	// Default to SMA
 	WithSMA(&SMAConfig{
@@ -31,6 +41,10 @@ func New(options ...Option) *CallGraphTracker {
 	for _, option := range options {
 		option(tracker)
 	}
+
+	// Start context cleanup goroutine
+	go tracker.contextCleanupLoop()
+
 	return tracker
 }
 
@@ -71,8 +85,11 @@ func DefaultLogger() *zap.Logger {
 // DefaultConfig returns the default configuration
 func DefaultConfig() *Config {
 	return &Config{
-		Enabled:  true,
-		MaxEdges: -1,
+		Enabled:                true,
+		MaxEdges:               -1,
+		ContextTTL:             DefaultContextTTL,
+		ContextCleanupInterval: DefaultContextCleanupInterval,
+		Prewarm:                DefaultPrewarmConfig(),
 	}
 }
 
@@ -94,86 +111,9 @@ func (t *CallGraphTracker) GetAverageMethodConfig() any {
 	}
 }
 
-// RecordEdge records a call from caller to callee with the given execution time in nanoseconds
-// caller is "" (empty string) for external calls
-func (t *CallGraphTracker) RecordEdge(caller, callee string, executionTime time.Duration) {
-	if !t.config.Enabled {
-		return
-	}
-
-	// Validate: callee cannot be empty
-	if callee == "" {
-		return
-	}
-
-	// Prevent self-loops: a function cannot call itself
-	if caller != "" && caller == callee {
-		return
-	}
-
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
-	now := time.Now()
-
-	// Record detailed edge
-	edge := CallEdge{
-		Caller:        caller,
-		Callee:        callee,
-		ExecutionTime: executionTime,
-		Timestamp:     now,
-	}
-
-	// Manage edge storage with limit
-	if t.config.MaxEdges > 0 && len(t.edges) >= t.config.MaxEdges {
-		// Remove oldest edges (FIFO)
-		t.edges = t.edges[1:]
-	}
-	t.edges = append(t.edges, edge)
-
-	// Update edge statistics
-	key := edgeKey(caller, callee)
-	stats, exists := t.edgeStats[key]
-	if !exists {
-		stats = &edgeStats{
-			caller:        caller,
-			callee:        callee,
-			minExecTime:   executionTime,
-			maxExecTime:   executionTime,
-			avgCalculator: NewAveragingCalculator(t.averagingMethod, t.GetAverageMethodConfig()),
-		}
-		t.edgeStats[key] = stats
-	}
-
-	stats.count++
-	stats.totalExecTime += executionTime
-	stats.avgCalculator.Add(executionTime)
-
-	if executionTime < stats.minExecTime {
-		stats.minExecTime = executionTime
-	}
-	if executionTime > stats.maxExecTime {
-		stats.maxExecTime = executionTime
-	}
-
-	// Update caller-callee mappings
-	if t.callerToCallees[caller] == nil {
-		t.callerToCallees[caller] = make(map[string]bool)
-	}
-	t.callerToCallees[caller][callee] = true
-
-	if t.calleeToCallers[callee] == nil {
-		t.calleeToCallers[callee] = make(map[string]bool)
-	}
-	t.calleeToCallers[callee][caller] = true
-}
-
-// RecordEdgeCall records a call without execution time (uses 0)
-func (t *CallGraphTracker) RecordEdgeCall(caller, callee string) {
-	if !t.config.Enabled {
-		return
-	}
-	t.RecordEdge(caller, callee, 0)
+// Enabled returns whether the call graph tracking is enabled
+func (t *CallGraphTracker) Enabled() bool {
+	return t.config.Enabled
 }
 
 // StartExecution marks the beginning of a function execution for a specific request
@@ -197,14 +137,19 @@ func (t *CallGraphTracker) StartExecution(functionName string, requestID string,
 	// Store start time for this function in this request
 	t.executionContexts[requestID][functionName] = timestamp
 
+	// Update last access time for TTL tracking
+	t.contextLastAccess[requestID] = time.Now()
+
 	t.logger.Debug("started execution",
 		zap.String("function", functionName),
 		zap.String("requestID", requestID),
 		zap.Time("timestamp", timestamp))
 }
 
-// RecordCall records when caller invokes callee and automatically calculates edge execution time
-func (t *CallGraphTracker) RecordCall(caller, callee string, requestID string, timestamp time.Time) {
+// RecordEdge records an edge in the call graph when caller invokes callee
+// It automatically calculates edge execution time from the execution context
+// caller is empty string for external calls (entry points)
+func (t *CallGraphTracker) RecordEdge(caller, callee string, requestID string, timestamp time.Time) {
 	if !t.config.Enabled {
 		return
 	}
@@ -216,6 +161,7 @@ func (t *CallGraphTracker) RecordCall(caller, callee string, requestID string, t
 
 	// Prevent self-loops: a function cannot call itself
 	if caller != "" && caller == callee {
+		t.logger.Warn("self-loop detected, skipping edge recording")
 		return
 	}
 
@@ -244,11 +190,11 @@ func (t *CallGraphTracker) RecordCall(caller, callee string, requestID string, t
 				return
 			}
 		} else {
+			// Can't calculate edge time, skip recording
 			t.logger.Warn("request context not found",
 				zap.String("requestID", requestID),
 				zap.String("caller", caller),
 				zap.String("callee", callee))
-			// Can't calculate edge time, skip recording
 			return
 		}
 	}
@@ -304,14 +250,14 @@ func (t *CallGraphTracker) RecordCall(caller, callee string, requestID string, t
 	}
 	t.calleeToCallers[callee][caller] = true
 
-	t.logger.Debug("recorded call",
+	t.logger.Debug("recorded edge",
 		zap.String("caller", caller),
 		zap.String("callee", callee),
 		zap.String("requestID", requestID),
 		zap.Duration("edgeExecutionTime", executionTime))
 }
 
-// EndExecution marks the end of a function execution and cleans up execution context
+// EndExecution marks the end of a function execution, records function stats, and cleans up execution context
 func (t *CallGraphTracker) EndExecution(functionName string, requestID string, timestamp time.Time) {
 	if !t.config.Enabled {
 		return
@@ -324,6 +270,49 @@ func (t *CallGraphTracker) EndExecution(functionName string, requestID string, t
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
+	// Look up start time and calculate execution time
+	var execTime time.Duration
+	var startTime time.Time
+	if requestCtx, ok := t.executionContexts[requestID]; ok {
+		if start, ok := requestCtx[functionName]; ok {
+			startTime = start
+			execTime = timestamp.Sub(startTime)
+		}
+	}
+
+	// Record function stats (only if we have a valid start time)
+	if !startTime.IsZero() && execTime >= 0 {
+		stats, exists := t.functionStats[functionName]
+		if !exists {
+			stats = &FunctionStats{
+				Name:                   functionName,
+				MinExecutionTime:       execTime,
+				MaxExecutionTime:       execTime,
+				avgCalculator:          NewAveragingCalculator(t.averagingMethod, t.GetAverageMethodConfig()),
+				avgColdStartCalculator: NewAveragingCalculator(t.averagingMethod, t.GetAverageMethodConfig()),
+			}
+			t.functionStats[functionName] = stats
+		}
+
+		stats.TotalCalls++
+		stats.TotalExecutionTime += execTime
+		stats.LastExecutionTime = execTime
+		stats.LastCalledAt = startTime
+		stats.avgCalculator.Add(execTime)
+
+		if execTime < stats.MinExecutionTime || stats.MinExecutionTime == 0 {
+			stats.MinExecutionTime = execTime
+		}
+		if execTime > stats.MaxExecutionTime {
+			stats.MaxExecutionTime = execTime
+		}
+
+		t.logger.Debug("recorded function execution",
+			zap.String("function", functionName),
+			zap.String("requestID", requestID),
+			zap.Duration("executionTime", execTime))
+	}
+
 	// Clean up execution context
 	if requestCtx, ok := t.executionContexts[requestID]; ok {
 		delete(requestCtx, functionName)
@@ -331,6 +320,7 @@ func (t *CallGraphTracker) EndExecution(functionName string, requestID string, t
 		// If this was the last function in this request, clean up the entire request context
 		if len(requestCtx) == 0 {
 			delete(t.executionContexts, requestID)
+			delete(t.contextLastAccess, requestID)
 		}
 	}
 
@@ -340,7 +330,66 @@ func (t *CallGraphTracker) EndExecution(functionName string, requestID string, t
 		zap.Time("timestamp", timestamp))
 }
 
+// contextCleanupLoop runs periodically to clean up stale execution contexts
+func (t *CallGraphTracker) contextCleanupLoop() {
+	// Get cleanup interval, use default if not set
+	interval := t.config.ContextCleanupInterval
+	if interval <= 0 {
+		interval = DefaultContextCleanupInterval
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	defer close(t.cleanupDone)
+
+	for {
+		select {
+		case <-ticker.C:
+			t.cleanupStaleContexts()
+		case <-t.cleanupStop:
+			return
+		}
+	}
+}
+
+// cleanupStaleContexts removes execution contexts that have exceeded their TTL
+func (t *CallGraphTracker) cleanupStaleContexts() {
+	ttl := t.config.ContextTTL
+	if ttl <= 0 {
+		ttl = DefaultContextTTL
+	}
+
+	now := time.Now()
+	cutoff := now.Add(-ttl)
+
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	cleanedCount := 0
+	for requestID, lastAccess := range t.contextLastAccess {
+		if lastAccess.Before(cutoff) {
+			delete(t.executionContexts, requestID)
+			delete(t.contextLastAccess, requestID)
+			cleanedCount++
+		}
+	}
+
+	if cleanedCount > 0 {
+		t.logger.Debug("cleaned up stale execution contexts",
+			zap.Int("count", cleanedCount),
+			zap.Duration("ttl", ttl))
+	}
+}
+
+// Stop gracefully stops the tracker's background goroutines
+func (t *CallGraphTracker) Stop() {
+	close(t.cleanupStop)
+	<-t.cleanupDone
+	t.logger.Debug("callgraph tracker stopped")
+}
+
 // RecordColdStart records a cold start event for a function
+// If the function doesn't exist in stats, it creates a new entry
 func (t *CallGraphTracker) RecordColdStart(functionName string, timestamp time.Time, coldStartDuration time.Duration) {
 	if !t.config.Enabled {
 		return
@@ -355,7 +404,14 @@ func (t *CallGraphTracker) RecordColdStart(functionName string, timestamp time.T
 
 	stats, exists := t.functionStats[functionName]
 	if !exists {
-		return
+		// Auto-create function stats entry for cold start tracking
+		// This allows tracking cold starts for newly deployed functions
+		stats = &FunctionStats{
+			Name:                   functionName,
+			avgCalculator:          NewAveragingCalculator(t.averagingMethod, t.GetAverageMethodConfig()),
+			avgColdStartCalculator: NewAveragingCalculator(t.averagingMethod, t.GetAverageMethodConfig()),
+		}
+		t.functionStats[functionName] = stats
 	}
 
 	stats.TotalColdStarts++
@@ -388,41 +444,6 @@ func (t *CallGraphTracker) GetColdStartAverage(functionName string) time.Duratio
 	}
 
 	return stats.avgColdStartCalculator.Average()
-}
-
-// RecordFuncExec records a function whole execution with timing information
-func (t *CallGraphTracker) RecordFuncExec(functionName string, timestamp time.Time, execTime time.Duration) {
-	if !t.config.Enabled {
-		return
-	}
-
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
-	stats, exists := t.functionStats[functionName]
-	if !exists {
-		stats = &FunctionStats{
-			Name:                   functionName,
-			MinExecutionTime:       execTime,
-			MaxExecutionTime:       execTime,
-			avgCalculator:          NewAveragingCalculator(t.averagingMethod, t.GetAverageMethodConfig()),
-			avgColdStartCalculator: NewAveragingCalculator(t.averagingMethod, t.GetAverageMethodConfig()),
-		}
-		t.functionStats[functionName] = stats
-	}
-
-	stats.TotalCalls++
-	stats.TotalExecutionTime += execTime
-	stats.LastExecutionTime = execTime
-	stats.LastCalledAt = timestamp
-	stats.avgCalculator.Add(execTime)
-
-	if execTime < stats.MinExecutionTime || stats.MinExecutionTime == 0 {
-		stats.MinExecutionTime = execTime
-	}
-	if execTime > stats.MaxExecutionTime {
-		stats.MaxExecutionTime = execTime
-	}
 }
 
 // GetCallGraph returns the complete call graph with aggregated data
@@ -586,6 +607,8 @@ func (t *CallGraphTracker) Clear() {
 	t.functionStats = make(map[string]*FunctionStats)
 	t.callerToCallees = make(map[string]map[string]bool)
 	t.calleeToCallers = make(map[string]map[string]bool)
+	t.executionContexts = make(map[string]map[string]time.Time)
+	t.contextLastAccess = make(map[string]time.Time)
 	t.startTime = time.Now()
 }
 
@@ -608,6 +631,188 @@ func (t *CallGraphTracker) UniqueEdgeCount() int {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
 	return len(t.edgeStats)
+}
+
+// HasSufficientData checks if there is enough historical data to make prewarming predictions
+// for a specific function. This is based on the minimum sample count configured.
+func (t *CallGraphTracker) HasSufficientData(functionName string) bool {
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
+
+	stats, exists := t.functionStats[functionName]
+	if !exists {
+		return false
+	}
+
+	minSamples := t.config.Prewarm.MinSamples
+	if minSamples <= 0 {
+		minSamples = 3 // default
+	}
+
+	// Need at least minSamples cold starts to have reliable cold start average
+	return stats.TotalColdStarts >= minSamples
+}
+
+// HasSufficientEdgeData checks if there is enough historical data for a specific edge
+func (t *CallGraphTracker) HasSufficientEdgeData(caller, callee string) bool {
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
+
+	key := edgeKey(caller, callee)
+	stats, exists := t.edgeStats[key]
+	if !exists {
+		return false
+	}
+
+	minSamples := t.config.Prewarm.MinSamples
+	if minSamples <= 0 {
+		minSamples = 3 // default
+	}
+
+	return stats.count >= minSamples
+}
+
+// ShouldPrewarm determines if a specific callee should be prewarmed when caller starts
+// Returns: shouldPrewarm (bool), leadTime (how much time we have before the call)
+func (t *CallGraphTracker) ShouldPrewarm(caller, callee string) (bool, time.Duration) {
+	if !t.config.Prewarm.Enabled {
+		return false, 0
+	}
+
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
+
+	// Get edge statistics
+	key := edgeKey(caller, callee)
+	edgeStats, edgeExists := t.edgeStats[key]
+	if !edgeExists {
+		return false, 0
+	}
+
+	// Get callee's cold start statistics
+	calleeStats, calleeExists := t.functionStats[callee]
+	if !calleeExists {
+		return false, 0
+	}
+
+	// Check if we have enough samples
+	minSamples := t.config.Prewarm.MinSamples
+	if minSamples <= 0 {
+		minSamples = 3
+	}
+
+	if edgeStats.count < minSamples || calleeStats.TotalColdStarts < minSamples {
+		return false, 0
+	}
+
+	// Get average edge time (time from caller start to call)
+	avgEdgeTime := edgeStats.avgCalculator.Average()
+
+	// Get average cold start time for callee
+	avgColdStartTime := calleeStats.avgColdStartCalculator.Average()
+
+	// If cold start time is 0, we don't have cold start data - don't prewarm
+	if avgColdStartTime == 0 {
+		return false, 0
+	}
+
+	// Determine threshold
+	threshold := t.config.Prewarm.Threshold
+	if threshold <= 0 {
+		threshold = 0.8
+	}
+
+	// Prewarm if: avgEdgeTime >= avgColdStartTime * threshold
+	// This means we have enough lead time to warm up the container
+	shouldPrewarm := avgEdgeTime >= time.Duration(float64(avgColdStartTime)*threshold)
+
+	return shouldPrewarm, avgEdgeTime
+}
+
+// GetPrewarmTargets returns a list of functions that should be prewarmed
+// when the given function starts execution.
+// It analyzes the call graph to find downstream functions that could benefit from prewarming.
+func (t *CallGraphTracker) GetPrewarmTargets(functionName string) []PrewarmTarget {
+	if !t.config.Prewarm.Enabled {
+		return nil
+	}
+
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
+
+	targets := make([]PrewarmTarget, 0)
+
+	// Get all functions this function directly calls
+	callees, ok := t.callerToCallees[functionName]
+	if !ok {
+		return targets
+	}
+
+	// Calculate total calls from this function (for confidence calculation)
+	totalCallsFromFunction := 0
+	for callee := range callees {
+		key := edgeKey(functionName, callee)
+		if stats, exists := t.edgeStats[key]; exists {
+			totalCallsFromFunction += stats.count
+		}
+	}
+
+	for callee := range callees {
+		key := edgeKey(functionName, callee)
+		edgeStats, exists := t.edgeStats[key]
+		if !exists {
+			continue
+		}
+
+		calleeStats, calleeExists := t.functionStats[callee]
+		if !calleeExists {
+			continue
+		}
+
+		// Check minimum samples
+		minSamples := t.config.Prewarm.MinSamples
+		if minSamples <= 0 {
+			minSamples = 3
+		}
+
+		if edgeStats.count < minSamples {
+			continue
+		}
+
+		// Skip if callee has no cold start data
+		if calleeStats.TotalColdStarts < minSamples {
+			continue
+		}
+
+		avgEdgeTime := edgeStats.avgCalculator.Average()
+		avgColdStartTime := calleeStats.avgColdStartCalculator.Average()
+
+		if avgColdStartTime == 0 {
+			continue
+		}
+
+		threshold := t.config.Prewarm.Threshold
+		if threshold <= 0 {
+			threshold = 0.8
+		}
+
+		// Check if prewarming would help
+		if avgEdgeTime >= time.Duration(float64(avgColdStartTime)*threshold) {
+			// Calculate confidence based on call frequency
+			confidence := float64(edgeStats.count) / float64(totalCallsFromFunction)
+			if confidence > 1 {
+				confidence = 1
+			}
+
+			targets = append(targets, PrewarmTarget{
+				FunctionName: callee,
+				LeadTime:     avgEdgeTime,
+				Confidence:   confidence,
+			})
+		}
+	}
+
+	return targets
 }
 
 // ToJSON returns the call graph as JSON bytes

@@ -37,6 +37,18 @@ type Config struct {
 
 	// MaxEdges is the maximum number of detailed edges to keep (-1 = unlimited)
 	MaxEdges int
+
+	// ContextTTL is the time-to-live for execution contexts
+	// Contexts older than this will be cleaned up to prevent memory leaks
+	// Default is 5 minutes if not set
+	ContextTTL time.Duration
+
+	// ContextCleanupInterval is how often to run the cleanup goroutine
+	// Default is 1 minute if not set
+	ContextCleanupInterval time.Duration
+
+	// Prewarm holds the prewarming configuration
+	Prewarm PrewarmConfig
 }
 
 type Option func(*CallGraphTracker)
@@ -71,8 +83,15 @@ type CallGraphTracker struct {
 	// Execution context tracking: requestID -> functionName -> startTime
 	executionContexts map[string]map[string]time.Time
 
+	// Track when each request context was last accessed (for TTL cleanup)
+	contextLastAccess map[string]time.Time
+
 	// When tracking started
 	startTime time.Time
+
+	// Cleanup goroutine control
+	cleanupStop chan struct{}
+	cleanupDone chan struct{}
 
 	mutex sync.RWMutex
 }
@@ -186,6 +205,44 @@ type CallPath struct {
 
 	// Count is how many times this exact path has been observed
 	Count int `json:"count"`
+}
+
+// PrewarmTarget represents a function that should be prewarmed
+type PrewarmTarget struct {
+	// FunctionName is the name of the function to prewarm
+	FunctionName string `json:"function_name"`
+
+	// LeadTime is the expected time before this function is called
+	// This is based on the average edge time from the caller
+	LeadTime time.Duration `json:"lead_time_ns"`
+
+	// Confidence is a value between 0 and 1 indicating how confident we are
+	// that this function will be called, based on historical call frequency
+	Confidence float64 `json:"confidence"`
+}
+
+// PrewarmConfig holds configuration for prewarming decisions
+type PrewarmConfig struct {
+	// Enabled indicates whether prewarming is enabled
+	Enabled bool
+
+	// MinSamples is the minimum number of edge samples required before
+	// making prewarming decisions (default: 3)
+	MinSamples int
+
+	// Threshold is the ratio of edge time to cold start time that triggers prewarming
+	// Prewarm if: avgEdgeTime >= avgColdStartTime * Threshold
+	// Default: 0.8 (prewarm if we have at least 80% of cold start time available)
+	Threshold float64
+}
+
+// DefaultPrewarmConfig returns the default prewarming configuration
+func DefaultPrewarmConfig() PrewarmConfig {
+	return PrewarmConfig{
+		Enabled:    true,
+		MinSamples: 3,
+		Threshold:  0.8,
+	}
 }
 
 // edgeStats holds internal statistics for an edge
