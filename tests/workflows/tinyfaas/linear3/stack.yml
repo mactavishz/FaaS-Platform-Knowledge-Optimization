@@ -1,0 +1,13 @@
+provider:
+  name: tinyfaas
+  gateway: http://127.0.0.1:8888
+functions:
+  linear3-a:
+    lang: python3
+    handler: ./a
+  linear3-b:
+    lang: python3
+    handler: ./b
+  linear3-c:
+    lang: python3
+    handler: ./c
