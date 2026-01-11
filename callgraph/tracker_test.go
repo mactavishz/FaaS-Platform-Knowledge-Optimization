@@ -67,7 +67,8 @@ func simulateFuncExec(t *CallGraphTracker, functionName string, execTime time.Du
 }
 
 func TestNewTracker(t *testing.T) {
-	tracker := New()
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 	assert.Equal(t, 0, tracker.EdgeCount())
 	assert.Equal(t, 0, tracker.FunctionCount())
@@ -76,19 +77,22 @@ func TestNewTracker(t *testing.T) {
 
 func TestNewTrackerWithConfig(t *testing.T) {
 	config := &Config{
-		MaxEdges: 100,
+		Prewarm: PrewarmConfig{
+			MinSamples: 1,
+		},
 	}
 	tracker := New(
 		WithConfig(config),
 		WithLogger(zap.NewNop()),
 	)
+	tracker.Start()
 	defer tracker.Stop()
-	assert.Equal(t, 100, tracker.config.MaxEdges)
 	assert.Equal(t, SimpleMovingAverage, tracker.averagingMethod)
 }
 
 func TestRecord(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	// Record a call edge and function execution using full flow
@@ -111,6 +115,7 @@ func TestRecord(t *testing.T) {
 
 func TestRecordExternalCall(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	// Record an external call (empty caller)
@@ -123,6 +128,7 @@ func TestRecordExternalCall(t *testing.T) {
 
 func TestGetFunctionStats(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	// Record multiple function executions
@@ -141,6 +147,7 @@ func TestGetFunctionStats(t *testing.T) {
 
 func TestGetEdgeStats(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	simulateEdge(tracker, "funcA", "funcB", 100*time.Millisecond, 50*time.Millisecond)
@@ -155,6 +162,7 @@ func TestGetEdgeStats(t *testing.T) {
 
 func TestGetCallGraph(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	simulateEdge(tracker, "", "funcA", 0, 50*time.Millisecond)
@@ -168,25 +176,9 @@ func TestGetCallGraph(t *testing.T) {
 	assert.Equal(t, 3, int(graph.TotalCalls))
 }
 
-func TestMaxEdgesLimit(t *testing.T) {
-	config := DefaultConfig()
-	config.MaxEdges = 5
-	tracker := New(
-		WithConfig(config),
-		WithLogger(zap.NewNop()),
-	)
-	defer tracker.Stop()
-
-	// Record more edges than the limit
-	for i := 0; i < 10; i++ {
-		simulateEdge(tracker, "funcA", "funcB", time.Millisecond, time.Millisecond)
-	}
-
-	assert.Equal(t, 5, tracker.EdgeCount())
-}
-
 func TestClear(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	simulateEdge(tracker, "funcA", "funcB", 100*time.Millisecond, 50*time.Millisecond)
@@ -200,6 +192,7 @@ func TestClear(t *testing.T) {
 
 func TestToJSON(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	simulateEdge(tracker, "", "funcA", 0, 100*time.Millisecond)
@@ -217,6 +210,7 @@ func TestToJSON(t *testing.T) {
 
 func TestFromJSON(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	simulateEdge(tracker, "", "funcA", 0, 100*time.Millisecond)
@@ -227,17 +221,19 @@ func TestFromJSON(t *testing.T) {
 
 	// Create new tracker and load from JSON
 	newTracker := New(WithLogger(zap.NewNop()))
+	newTracker.Start()
 	defer newTracker.Stop()
 	err = newTracker.FromJSON(data)
 	require.NoError(t, err)
 
 	// Verify data was loaded
-	assert.Equal(t, 2, newTracker.UniqueEdgeCount())
+	assert.Equal(t, 2, newTracker.EdgeCount())
 	assert.Equal(t, 2, newTracker.FunctionCount())
 }
 
 func TestGetCallPaths(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	// Create a workflow: external -> A -> B -> C
@@ -252,57 +248,9 @@ func TestGetCallPaths(t *testing.T) {
 	assert.Equal(t, []string{"funcA", "funcB", "funcC"}, paths[0].Path)
 }
 
-func TestGetPathsContaining(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
-	defer tracker.Stop()
-
-	simulateEdge(tracker, "", "funcA", 0, 100*time.Millisecond)
-	simulateEdge(tracker, "funcA", "funcB", 200*time.Millisecond, 50*time.Millisecond)
-	simulateEdge(tracker, "funcA", "funcC", 150*time.Millisecond, 50*time.Millisecond)
-
-	paths := tracker.GetPathsContaining("funcB")
-
-	assert.Len(t, paths, 1)
-}
-
-func TestGetLongestPath(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
-	defer tracker.Stop()
-
-	// Path 1: A -> B (length 2)
-	simulateEdge(tracker, "", "funcA", 0, 100*time.Millisecond)
-	simulateEdge(tracker, "funcA", "funcB", 200*time.Millisecond, 50*time.Millisecond)
-
-	// Path 2: X -> Y -> Z (length 3) - separate entry point
-	simulateEdge(tracker, "", "funcX", 0, 100*time.Millisecond)
-	simulateEdge(tracker, "funcX", "funcY", 200*time.Millisecond, 50*time.Millisecond)
-	simulateEdge(tracker, "funcY", "funcZ", 150*time.Millisecond, 50*time.Millisecond)
-
-	longest := tracker.GetLongestPath()
-
-	assert.Len(t, longest.Path, 3)
-}
-
-func TestGetSlowestPath(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
-	defer tracker.Stop()
-
-	// Fast path
-	simulateEdge(tracker, "", "fastA", 0, 10*time.Millisecond)
-	simulateEdge(tracker, "fastA", "fastB", 10*time.Millisecond, 10*time.Millisecond)
-
-	// Slow path
-	simulateEdge(tracker, "", "slowA", 0, 500*time.Millisecond)
-	simulateEdge(tracker, "slowA", "slowB", 500*time.Millisecond, 500*time.Millisecond)
-
-	slowest := tracker.GetSlowestPath()
-
-	require.NotEmpty(t, slowest.Path)
-	assert.Equal(t, "slowA", slowest.Path[0])
-}
-
 func TestGetAverageExecutionTime(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	simulateFuncExec(tracker, "funcA", 100*time.Millisecond)
@@ -318,6 +266,7 @@ func TestGetAverageExecutionTime(t *testing.T) {
 
 func TestConcurrentAccess(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 	done := make(chan bool)
 
@@ -367,6 +316,7 @@ func TestInterfaceCompliance(t *testing.T) {
 //	A -> C
 func TestDAGWithBranches(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	// A calls both B and C (branching)
@@ -396,6 +346,7 @@ func TestDAGWithBranches(t *testing.T) {
 //	A -> C -> D
 func TestDAGWithDiamond(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	// Create diamond: A -> B -> D and A -> C -> D
@@ -420,6 +371,7 @@ func TestDAGWithDiamond(t *testing.T) {
 // TestDAGWithMultipleEntryPoints tests a DAG with multiple entry points
 func TestDAGWithMultipleEntryPoints(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	// Two entry points: X and Y, both eventually reach Z
@@ -444,6 +396,7 @@ func TestDAGWithMultipleEntryPoints(t *testing.T) {
 //	A -> C -> E -> G
 func TestDAGComplexTopology(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	simulateEdge(tracker, "", "A", 0, 100*time.Millisecond)
@@ -474,6 +427,7 @@ func TestDAGComplexTopology(t *testing.T) {
 
 func TestGetEntryPoints(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	simulateEdge(tracker, "", "A", 0, 100*time.Millisecond)
@@ -488,6 +442,7 @@ func TestGetEntryPoints(t *testing.T) {
 
 func TestGetLeafFunctions(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	simulateEdge(tracker, "", "A", 0, 100*time.Millisecond)
@@ -502,6 +457,7 @@ func TestGetLeafFunctions(t *testing.T) {
 
 func TestGetDownstreamFunctions(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	// A -> B -> D
@@ -523,6 +479,7 @@ func TestGetDownstreamFunctions(t *testing.T) {
 
 func TestGetUpstreamFunctions(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	// A -> B -> D
@@ -542,31 +499,10 @@ func TestGetUpstreamFunctions(t *testing.T) {
 	assert.Empty(t, upstreamToA)
 }
 
-func TestGetSubgraph(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
-	defer tracker.Stop()
-
-	simulateEdge(tracker, "", "A", 0, 100*time.Millisecond)
-	simulateEdge(tracker, "A", "B", 50*time.Millisecond, 50*time.Millisecond)
-	simulateEdge(tracker, "A", "C", 75*time.Millisecond, 75*time.Millisecond)
-	simulateEdge(tracker, "B", "D", 25*time.Millisecond, 25*time.Millisecond)
-
-	// Get subgraph with only A, B, D
-	subgraph := tracker.GetSubgraph([]string{"A", "B", "D"})
-
-	// Should have 3 edges: ""->A (external), A->B, and B->D (A->C excluded because C is not in the list)
-	if !assert.Len(t, subgraph.Edges, 3, "expected 3 edges in subgraph (including external entry)") {
-		for _, e := range subgraph.Edges {
-			t.Logf("Edge: %s -> %s", e.Caller, e.Callee)
-		}
-	}
-
-	assert.Len(t, subgraph.Functions, 3)
-}
-
 // TestSelfLoopPrevention tests that self-loops are prevented
 func TestSelfLoopPrevention(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	requestID := "test-selfloop"
@@ -589,6 +525,7 @@ func TestSelfLoopPrevention(t *testing.T) {
 // TestEmptyCalleeValidation tests that empty callee is rejected
 func TestEmptyCalleeValidation(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	requestID := "test-empty-callee"
@@ -611,6 +548,7 @@ func TestEmptyCalleeValidation(t *testing.T) {
 // TestPathTraversalWithPotentialCycle tests the fixed path traversal
 func TestPathTraversalWithPotentialCycle(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	// Create a complex branching structure
@@ -648,6 +586,7 @@ func TestPathTraversalWithPotentialCycle(t *testing.T) {
 // TestMultiLevelBranching tests complex multi-level branching
 func TestMultiLevelBranching(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	// Create a tree structure:
@@ -688,6 +627,7 @@ func TestMultiLevelBranching(t *testing.T) {
 // TestRecordColdStart tests cold start tracking
 func TestRecordColdStart(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 	now := time.Now()
 
@@ -717,6 +657,7 @@ func TestRecordColdStart(t *testing.T) {
 // TestGetColdStartAverage tests cold start average calculation
 func TestGetColdStartAverage(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 	now := time.Now()
 
@@ -744,6 +685,7 @@ func TestGetColdStartAverage(t *testing.T) {
 // TestColdStartEmptyFunctionName tests that empty function names are rejected
 func TestColdStartEmptyFunctionName(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	// Try to record cold start with empty function name
@@ -756,6 +698,7 @@ func TestColdStartEmptyFunctionName(t *testing.T) {
 // TestColdStartInFunctionStats tests that cold start info appears in function stats
 func TestColdStartInFunctionStats(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 	now := time.Now()
 
@@ -777,6 +720,7 @@ func TestColdStartInFunctionStats(t *testing.T) {
 // if they don't exist (e.g., for newly deployed functions)
 func TestColdStartAutoCreatesFunctionStats(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 	now := time.Now()
 
@@ -800,6 +744,7 @@ func TestColdStartAutoCreatesFunctionStats(t *testing.T) {
 // TestStartExecutionAndRecordEdge tests the requestID-based API
 func TestStartExecutionAndRecordEdge(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	requestID := "req-123"
@@ -826,6 +771,7 @@ func TestStartExecutionAndRecordEdge(t *testing.T) {
 // TestRecordEdgeExternalEntry tests external calls (no caller)
 func TestRecordEdgeExternalEntry(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	requestID := "req-456"
@@ -847,6 +793,7 @@ func TestRecordEdgeExternalEntry(t *testing.T) {
 // TestRecordEdgeChain tests multiple calls in a chain
 func TestRecordEdgeChain(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	requestID := "req-789"
@@ -883,6 +830,7 @@ func TestRecordEdgeChain(t *testing.T) {
 // TestConcurrentRequestsWithRequestID tests multiple concurrent workflows
 func TestConcurrentRequestsWithRequestID(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	now := time.Now()
@@ -902,8 +850,8 @@ func TestConcurrentRequestsWithRequestID(t *testing.T) {
 	tracker.StartExecution("funcA", req3, now)
 	tracker.RecordEdge("funcA", "funcC", req3, now.Add(150*time.Millisecond))
 
-	// Verify edges
-	assert.Equal(t, 3, tracker.EdgeCount())
+	// Verify edges (2 unique edge relationships: A→B and A→C)
+	assert.Equal(t, 2, tracker.EdgeCount())
 
 	// Edge A→B should have average of 150ms (100+200)/2
 	statsAB, ok := tracker.GetEdgeStats("funcA", "funcB")
@@ -922,6 +870,7 @@ func TestConcurrentRequestsWithRequestID(t *testing.T) {
 // TestEndExecution tests cleanup of execution contexts and function stats recording
 func TestEndExecution(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	requestID := "req-cleanup"
@@ -954,6 +903,7 @@ func TestEndExecution(t *testing.T) {
 // TestRecordEdgeWithoutStartExecution tests error handling
 func TestRecordEdgeWithoutStartExecution(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	requestID := "req-missing"
@@ -969,6 +919,7 @@ func TestRecordEdgeWithoutStartExecution(t *testing.T) {
 // TestMultipleFunctionsInSameRequest tests complex workflow
 func TestMultipleFunctionsInSameRequest(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	requestID := "req-complex"
@@ -1017,6 +968,7 @@ func TestContextCleanup(t *testing.T) {
 	config.ContextCleanupInterval = 50 * time.Millisecond
 
 	tracker := New(WithConfig(config), WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	requestID := "req-cleanup-test"
@@ -1047,6 +999,7 @@ func TestContextCleanup(t *testing.T) {
 // TestTrackerStop tests graceful shutdown of the tracker
 func TestTrackerStop(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 
 	// Stop should complete without hanging
 	done := make(chan struct{})
@@ -1066,6 +1019,7 @@ func TestTrackerStop(t *testing.T) {
 // TestHasSufficientData tests the data sufficiency check
 func TestHasSufficientData(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	// No data for function
@@ -1079,20 +1033,15 @@ func TestHasSufficientData(t *testing.T) {
 	// Still no sufficient data - no cold starts
 	assert.False(t, tracker.HasSufficientData("funcA"))
 
-	// Add cold starts (need at least 3 by default)
+	// Add cold starts (need at least 1 by default)
 	tracker.RecordColdStart("funcA", now, 500*time.Millisecond)
-	assert.False(t, tracker.HasSufficientData("funcA"))
-
-	tracker.RecordColdStart("funcA", now, 600*time.Millisecond)
-	assert.False(t, tracker.HasSufficientData("funcA"))
-
-	tracker.RecordColdStart("funcA", now, 550*time.Millisecond)
 	assert.True(t, tracker.HasSufficientData("funcA"))
 }
 
 // TestHasSufficientEdgeData tests edge data sufficiency check
 func TestHasSufficientEdgeData(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	// No edge data
@@ -1100,68 +1049,13 @@ func TestHasSufficientEdgeData(t *testing.T) {
 
 	// Add some edges
 	simulateEdge(tracker, "funcA", "funcB", 100*time.Millisecond, 50*time.Millisecond)
-	assert.False(t, tracker.HasSufficientEdgeData("funcA", "funcB"))
-
-	simulateEdge(tracker, "funcA", "funcB", 110*time.Millisecond, 50*time.Millisecond)
-	assert.False(t, tracker.HasSufficientEdgeData("funcA", "funcB"))
-
-	simulateEdge(tracker, "funcA", "funcB", 120*time.Millisecond, 50*time.Millisecond)
 	assert.True(t, tracker.HasSufficientEdgeData("funcA", "funcB"))
-}
-
-// TestShouldPrewarm tests the prewarming decision logic
-func TestShouldPrewarm(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
-	defer tracker.Stop()
-
-	now := time.Now()
-
-	// No data - should not prewarm
-	shouldPrewarm, leadTime := tracker.ShouldPrewarm("funcA", "funcB")
-	assert.False(t, shouldPrewarm)
-	assert.Equal(t, time.Duration(0), leadTime)
-
-	// Add edge data (A -> B with 500ms edge time)
-	for i := 0; i < 3; i++ {
-		simulateEdge(tracker, "funcA", "funcB", 500*time.Millisecond, 50*time.Millisecond)
-	}
-
-	// Add cold start data for B (300ms cold start time)
-	for i := 0; i < 3; i++ {
-		tracker.RecordColdStart("funcB", now, 300*time.Millisecond)
-	}
-
-	// 500ms edge time >= 300ms * 0.8 (240ms), should prewarm
-	shouldPrewarm, leadTime = tracker.ShouldPrewarm("funcA", "funcB")
-	assert.True(t, shouldPrewarm)
-	assert.Equal(t, 500*time.Millisecond, leadTime)
-}
-
-// TestShouldNotPrewarmInsufficientLeadTime tests that we don't prewarm when edge time is too short
-func TestShouldNotPrewarmInsufficientLeadTime(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
-	defer tracker.Stop()
-
-	now := time.Now()
-
-	// Add edge data (A -> B with 100ms edge time)
-	for i := 0; i < 3; i++ {
-		simulateEdge(tracker, "funcA", "funcB", 100*time.Millisecond, 50*time.Millisecond)
-	}
-
-	// Add cold start data for B (500ms cold start time)
-	for i := 0; i < 3; i++ {
-		tracker.RecordColdStart("funcB", now, 500*time.Millisecond)
-	}
-
-	// 100ms edge time < 500ms * 0.8 (400ms), should NOT prewarm
-	shouldPrewarm, _ := tracker.ShouldPrewarm("funcA", "funcB")
-	assert.False(t, shouldPrewarm)
 }
 
 // TestGetPrewarmTargets tests getting prewarm targets for a function
 func TestGetPrewarmTargets(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	now := time.Now()
@@ -1210,6 +1104,7 @@ func TestPrewarmDisabled(t *testing.T) {
 	config.Prewarm.Enabled = false
 
 	tracker := New(WithConfig(config), WithLogger(zap.NewNop()))
+	tracker.Start()
 	defer tracker.Stop()
 
 	now := time.Now()
@@ -1221,10 +1116,6 @@ func TestPrewarmDisabled(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		tracker.RecordColdStart("funcB", now, 300*time.Millisecond)
 	}
-
-	// Should not prewarm when disabled
-	shouldPrewarm, _ := tracker.ShouldPrewarm("funcA", "funcB")
-	assert.False(t, shouldPrewarm)
 
 	targets := tracker.GetPrewarmTargets("funcA")
 	assert.Empty(t, targets)

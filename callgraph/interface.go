@@ -21,7 +21,14 @@ type Tracker interface {
 	EndExecution(functionName string, requestID string, timestamp time.Time)
 
 	// RecordColdStart records a cold start event for the given function
+	// It is a shortcut to RecordScaleUp with cold=true
 	RecordColdStart(functionName string, timestamp time.Time, executionTime time.Duration)
+
+	// RecordScaleUp records a scale-up event for the given function
+	RecordScaleUp(functionName string, timestamp time.Time, duration time.Duration, cold bool)
+
+	// RecordScaleDown records a scale-down event for the given function
+	RecordScaleDown(functionName string, timestamp time.Time, duration time.Duration)
 
 	// GetCallGraph returns the complete call graph with aggregated data
 	GetCallGraph() CallGraph
@@ -48,7 +55,13 @@ type Tracker interface {
 	// Clear clears all recorded data
 	Clear()
 
-	// EdgeCount returns the total number of recorded edges
+	// Start starts any background processes related to the tracker
+	Start()
+
+	// Stop stops any background processes related to the tracker
+	Stop()
+
+	// EdgeCount returns the number of unique edges
 	EdgeCount() int
 
 	// FunctionCount returns the number of unique functions tracked
@@ -70,15 +83,6 @@ type PathAnalyzer interface {
 	// Properly handles DAG topologies with branches
 	GetCallPaths() []CallPath
 
-	// GetPathsContaining returns all paths that contain the given function
-	GetPathsContaining(functionName string) []CallPath
-
-	// GetLongestPath returns the longest call path by number of functions
-	GetLongestPath() CallPath
-
-	// GetSlowestPath returns the call path with the highest total execution time
-	GetSlowestPath() CallPath
-
 	// GetEntryPoints returns all functions that are called from external sources
 	GetEntryPoints() []string
 
@@ -90,9 +94,6 @@ type PathAnalyzer interface {
 
 	// GetUpstreamFunctions returns all functions that can reach the given function
 	GetUpstreamFunctions(functionName string) []string
-
-	// GetSubgraph returns a CallGraph containing only the specified functions and their edges
-	GetSubgraph(functionNames []string) CallGraph
 }
 
 // Prewarmer defines the interface for prewarming prediction
@@ -103,10 +104,6 @@ type Prewarmer interface {
 
 	// HasSufficientEdgeData checks if there is enough historical data for a specific edge
 	HasSufficientEdgeData(caller, callee string) bool
-
-	// ShouldPrewarm determines if a specific callee should be prewarmed when caller starts
-	// Returns: shouldPrewarm (bool), leadTime (how much time we have before the call)
-	ShouldPrewarm(caller, callee string) (bool, time.Duration)
 
 	// GetPrewarmTargets returns a list of functions that should be prewarmed
 	// when the given function starts execution

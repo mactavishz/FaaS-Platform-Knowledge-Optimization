@@ -35,9 +35,6 @@ type Config struct {
 	// Enabled indicates whether call graph tracking is enabled
 	Enabled bool
 
-	// MaxEdges is the maximum number of detailed edges to keep (-1 = unlimited)
-	MaxEdges int
-
 	// ContextTTL is the time-to-live for execution contexts
 	// Contexts older than this will be cleaned up to prevent memory leaks
 	// Default is 5 minutes if not set
@@ -58,9 +55,6 @@ type CallGraphTracker struct {
 	config *Config
 
 	logger *zap.Logger
-
-	// Detailed edges (recent calls only based on MaxEdges)
-	edges []CallEdge
 
 	averagingMethod AveragingMethod
 
@@ -94,21 +88,6 @@ type CallGraphTracker struct {
 	cleanupDone chan struct{}
 
 	mutex sync.RWMutex
-}
-
-// CallEdge represents a single call from one function to another
-type CallEdge struct {
-	// Caller is the function name that initiated the call, empty string for external calls
-	Caller string `json:"caller"`
-
-	// Callee is the function name that was called
-	Callee string `json:"callee"`
-
-	// ExecutionTime is the duration of the callee function execution
-	ExecutionTime time.Duration `json:"execution_time_ns"`
-
-	// Timestamp is when the call occurred
-	Timestamp time.Time `json:"timestamp"`
 }
 
 // AggregatedEdge represents aggregated call data between two functions
@@ -146,6 +125,12 @@ type FunctionStats struct {
 	// TotalColdStarts is the total number of cold starts for this function
 	TotalColdStarts int `json:"total_cold_starts"`
 
+	// TotalScaleUps is the total number of scale-ups for this function
+	TotalScaleUps int `json:"total_scale_ups"`
+
+	// TotalScaleDowns is the total number of scale-downs for this function
+	TotalScaleDowns int `json:"total_scale_downs"`
+
 	// TotalExecutionTime is the sum of all execution times
 	TotalExecutionTime time.Duration `json:"total_execution_time_ns"`
 
@@ -173,11 +158,11 @@ type FunctionStats struct {
 	// AvgColdStartDuration is the calculated average cold start duration
 	AvgColdStartDuration time.Duration `json:"avg_cold_start_duration_ns"`
 
-	// avgCalculator is the internal calculator for moving averages (not serialized)
-	avgCalculator AveragingCalculator `json:"-"`
+	// avgExecCalculator is the internal calculator for moving averages (not serialized)
+	avgExecCalculator AveragingCalculator `json:"-"`
 
-	// avgColdStartCalculator is the internal calculator for cold start averages (not serialized)
-	avgColdStartCalculator AveragingCalculator `json:"-"`
+	// avgScaleUpCalculator is the internal calculator for scale-up (also cold-start) averages (not serialized)
+	avgScaleUpCalculator AveragingCalculator `json:"-"`
 }
 
 // CallGraph represents the complete call graph structure
@@ -227,7 +212,7 @@ type PrewarmConfig struct {
 	Enabled bool
 
 	// MinSamples is the minimum number of edge samples required before
-	// making prewarming decisions (default: 3)
+	// making prewarming decisions (default: 1)
 	MinSamples int
 
 	// Threshold is the ratio of edge time to cold start time that triggers prewarming
@@ -240,7 +225,7 @@ type PrewarmConfig struct {
 func DefaultPrewarmConfig() PrewarmConfig {
 	return PrewarmConfig{
 		Enabled:    true,
-		MinSamples: 3,
+		MinSamples: 1,
 		Threshold:  0.8,
 	}
 }
