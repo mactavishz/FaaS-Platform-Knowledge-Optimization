@@ -706,6 +706,7 @@ func (t *CallGraphTracker) GetPrewarmTargets(functionName string) []PrewarmTarge
 		}
 	}
 
+	// TODO: review this logic
 	for callee := range callees {
 		key := edgeKey(functionName, callee)
 		edgeStats, exists := t.edgeStats[key]
@@ -740,25 +741,11 @@ func (t *CallGraphTracker) GetPrewarmTargets(functionName string) []PrewarmTarge
 			continue
 		}
 
-		threshold := t.config.Prewarm.Threshold
-		if threshold <= 0 {
-			threshold = 0.8
-		}
-
-		// Check if prewarming would help
-		if avgEdgeTime >= time.Duration(float64(avgColdStartTime)*threshold) {
-			// Calculate confidence based on call frequency
-			confidence := float64(edgeStats.count) / float64(totalCallsFromFunction)
-			if confidence > 1 {
-				confidence = 1
-			}
-
-			targets = append(targets, PrewarmTarget{
-				FunctionName: callee,
-				LeadTime:     avgEdgeTime,
-				Confidence:   confidence,
-			})
-		}
+		leadTime := max(avgEdgeTime - time.Duration(float64(avgColdStartTime)), 0)
+		targets = append(targets, PrewarmTarget{
+			FunctionName: callee,
+			LeadTime:     leadTime,
+		})
 	}
 
 	return targets

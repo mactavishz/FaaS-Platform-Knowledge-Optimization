@@ -197,13 +197,8 @@ type PrewarmTarget struct {
 	// FunctionName is the name of the function to prewarm
 	FunctionName string `json:"function_name"`
 
-	// LeadTime is the expected time before this function is called
-	// This is based on the average edge time from the caller
+	// LeadTime is the time before the function should be prewarmed
 	LeadTime time.Duration `json:"lead_time_ns"`
-
-	// Confidence is a value between 0 and 1 indicating how confident we are
-	// that this function will be called, based on historical call frequency
-	Confidence float64 `json:"confidence"`
 }
 
 // PrewarmConfig holds configuration for prewarming decisions
@@ -214,11 +209,6 @@ type PrewarmConfig struct {
 	// MinSamples is the minimum number of edge samples required before
 	// making prewarming decisions (default: 1)
 	MinSamples int
-
-	// Threshold is the ratio of edge time to cold start time that triggers prewarming
-	// Prewarm if: avgEdgeTime >= avgColdStartTime * Threshold
-	// Default: 0.8 (prewarm if we have at least 80% of cold start time available)
-	Threshold float64
 }
 
 // DefaultPrewarmConfig returns the default prewarming configuration
@@ -226,7 +216,6 @@ func DefaultPrewarmConfig() PrewarmConfig {
 	return PrewarmConfig{
 		Enabled:    true,
 		MinSamples: 1,
-		Threshold:  0.8,
 	}
 }
 

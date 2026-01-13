@@ -84,7 +84,6 @@ func TestNewConfigFromEnv(t *testing.T) {
 			assert.Equal(t, DefaultContextCleanupInterval, config.ContextCleanupInterval)
 			assert.True(t, config.Prewarm.Enabled)
 			assert.Equal(t, 1, config.Prewarm.MinSamples)
-			assert.Equal(t, 0.8, config.Prewarm.Threshold)
 		})
 	}
 }

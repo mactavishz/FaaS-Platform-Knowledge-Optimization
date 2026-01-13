@@ -20,11 +20,7 @@ type Tracker interface {
 	// It calculates and records function execution stats, then cleans up the execution context
 	EndExecution(functionName string, requestID string, timestamp time.Time)
 
-	// RecordColdStart records a cold start event for the given function
-	// It is a shortcut to RecordScaleUp with cold=true
-	RecordColdStart(functionName string, timestamp time.Time, executionTime time.Duration)
-
-	// RecordScaleUp records a scale-up event for the given function
+	// RecordScaleUp records a scale-up or a cold-start event for the given function
 	RecordScaleUp(functionName string, timestamp time.Time, duration time.Duration, cold bool)
 
 	// RecordScaleDown records a scale-down event for the given function

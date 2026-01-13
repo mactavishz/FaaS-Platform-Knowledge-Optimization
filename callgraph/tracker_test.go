@@ -624,8 +624,8 @@ func TestMultiLevelBranching(t *testing.T) {
 	assert.Len(t, leaves, len(expectedLeaves))
 }
 
-// TestRecordColdStart tests cold start tracking
-func TestRecordColdStart(t *testing.T) {
+// TestRecordScaleUp tests cold start tracking
+func TestRecordScaleUp(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
 	tracker.Start()
 	defer tracker.Stop()
@@ -634,7 +634,7 @@ func TestRecordColdStart(t *testing.T) {
 	// Create function stats first
 	simulateFuncExec(tracker, "funcA", 100*time.Millisecond)
 	// Record a cold start
-	tracker.RecordColdStart("funcA", now, 500*time.Millisecond)
+	tracker.RecordScaleUp("funcA", now, 500*time.Millisecond, true)
 
 	// Check cold start stats
 	coldStarts, lastColdStartAt, lastColdStartDuration, ok := tracker.GetColdStartStats("funcA")
@@ -645,7 +645,7 @@ func TestRecordColdStart(t *testing.T) {
 
 	// Record another cold start
 	now2 := now.Add(1 * time.Minute)
-	tracker.RecordColdStart("funcA", now2, 600*time.Millisecond)
+	tracker.RecordScaleUp("funcA", now2, 600*time.Millisecond, true)
 
 	coldStarts, lastColdStartAt, lastColdStartDuration, ok = tracker.GetColdStartStats("funcA")
 	require.True(t, ok)
@@ -668,9 +668,9 @@ func TestGetColdStartAverage(t *testing.T) {
 	assert.Equal(t, time.Duration(0), avg)
 
 	// Record cold starts with different durations
-	tracker.RecordColdStart("funcA", now, 500*time.Millisecond)
-	tracker.RecordColdStart("funcA", now, 600*time.Millisecond)
-	tracker.RecordColdStart("funcA", now, 700*time.Millisecond)
+	tracker.RecordScaleUp("funcA", now, 500*time.Millisecond, true)
+	tracker.RecordScaleUp("funcA", now, 600*time.Millisecond, true)
+	tracker.RecordScaleUp("funcA", now, 700*time.Millisecond, true)
 
 	// Average should be (500+600+700)/3 = 600ms
 	avg = tracker.GetColdStartAverage("funcA")
@@ -689,7 +689,7 @@ func TestColdStartEmptyFunctionName(t *testing.T) {
 	defer tracker.Stop()
 
 	// Try to record cold start with empty function name
-	tracker.RecordColdStart("", time.Now(), 500*time.Millisecond)
+	tracker.RecordScaleUp("", time.Now(), 500*time.Millisecond, true)
 
 	// Should not create any stats
 	assert.Equal(t, 0, tracker.FunctionCount())
@@ -704,7 +704,7 @@ func TestColdStartInFunctionStats(t *testing.T) {
 
 	// Record function executions and cold starts
 	simulateFuncExec(tracker, "funcA", 100*time.Millisecond)
-	tracker.RecordColdStart("funcA", now, 500*time.Millisecond)
+	tracker.RecordScaleUp("funcA", now, 500*time.Millisecond, true)
 	simulateFuncExec(tracker, "funcA", 150*time.Millisecond)
 
 	stats, ok := tracker.GetFunctionStats("funcA")
@@ -716,7 +716,7 @@ func TestColdStartInFunctionStats(t *testing.T) {
 	assert.Equal(t, 500*time.Millisecond, stats.LastColdStartDuration)
 }
 
-// TestColdStartAutoCreatesFunctionStats tests that RecordColdStart creates function stats
+// TestColdStartAutoCreatesFunctionStats tests that RecordScaleUp creates function stats
 // if they don't exist (e.g., for newly deployed functions)
 func TestColdStartAutoCreatesFunctionStats(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
@@ -726,7 +726,7 @@ func TestColdStartAutoCreatesFunctionStats(t *testing.T) {
 
 	// Record cold start for a function that doesn't exist yet
 	// This simulates the case when a function is just deployed
-	tracker.RecordColdStart("newFunc", now, 500*time.Millisecond)
+	tracker.RecordScaleUp("newFunc", now, 500*time.Millisecond, true)
 
 	// Function stats should be created
 	assert.Equal(t, 1, tracker.FunctionCount())
@@ -1034,7 +1034,7 @@ func TestHasSufficientData(t *testing.T) {
 	assert.False(t, tracker.HasSufficientData("funcA"))
 
 	// Add cold starts (need at least 1 by default)
-	tracker.RecordColdStart("funcA", now, 500*time.Millisecond)
+	tracker.RecordScaleUp("funcA", now, 500*time.Millisecond, true)
 	assert.True(t, tracker.HasSufficientData("funcA"))
 }
 
@@ -1080,22 +1080,23 @@ func TestGetPrewarmTargets(t *testing.T) {
 
 	// B: 300ms cold start
 	for i := 0; i < 3; i++ {
-		tracker.RecordColdStart("funcB", now, 300*time.Millisecond)
+		tracker.RecordScaleUp("funcB", now, 300*time.Millisecond, true)
 	}
 
 	// C: 500ms cold start
 	for i := 0; i < 3; i++ {
-		tracker.RecordColdStart("funcC", now, 500*time.Millisecond)
+		tracker.RecordScaleUp("funcC", now, 500*time.Millisecond, true)
 	}
 
 	targets = tracker.GetPrewarmTargets("funcA")
 
-	// Only B should be in targets (500ms >= 300ms * 0.8)
-	// C should NOT be in targets (100ms < 500ms * 0.8)
-	require.Len(t, targets, 1)
+	// Only B should be in targets (500ms >= 300ms)
+	// C should be in targets (100ms < 500ms), because it needs to be prewarmed immediately
+	require.Len(t, targets, 2)
 	assert.Equal(t, "funcB", targets[0].FunctionName)
-	assert.Equal(t, 500*time.Millisecond, targets[0].LeadTime)
-	assert.Greater(t, targets[0].Confidence, 0.0)
+	assert.Equal(t, "funcC", targets[1].FunctionName)
+	assert.Equal(t, 200*time.Millisecond, targets[0].LeadTime)
+	assert.Equal(t, 0*time.Millisecond, targets[1].LeadTime)
 }
 
 // TestPrewarmDisabled tests that prewarming returns empty when disabled
@@ -1114,7 +1115,7 @@ func TestPrewarmDisabled(t *testing.T) {
 		simulateEdge(tracker, "funcA", "funcB", 500*time.Millisecond, 50*time.Millisecond)
 	}
 	for i := 0; i < 3; i++ {
-		tracker.RecordColdStart("funcB", now, 300*time.Millisecond)
+		tracker.RecordScaleUp("funcB", now, 300*time.Millisecond, true)
 	}
 
 	targets := tracker.GetPrewarmTargets("funcA")
