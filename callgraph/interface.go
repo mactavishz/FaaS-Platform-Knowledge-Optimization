@@ -51,6 +51,11 @@ type Tracker interface {
 	// Clear clears all recorded data
 	Clear()
 
+	// ResetFunctionStats clears stats for a redeployed function while preserving edge structure.
+	// This is called when a function is redeployed to ensure fresh timing data.
+	// The edge relationships (callerToCallees, calleeToCallers) are preserved so prewarm still works.
+	ResetFunctionStats(functionName string)
+
 	// Start starts any background processes related to the tracker
 	Start()
 

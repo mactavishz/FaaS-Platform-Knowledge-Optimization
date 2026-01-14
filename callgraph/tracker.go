@@ -627,6 +627,52 @@ func (t *CallGraphTracker) Clear() {
 	t.startTime = time.Now()
 }
 
+// ResetFunctionStats clears stats for a redeployed function while preserving edge structure.
+// This ensures fresh timing data after redeployment while maintaining workflow knowledge.
+// The initial cold start recorded after redeployment will provide fresh prewarm data.
+func (t *CallGraphTracker) ResetFunctionStats(functionName string) {
+	if !t.config.Enabled || functionName == "" {
+		return
+	}
+
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	stats, exists := t.functionStats[functionName]
+	if !exists {
+		t.logger.Debug("function stats not found for reset, skipping",
+			zap.String("function", functionName))
+		return
+	}
+
+	// Track reset for observability
+	stats.TotalResets++
+	stats.LastResetAt = time.Now()
+
+	// Clear all timing and count stats
+	stats.TotalCalls = 0
+	stats.TotalColdStarts = 0
+	stats.TotalScaleUps = 0
+	stats.TotalScaleDowns = 0
+	stats.TotalExecutionTime = 0
+	stats.MinExecutionTime = 0
+	stats.MaxExecutionTime = 0
+	stats.LastExecutionTime = 0
+	stats.LastCalledAt = time.Time{}
+	stats.LastColdStartAt = time.Time{}
+	stats.LastColdStartDuration = 0
+	stats.AvgExecutionTime = 0
+	stats.AvgColdStartDuration = 0
+
+	// Reset averaging calculators for fresh data
+	stats.avgExecCalculator = NewAveragingCalculator(t.averagingMethod, t.GetAverageMethodConfig())
+	stats.avgScaleUpCalculator = NewAveragingCalculator(t.averagingMethod, t.GetAverageMethodConfig())
+
+	t.logger.Info("reset function stats for redeployment",
+		zap.String("function", functionName),
+		zap.Int("totalResets", stats.TotalResets))
+}
+
 // EdgeCount returns the number of unique edges
 func (t *CallGraphTracker) EdgeCount() int {
 	t.mutex.RLock()

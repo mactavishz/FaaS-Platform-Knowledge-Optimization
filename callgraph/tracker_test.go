@@ -744,6 +744,182 @@ func TestColdStartAutoCreatesFunctionStats(t *testing.T) {
 	assert.Equal(t, 500*time.Millisecond, stats.AvgColdStartDuration)
 }
 
+// TestResetFunctionStats tests resetting function stats on redeployment
+func TestResetFunctionStats(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
+	defer tracker.Stop()
+
+	// Setup: create a workflow A -> B -> C with execution data
+	simulateEdge(tracker, "", "funcA", 0, 100*time.Millisecond)
+	simulateEdge(tracker, "funcA", "funcB", 50*time.Millisecond, 200*time.Millisecond)
+	simulateEdge(tracker, "funcB", "funcC", 100*time.Millisecond, 150*time.Millisecond)
+
+	// Add more executions to build up stats
+	simulateFuncExec(tracker, "funcB", 180*time.Millisecond)
+	simulateFuncExec(tracker, "funcB", 220*time.Millisecond)
+
+	// Record cold starts for funcB
+	now := time.Now()
+	tracker.RecordScaleUp("funcB", now, 500*time.Millisecond, true)
+	tracker.RecordScaleUp("funcB", now, 600*time.Millisecond, true)
+
+	// Verify funcB has accumulated stats
+	statsBefore, ok := tracker.GetFunctionStats("funcB")
+	require.True(t, ok)
+	assert.Equal(t, 3, statsBefore.TotalCalls)
+	assert.Equal(t, 2, statsBefore.TotalColdStarts)
+	assert.Equal(t, 0, statsBefore.TotalResets)
+
+	// Verify edges exist
+	assert.Equal(t, 3, tracker.EdgeCount())
+	calleesOfA := tracker.GetCallees("funcA")
+	assert.Contains(t, calleesOfA, "funcB")
+	calleesOfB := tracker.GetCallees("funcB")
+	assert.Contains(t, calleesOfB, "funcC")
+
+	// Reset funcB stats (simulating redeployment)
+	tracker.ResetFunctionStats("funcB")
+
+	// Verify stats are cleared
+	statsAfter, ok := tracker.GetFunctionStats("funcB")
+	require.True(t, ok, "function stats should still exist after reset")
+
+	assert.Equal(t, 0, statsAfter.TotalCalls)
+	assert.Equal(t, 0, statsAfter.TotalColdStarts)
+	assert.Equal(t, 0, statsAfter.TotalScaleUps)
+	assert.Equal(t, 0, statsAfter.TotalScaleDowns)
+	assert.Equal(t, time.Duration(0), statsAfter.TotalExecutionTime)
+	assert.Equal(t, time.Duration(0), statsAfter.MinExecutionTime)
+	assert.Equal(t, time.Duration(0), statsAfter.MaxExecutionTime)
+	assert.Equal(t, time.Duration(0), statsAfter.AvgExecutionTime)
+	assert.Equal(t, time.Duration(0), statsAfter.AvgColdStartDuration)
+
+	// Verify reset tracking
+	assert.Equal(t, 1, statsAfter.TotalResets)
+	assert.False(t, statsAfter.LastResetAt.IsZero())
+
+	// Verify edges are preserved
+	assert.Equal(t, 3, tracker.EdgeCount(), "edges should be preserved after reset")
+	calleesOfAAfter := tracker.GetCallees("funcA")
+	assert.Contains(t, calleesOfAAfter, "funcB", "edge A->B should be preserved")
+	calleesOfBAfter := tracker.GetCallees("funcB")
+	assert.Contains(t, calleesOfBAfter, "funcC", "edge B->C should be preserved")
+
+	// Verify other functions are not affected
+	statsA, ok := tracker.GetFunctionStats("funcA")
+	require.True(t, ok)
+	assert.Equal(t, 1, statsA.TotalCalls, "funcA stats should not be affected")
+
+	statsC, ok := tracker.GetFunctionStats("funcC")
+	require.True(t, ok)
+	assert.Equal(t, 1, statsC.TotalCalls, "funcC stats should not be affected")
+}
+
+// TestResetFunctionStatsAndRecordNewColdStart tests that after reset,
+// new cold start data is properly recorded (simulating redeployment flow)
+func TestResetFunctionStatsAndRecordNewColdStart(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
+	defer tracker.Stop()
+
+	now := time.Now()
+
+	// Initial deployment: record cold start
+	tracker.RecordScaleUp("funcA", now, 500*time.Millisecond, true)
+
+	// Build up some execution history
+	simulateFuncExec(tracker, "funcA", 100*time.Millisecond)
+	simulateFuncExec(tracker, "funcA", 150*time.Millisecond)
+
+	// Verify initial stats
+	statsBefore, ok := tracker.GetFunctionStats("funcA")
+	require.True(t, ok)
+	assert.Equal(t, 2, statsBefore.TotalCalls)
+	assert.Equal(t, 1, statsBefore.TotalColdStarts)
+	assert.Equal(t, 500*time.Millisecond, statsBefore.AvgColdStartDuration)
+
+	// Redeployment: reset stats first
+	tracker.ResetFunctionStats("funcA")
+
+	// Verify stats are cleared but reset tracking is updated
+	statsAfterReset, ok := tracker.GetFunctionStats("funcA")
+	require.True(t, ok)
+	assert.Equal(t, 0, statsAfterReset.TotalCalls)
+	assert.Equal(t, 0, statsAfterReset.TotalColdStarts)
+	assert.Equal(t, 1, statsAfterReset.TotalResets)
+
+	// Redeployment: record new cold start (as manager would do)
+	newColdStartTime := now.Add(1 * time.Minute)
+	tracker.RecordScaleUp("funcA", newColdStartTime, 400*time.Millisecond, true)
+
+	// Verify new cold start is recorded on clean slate
+	statsAfterNewColdStart, ok := tracker.GetFunctionStats("funcA")
+	require.True(t, ok)
+	assert.Equal(t, 0, statsAfterNewColdStart.TotalCalls) // No new executions yet
+	assert.Equal(t, 1, statsAfterNewColdStart.TotalColdStarts)
+	assert.Equal(t, 1, statsAfterNewColdStart.TotalResets)
+	assert.Equal(t, 400*time.Millisecond, statsAfterNewColdStart.AvgColdStartDuration)
+	assert.Equal(t, newColdStartTime, statsAfterNewColdStart.LastColdStartAt)
+}
+
+// TestResetFunctionStatsNonExistent tests that resetting non-existent function is safe
+func TestResetFunctionStatsNonExistent(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
+	defer tracker.Stop()
+
+	// Reset non-existent function should not panic or create stats
+	tracker.ResetFunctionStats("nonexistent")
+
+	assert.Equal(t, 0, tracker.FunctionCount())
+}
+
+// TestResetFunctionStatsEmptyName tests that resetting with empty name is handled
+func TestResetFunctionStatsEmptyName(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
+	defer tracker.Stop()
+
+	// Create some data
+	simulateFuncExec(tracker, "funcA", 100*time.Millisecond)
+
+	// Reset with empty name should not affect anything
+	tracker.ResetFunctionStats("")
+
+	stats, ok := tracker.GetFunctionStats("funcA")
+	require.True(t, ok)
+	assert.Equal(t, 1, stats.TotalCalls)
+}
+
+// TestResetFunctionStatsMultipleTimes tests multiple resets
+func TestResetFunctionStatsMultipleTimes(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
+	defer tracker.Stop()
+
+	now := time.Now()
+
+	// Initial deployment
+	tracker.RecordScaleUp("funcA", now, 500*time.Millisecond, true)
+	simulateFuncExec(tracker, "funcA", 100*time.Millisecond)
+
+	// First redeployment
+	tracker.ResetFunctionStats("funcA")
+	tracker.RecordScaleUp("funcA", now.Add(1*time.Minute), 400*time.Millisecond, true)
+
+	// Second redeployment
+	tracker.ResetFunctionStats("funcA")
+	tracker.RecordScaleUp("funcA", now.Add(2*time.Minute), 300*time.Millisecond, true)
+
+	// Verify reset count
+	stats, ok := tracker.GetFunctionStats("funcA")
+	require.True(t, ok)
+	assert.Equal(t, 2, stats.TotalResets)
+	assert.Equal(t, 1, stats.TotalColdStarts) // Only the latest cold start
+	assert.Equal(t, 300*time.Millisecond, stats.AvgColdStartDuration)
+}
+
 // TestStartExecutionAndRecordEdge tests the requestID-based API
 func TestStartExecutionAndRecordEdge(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))

@@ -131,6 +131,9 @@ type FunctionStats struct {
 	// TotalScaleDowns is the total number of scale-downs for this function
 	TotalScaleDowns int `json:"total_scale_downs"`
 
+	// TotalResets is the number of times this function's stats were reset (redeployments)
+	TotalResets int `json:"total_resets"`
+
 	// TotalExecutionTime is the sum of all execution times
 	TotalExecutionTime time.Duration `json:"total_execution_time_ns"`
 
@@ -157,6 +160,9 @@ type FunctionStats struct {
 
 	// AvgColdStartDuration is the calculated average cold start duration
 	AvgColdStartDuration time.Duration `json:"avg_cold_start_duration_ns"`
+
+	// LastResetAt is when the function stats were last reset (redeployment)
+	LastResetAt time.Time `json:"last_reset_at,omitempty"`
 
 	// avgExecCalculator is the internal calculator for moving averages (not serialized)
 	avgExecCalculator AveragingCalculator `json:"-"`
@@ -210,7 +216,7 @@ type PrewarmConfig struct {
 // DefaultPrewarmConfig returns the default prewarming configuration
 func DefaultPrewarmConfig() *PrewarmConfig {
 	return &PrewarmConfig{
-		Enabled:    true,
+		Enabled: true,
 	}
 }
 
