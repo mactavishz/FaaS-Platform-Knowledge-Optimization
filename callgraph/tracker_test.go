@@ -77,8 +77,8 @@ func TestNewTracker(t *testing.T) {
 
 func TestNewTrackerWithConfig(t *testing.T) {
 	config := &Config{
-		Enabled: true,
-		ContextTTL: 1,
+		Enabled:                true,
+		ContextTTL:             1,
 		ContextCleanupInterval: 1,
 		Prewarm: &PrewarmConfig{
 			Enabled: true,
@@ -918,6 +918,234 @@ func TestResetFunctionStatsMultipleTimes(t *testing.T) {
 	assert.Equal(t, 2, stats.TotalResets)
 	assert.Equal(t, 1, stats.TotalColdStarts) // Only the latest cold start
 	assert.Equal(t, 300*time.Millisecond, stats.AvgColdStartDuration)
+}
+
+// TestClearFunctionData tests full removal of function data on deletion
+func TestClearFunctionData(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
+	defer tracker.Stop()
+
+	// Setup: create a workflow A -> B -> C
+	simulateEdge(tracker, "", "funcA", 0, 100*time.Millisecond)
+	simulateEdge(tracker, "funcA", "funcB", 50*time.Millisecond, 200*time.Millisecond)
+	simulateEdge(tracker, "funcB", "funcC", 100*time.Millisecond, 150*time.Millisecond)
+
+	// Record cold starts
+	now := time.Now()
+	tracker.RecordScaleUp("funcB", now, 500*time.Millisecond, true)
+
+	// Verify initial state
+	assert.Equal(t, 3, tracker.FunctionCount())
+	assert.Equal(t, 3, tracker.EdgeCount())
+	_, ok := tracker.GetFunctionStats("funcB")
+	require.True(t, ok)
+
+	// Delete funcB
+	tracker.ClearFunctionData("funcB")
+
+	// Verify funcB is completely removed
+	_, ok = tracker.GetFunctionStats("funcB")
+	assert.False(t, ok, "funcB stats should be removed")
+
+	// Verify edges involving funcB are removed
+	_, ok = tracker.GetEdgeStats("funcA", "funcB")
+	assert.False(t, ok, "edge A->B should be removed")
+	_, ok = tracker.GetEdgeStats("funcB", "funcC")
+	assert.False(t, ok, "edge B->C should be removed")
+
+	// Verify funcB is removed from caller/callee mappings
+	calleesOfA := tracker.GetCallees("funcA")
+	assert.NotContains(t, calleesOfA, "funcB", "funcB should be removed from A's callees")
+	callersOfC := tracker.GetCallers("funcC")
+	assert.NotContains(t, callersOfC, "funcB", "funcB should be removed from C's callers")
+
+	// Verify other functions are preserved
+	assert.Equal(t, 2, tracker.FunctionCount(), "funcA and funcC should remain")
+	_, ok = tracker.GetFunctionStats("funcA")
+	assert.True(t, ok, "funcA should still exist")
+	_, ok = tracker.GetFunctionStats("funcC")
+	assert.True(t, ok, "funcC should still exist")
+
+	// Verify external->A edge is preserved
+	_, ok = tracker.GetEdgeStats("", "funcA")
+	assert.True(t, ok, "edge external->A should be preserved")
+}
+
+// TestClearFunctionDataPreservesOthers tests that clearing one function doesn't affect others
+func TestClearFunctionDataPreservesOthers(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
+	defer tracker.Stop()
+
+	// Setup: create independent workflows
+	// Workflow 1: A -> B
+	// Workflow 2: X -> Y
+	simulateEdge(tracker, "", "funcA", 0, 100*time.Millisecond)
+	simulateEdge(tracker, "funcA", "funcB", 50*time.Millisecond, 100*time.Millisecond)
+	simulateEdge(tracker, "", "funcX", 0, 100*time.Millisecond)
+	simulateEdge(tracker, "funcX", "funcY", 50*time.Millisecond, 100*time.Millisecond)
+
+	// Verify initial state
+	assert.Equal(t, 4, tracker.FunctionCount())
+	assert.Equal(t, 4, tracker.EdgeCount())
+
+	// Delete funcA (removes A and edge A->B)
+	tracker.ClearFunctionData("funcA")
+
+	// Verify workflow 2 is completely unaffected
+	assert.Equal(t, 3, tracker.FunctionCount()) // B, X, Y remain
+	statsX, ok := tracker.GetFunctionStats("funcX")
+	require.True(t, ok)
+	assert.Equal(t, 1, statsX.TotalCalls)
+
+	statsY, ok := tracker.GetFunctionStats("funcY")
+	require.True(t, ok)
+	assert.Equal(t, 1, statsY.TotalCalls)
+
+	edgeXY, ok := tracker.GetEdgeStats("funcX", "funcY")
+	require.True(t, ok)
+	assert.Equal(t, 1, edgeXY.Count)
+}
+
+// TestClearFunctionDataEdgeCleanup tests bidirectional edge cleanup
+func TestClearFunctionDataEdgeCleanup(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
+	defer tracker.Stop()
+
+	// Setup: funcB is called by multiple callers and calls multiple callees
+	// A -> B, X -> B, B -> C, B -> Y
+	simulateEdge(tracker, "", "funcA", 0, 100*time.Millisecond)
+	simulateEdge(tracker, "", "funcX", 0, 100*time.Millisecond)
+	simulateEdge(tracker, "funcA", "funcB", 50*time.Millisecond, 100*time.Millisecond)
+	simulateEdge(tracker, "funcX", "funcB", 50*time.Millisecond, 100*time.Millisecond)
+	simulateEdge(tracker, "funcB", "funcC", 50*time.Millisecond, 100*time.Millisecond)
+	simulateEdge(tracker, "funcB", "funcY", 50*time.Millisecond, 100*time.Millisecond)
+
+	// Verify B has multiple callers and callees
+	callersOfB := tracker.GetCallers("funcB")
+	assert.Len(t, callersOfB, 2) // A, X
+	calleesOfB := tracker.GetCallees("funcB")
+	assert.Len(t, calleesOfB, 2) // C, Y
+
+	// Delete funcB
+	tracker.ClearFunctionData("funcB")
+
+	// All edges involving B should be removed
+	_, ok := tracker.GetEdgeStats("funcA", "funcB")
+	assert.False(t, ok)
+	_, ok = tracker.GetEdgeStats("funcX", "funcB")
+	assert.False(t, ok)
+	_, ok = tracker.GetEdgeStats("funcB", "funcC")
+	assert.False(t, ok)
+	_, ok = tracker.GetEdgeStats("funcB", "funcY")
+	assert.False(t, ok)
+
+	// B should be removed from all caller/callee lists
+	calleesOfA := tracker.GetCallees("funcA")
+	assert.NotContains(t, calleesOfA, "funcB")
+	calleesOfX := tracker.GetCallees("funcX")
+	assert.NotContains(t, calleesOfX, "funcB")
+	callersOfC := tracker.GetCallers("funcC")
+	assert.NotContains(t, callersOfC, "funcB")
+	callersOfY := tracker.GetCallers("funcY")
+	assert.NotContains(t, callersOfY, "funcB")
+
+	// Other functions should still exist
+	assert.Equal(t, 4, tracker.FunctionCount()) // A, X, C, Y
+}
+
+// TestClearFunctionDataNonExistent tests that clearing non-existent function is safe
+func TestClearFunctionDataNonExistent(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
+	defer tracker.Stop()
+
+	// Create some data
+	simulateFuncExec(tracker, "funcA", 100*time.Millisecond)
+
+	// Clear non-existent function should not panic or affect existing data
+	tracker.ClearFunctionData("nonexistent")
+
+	assert.Equal(t, 1, tracker.FunctionCount())
+	stats, ok := tracker.GetFunctionStats("funcA")
+	require.True(t, ok)
+	assert.Equal(t, 1, stats.TotalCalls)
+}
+
+// TestClearFunctionDataEmptyName tests that empty name is handled
+func TestClearFunctionDataEmptyName(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
+	defer tracker.Stop()
+
+	// Create some data
+	simulateFuncExec(tracker, "funcA", 100*time.Millisecond)
+
+	// Clear with empty name should not affect anything
+	tracker.ClearFunctionData("")
+
+	assert.Equal(t, 1, tracker.FunctionCount())
+}
+
+// TestClearFunctionDataWithActiveContexts tests cleanup of in-flight execution contexts
+func TestClearFunctionDataWithActiveContexts(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
+	defer tracker.Stop()
+
+	requestID := "req-active"
+	now := time.Now()
+
+	// Start execution but don't end it (simulating in-flight request)
+	tracker.StartExecution("funcA", requestID, now)
+
+	// Verify context exists
+	tracker.mutex.RLock()
+	assert.NotNil(t, tracker.executionContexts[requestID])
+	assert.NotNil(t, tracker.executionContexts[requestID]["funcA"])
+	tracker.mutex.RUnlock()
+
+	// Delete the function while request is in-flight
+	tracker.ClearFunctionData("funcA")
+
+	// Context for funcA should be cleaned up
+	tracker.mutex.RLock()
+	if ctx, ok := tracker.executionContexts[requestID]; ok {
+		_, funcExists := ctx["funcA"]
+		assert.False(t, funcExists, "funcA should be removed from execution context")
+	}
+	tracker.mutex.RUnlock()
+}
+
+// TestClearFunctionDataPrewarmNoLongerTargets tests that deleted function is not a prewarm target
+func TestClearFunctionDataPrewarmNoLongerTargets(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
+	defer tracker.Stop()
+
+	now := time.Now()
+
+	// Setup: A -> B with prewarm data
+	for i := 0; i < 3; i++ {
+		simulateEdge(tracker, "funcA", "funcB", 500*time.Millisecond, 50*time.Millisecond)
+	}
+	for i := 0; i < 3; i++ {
+		tracker.RecordScaleUp("funcB", now, 300*time.Millisecond, true)
+	}
+
+	// Verify B is a prewarm target before deletion
+	targets := tracker.GetPrewarmTargets("funcA")
+	require.Len(t, targets, 1)
+	assert.Equal(t, "funcB", targets[0].FunctionName)
+
+	// Delete funcB
+	tracker.ClearFunctionData("funcB")
+
+	// B should no longer be a prewarm target
+	targets = tracker.GetPrewarmTargets("funcA")
+	assert.Empty(t, targets, "deleted function should not be a prewarm target")
 }
 
 // TestStartExecutionAndRecordEdge tests the requestID-based API

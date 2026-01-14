@@ -56,6 +56,11 @@ type Tracker interface {
 	// The edge relationships (callerToCallees, calleeToCallers) are preserved so prewarm still works.
 	ResetFunctionStats(functionName string)
 
+	// ClearFunctionData removes all callgraph data for a deleted function.
+	// Unlike ResetFunctionStats (which preserves edges for redeployment),
+	// this fully removes the function from the graph including all edges.
+	ClearFunctionData(functionName string)
+
 	// Start starts any background processes related to the tracker
 	Start()
 

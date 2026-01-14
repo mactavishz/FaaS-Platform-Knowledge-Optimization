@@ -673,6 +673,59 @@ func (t *CallGraphTracker) ResetFunctionStats(functionName string) {
 		zap.Int("totalResets", stats.TotalResets))
 }
 
+// ClearFunctionData removes all callgraph data for a deleted function.
+// This includes function stats, all edges where the function is caller or callee,
+// and all caller/callee mappings.
+func (t *CallGraphTracker) ClearFunctionData(functionName string) {
+	if !t.config.Enabled || functionName == "" {
+		return
+	}
+
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	// Remove function stats
+	delete(t.functionStats, functionName)
+
+	// Remove edges where function is caller and clean up callee's caller list
+	if callees, ok := t.callerToCallees[functionName]; ok {
+		for callee := range callees {
+			key := edgeKey(functionName, callee)
+			delete(t.edgeStats, key)
+			// Remove from callee's caller list
+			if callerSet, ok := t.calleeToCallers[callee]; ok {
+				delete(callerSet, functionName)
+			}
+		}
+		delete(t.callerToCallees, functionName)
+	}
+
+	// Remove edges where function is callee and clean up caller's callee list
+	if callers, ok := t.calleeToCallers[functionName]; ok {
+		for caller := range callers {
+			key := edgeKey(caller, functionName)
+			delete(t.edgeStats, key)
+			// Remove from caller's callee list
+			if calleeSet, ok := t.callerToCallees[caller]; ok {
+				delete(calleeSet, functionName)
+			}
+		}
+		delete(t.calleeToCallers, functionName)
+	}
+
+	// Clean up any active execution contexts for this function
+	for requestID, ctx := range t.executionContexts {
+		delete(ctx, functionName)
+		if len(ctx) == 0 {
+			delete(t.executionContexts, requestID)
+			delete(t.contextLastAccess, requestID)
+		}
+	}
+
+	t.logger.Info("cleared function data for deletion",
+		zap.String("function", functionName))
+}
+
 // EdgeCount returns the number of unique edges
 func (t *CallGraphTracker) EdgeCount() int {
 	t.mutex.RLock()
@@ -686,7 +739,6 @@ func (t *CallGraphTracker) FunctionCount() int {
 	defer t.mutex.RUnlock()
 	return len(t.functionStats)
 }
-
 
 // GetPrewarmTargets returns a list of functions that should be prewarmed
 // when the given function starts execution.
@@ -745,7 +797,7 @@ func (t *CallGraphTracker) GetPrewarmTargets(functionName string) []PrewarmTarge
 			continue
 		}
 
-		leadTime := max(avgEdgeTime - time.Duration(float64(avgColdStartTime)), 0)
+		leadTime := max(avgEdgeTime-time.Duration(float64(avgColdStartTime)), 0)
 		targets = append(targets, PrewarmTarget{
 			FunctionName: callee,
 			LeadTime:     leadTime,
