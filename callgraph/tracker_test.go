@@ -77,8 +77,11 @@ func TestNewTracker(t *testing.T) {
 
 func TestNewTrackerWithConfig(t *testing.T) {
 	config := &Config{
-		Prewarm: PrewarmConfig{
-			MinSamples: 1,
+		Enabled: true,
+		ContextTTL: 1,
+		ContextCleanupInterval: 1,
+		Prewarm: &PrewarmConfig{
+			Enabled: true,
 		},
 	}
 	tracker := New(
@@ -1014,42 +1017,6 @@ func TestTrackerStop(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("tracker.Stop() did not complete in time")
 	}
-}
-
-// TestHasSufficientData tests the data sufficiency check
-func TestHasSufficientData(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
-	tracker.Start()
-	defer tracker.Stop()
-
-	// No data for function
-	assert.False(t, tracker.HasSufficientData("funcA"))
-
-	now := time.Now()
-
-	// Add function execution (creates stats)
-	simulateFuncExec(tracker, "funcA", 100*time.Millisecond)
-
-	// Still no sufficient data - no cold starts
-	assert.False(t, tracker.HasSufficientData("funcA"))
-
-	// Add cold starts (need at least 1 by default)
-	tracker.RecordScaleUp("funcA", now, 500*time.Millisecond, true)
-	assert.True(t, tracker.HasSufficientData("funcA"))
-}
-
-// TestHasSufficientEdgeData tests edge data sufficiency check
-func TestHasSufficientEdgeData(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
-	tracker.Start()
-	defer tracker.Stop()
-
-	// No edge data
-	assert.False(t, tracker.HasSufficientEdgeData("funcA", "funcB"))
-
-	// Add some edges
-	simulateEdge(tracker, "funcA", "funcB", 100*time.Millisecond, 50*time.Millisecond)
-	assert.True(t, tracker.HasSufficientEdgeData("funcA", "funcB"))
 }
 
 // TestGetPrewarmTargets tests getting prewarm targets for a function

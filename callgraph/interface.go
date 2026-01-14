@@ -94,13 +94,6 @@ type PathAnalyzer interface {
 
 // Prewarmer defines the interface for prewarming prediction
 type Prewarmer interface {
-	// HasSufficientData checks if there is enough historical data to make
-	// prewarming predictions for a specific function
-	HasSufficientData(functionName string) bool
-
-	// HasSufficientEdgeData checks if there is enough historical data for a specific edge
-	HasSufficientEdgeData(caller, callee string) bool
-
 	// GetPrewarmTargets returns a list of functions that should be prewarmed
 	// when the given function starts execution
 	GetPrewarmTargets(functionName string) []PrewarmTarget

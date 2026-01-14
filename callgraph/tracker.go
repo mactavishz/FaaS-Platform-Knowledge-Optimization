@@ -9,8 +9,6 @@ import (
 	"go.uber.org/zap"
 )
 
-var ErrInvalidPrewarmMinSamples = errors.New("Prewarm.MinSamples must be a positive integer")
-
 const (
 	// DefaultContextTTL is the default time-to-live for execution contexts (5 minutes)
 	DefaultContextTTL = 5 * time.Minute
@@ -89,8 +87,12 @@ func DefaultConfig() *Config {
 }
 
 func validateConfig(config *Config) error {
-	if config.Prewarm.MinSamples <= 0 {
-		return ErrInvalidPrewarmMinSamples
+	if config.ContextTTL <= 0 {
+		return errors.New("ContextTTL must be non-zero positive")
+	}
+
+	if config.ContextCleanupInterval <= 0 {
+		return errors.New("ContextCleanupInterval cannot be negative")
 	}
 	return nil
 }
@@ -389,12 +391,6 @@ func (t *CallGraphTracker) Stop() {
 	}
 }
 
-// RecordColdStart records a cold start event for a function
-// If the function doesn't exist in stats, it creates a new entry
-func (t *CallGraphTracker) RecordColdStart(functionName string, timestamp time.Time, coldStartDuration time.Duration) {
-	t.RecordScaleUp(functionName, timestamp, coldStartDuration, true)
-}
-
 // RecordScaleDown records a scale-down event for a function
 func (t *CallGraphTracker) RecordScaleDown(functionName string, timestamp time.Time, duration time.Duration) {
 	if !t.config.Enabled {
@@ -645,38 +641,6 @@ func (t *CallGraphTracker) FunctionCount() int {
 	return len(t.functionStats)
 }
 
-// HasSufficientData checks if there is enough historical data to make prewarming predictions
-// for a specific function. This is based on the minimum sample count configured.
-func (t *CallGraphTracker) HasSufficientData(functionName string) bool {
-	t.mutex.RLock()
-	defer t.mutex.RUnlock()
-
-	stats, exists := t.functionStats[functionName]
-	if !exists {
-		return false
-	}
-
-	minSamples := t.config.Prewarm.MinSamples
-
-	// Need at least minSamples scale-ups to have a reliable prediction
-	return stats.TotalScaleUps >= minSamples
-}
-
-// HasSufficientEdgeData checks if there is enough historical data for a specific edge
-func (t *CallGraphTracker) HasSufficientEdgeData(caller, callee string) bool {
-	t.mutex.RLock()
-	defer t.mutex.RUnlock()
-
-	key := edgeKey(caller, callee)
-	stats, exists := t.edgeStats[key]
-	if !exists {
-		return false
-	}
-
-	minSamples := t.config.Prewarm.MinSamples
-
-	return stats.count >= minSamples
-}
 
 // GetPrewarmTargets returns a list of functions that should be prewarmed
 // when the given function starts execution.
@@ -719,18 +683,12 @@ func (t *CallGraphTracker) GetPrewarmTargets(functionName string) []PrewarmTarge
 			continue
 		}
 
-		// Check minimum samples
-		minSamples := t.config.Prewarm.MinSamples
-		if minSamples <= 0 {
-			minSamples = 3
-		}
-
-		if edgeStats.count < minSamples {
+		if edgeStats.count <= 0 {
 			continue
 		}
 
 		// Skip if callee has no cold start data
-		if calleeStats.TotalColdStarts < minSamples {
+		if calleeStats.TotalColdStarts <= 0 {
 			continue
 		}
 

@@ -45,7 +45,7 @@ type Config struct {
 	ContextCleanupInterval time.Duration
 
 	// Prewarm holds the prewarming configuration
-	Prewarm PrewarmConfig
+	Prewarm *PrewarmConfig
 }
 
 type Option func(*CallGraphTracker)
@@ -205,17 +205,12 @@ type PrewarmTarget struct {
 type PrewarmConfig struct {
 	// Enabled indicates whether prewarming is enabled
 	Enabled bool
-
-	// MinSamples is the minimum number of edge samples required before
-	// making prewarming decisions (default: 1)
-	MinSamples int
 }
 
 // DefaultPrewarmConfig returns the default prewarming configuration
-func DefaultPrewarmConfig() PrewarmConfig {
-	return PrewarmConfig{
+func DefaultPrewarmConfig() *PrewarmConfig {
+	return &PrewarmConfig{
 		Enabled:    true,
-		MinSamples: 1,
 	}
 }
 
