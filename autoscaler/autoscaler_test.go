@@ -110,6 +110,64 @@ func TestRecordActivity(t *testing.T) {
 	assert.True(t, newTime.After(initialTime))
 }
 
+func TestRecordActivityBatch(t *testing.T) {
+	logger := zap.NewNop()
+	mockOp := new(MockScaleOperation)
+	config := Config{Enabled: true}
+	as := New(config, mockOp, logger)
+
+	as.RegisterFunction("func-a", nil)
+	as.RegisterFunction("func-b", nil)
+	as.RegisterFunction("func-c", nil)
+
+	as.functionsMutex.RLock()
+	initialTimeA := as.functions["func-a"].LastAccessTime
+	initialTimeB := as.functions["func-b"].LastAccessTime
+	initialTimeC := as.functions["func-c"].LastAccessTime
+	as.functionsMutex.RUnlock()
+
+	// Ensure time advances
+	time.Sleep(1 * time.Millisecond)
+
+	// Record batch activity for only func-a and func-c
+	as.RecordActivityBatch([]string{"func-a", "func-c", "non-existent"})
+
+	as.functionsMutex.RLock()
+	newTimeA := as.functions["func-a"].LastAccessTime
+	newTimeB := as.functions["func-b"].LastAccessTime
+	newTimeC := as.functions["func-c"].LastAccessTime
+	as.functionsMutex.RUnlock()
+
+	// func-a and func-c should have updated times
+	assert.True(t, newTimeA.After(initialTimeA), "func-a should have updated time")
+	assert.True(t, newTimeC.After(initialTimeC), "func-c should have updated time")
+	// func-b should not be updated
+	assert.Equal(t, initialTimeB, newTimeB, "func-b should not be updated")
+	// All updated functions should have the same time (batch uses single now)
+	assert.Equal(t, newTimeA, newTimeC, "batch should use same timestamp for all functions")
+}
+
+func TestRecordActivityBatch_Disabled(t *testing.T) {
+	logger := zap.NewNop()
+	mockOp := new(MockScaleOperation)
+	config := Config{Enabled: false}
+	as := New(config, mockOp, logger)
+
+	// Should not panic or error when disabled
+	as.RecordActivityBatch([]string{"func-a", "func-b"})
+}
+
+func TestRecordActivityBatch_Empty(t *testing.T) {
+	logger := zap.NewNop()
+	mockOp := new(MockScaleOperation)
+	config := Config{Enabled: true}
+	as := New(config, mockOp, logger)
+
+	// Should not panic or error with empty slice
+	as.RecordActivityBatch([]string{})
+	as.RecordActivityBatch(nil)
+}
+
 func TestCheckIdleFunctions_ScaleDown(t *testing.T) {
 	logger := zap.NewNop()
 	mockOp := new(MockScaleOperation)

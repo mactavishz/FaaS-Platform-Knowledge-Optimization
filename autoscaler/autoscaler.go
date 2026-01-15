@@ -143,8 +143,27 @@ func (as *AutoScaler) RecordActivity(name string) {
 
 	if state, exists := as.functions[name]; exists {
 		state.LastAccessTime = time.Now()
-		as.logger.Info("recorded activity for function", zap.String("function", name))
+		as.logger.Debug("recorded activity for function", zap.String("function", name))
 	}
+}
+
+// RecordActivityBatch records invocations for multiple functions in a single lock acquisition.
+// This is more efficient than calling RecordActivity multiple times for batch heartbeats.
+func (as *AutoScaler) RecordActivityBatch(names []string) {
+	if !as.config.Enabled || len(names) == 0 {
+		return
+	}
+
+	as.functionsMutex.Lock()
+	defer as.functionsMutex.Unlock()
+
+	now := time.Now()
+	for _, name := range names {
+		if state, exists := as.functions[name]; exists {
+			state.LastAccessTime = now
+		}
+	}
+	as.logger.Debug("recorded batch activity", zap.Int("count", len(names)))
 }
 
 // IsScaledDown checks if a function is currently scaled down
