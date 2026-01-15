@@ -797,7 +797,11 @@ func (t *CallGraphTracker) GetPrewarmTargets(functionName string) []PrewarmTarge
 			continue
 		}
 
-		leadTime := max(avgEdgeTime-time.Duration(float64(avgColdStartTime)), 0)
+		// LeadTime represents the expected time until the callee is invoked
+		// (i.e., the average edge time from caller start to callee call).
+		// The prewarm scheduler in other components should subtract cold start time to
+		// determine when to actually trigger the prewarm.
+		leadTime := max(avgEdgeTime, 0)
 		targets = append(targets, PrewarmTarget{
 			FunctionName: callee,
 			LeadTime:     leadTime,

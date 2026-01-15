@@ -203,7 +203,7 @@ type PrewarmTarget struct {
 	// FunctionName is the name of the function to prewarm
 	FunctionName string `json:"function_name"`
 
-	// LeadTime is the time before the function should be prewarmed
+	// LeadTime is the time before the function is expected to be called
 	LeadTime time.Duration `json:"lead_time_ns"`
 }
 

@@ -1461,13 +1461,20 @@ func TestGetPrewarmTargets(t *testing.T) {
 
 	targets = tracker.GetPrewarmTargets("funcA")
 
-	// Only B should be in targets (500ms >= 300ms)
-	// C should be in targets (100ms < 500ms), because it needs to be prewarmed immediately
+	// Both should be in targets with LeadTime = avgEdgeTime (time until callee invocation)
+	// The prewarm scheduler will compute: delay = LeadTime - coldStartTime - margin
 	require.Len(t, targets, 2)
-	assert.Equal(t, "funcB", targets[0].FunctionName)
-	assert.Equal(t, "funcC", targets[1].FunctionName)
-	assert.Equal(t, 200*time.Millisecond, targets[0].LeadTime)
-	assert.Equal(t, 0*time.Millisecond, targets[1].LeadTime)
+
+	// Build a map for order-independent assertions
+	targetMap := make(map[string]time.Duration)
+	for _, t := range targets {
+		targetMap[t.FunctionName] = t.LeadTime
+	}
+
+	assert.Contains(t, targetMap, "funcB")
+	assert.Contains(t, targetMap, "funcC")
+	assert.Equal(t, 500*time.Millisecond, targetMap["funcB"]) // avgEdgeTime for A->B
+	assert.Equal(t, 100*time.Millisecond, targetMap["funcC"]) // avgEdgeTime for A->C
 }
 
 // TestPrewarmDisabled tests that prewarming returns empty when disabled
