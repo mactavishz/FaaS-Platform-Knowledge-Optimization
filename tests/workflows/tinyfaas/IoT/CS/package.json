@@ -1,0 +1,6 @@
+{
+  "name": "handler",
+  "version": "1.0.0",
+  "description": "IoT CheckSound",
+  "main": "handler.js"
+}

@@ -1,0 +1,34 @@
+provider:
+  name: tinyfaas
+  gateway: http://127.0.0.1:8888
+functions:
+  iot-i:
+    lang: nodejs
+    handler: ./I
+  iot-as:
+    lang: nodejs
+    handler: ./AS
+  iot-ca:
+    lang: nodejs
+    handler: ./CA
+  iot-cs:
+    lang: nodejs
+    handler: ./CS
+  iot-csa:
+    lang: nodejs
+    handler: ./CSA
+  iot-csl:
+    lang: nodejs
+    handler: ./CSL
+  iot-ct:
+    lang: nodejs
+    handler: ./CT
+  iot-cw:
+    lang: nodejs
+    handler: ./CW
+  iot-dj:
+    lang: nodejs
+    handler: ./DJ
+  iot-se:
+    lang: nodejs
+    handler: ./SE
