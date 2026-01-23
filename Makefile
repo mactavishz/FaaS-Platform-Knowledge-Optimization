@@ -21,7 +21,8 @@ build-tinyfaas:
 
 .PHONY: test-tinyfaas
 test-tinyfaas:
-	vagrant ssh tinyfaas -c "cd /vagrant/tinyFaaS && make test"
+	make -C tinyFaaS unit-test
+	make -C tinyFaaS integration-test
 
 .PHONY: unit-test
 unit-test:
