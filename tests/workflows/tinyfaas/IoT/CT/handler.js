@@ -12,6 +12,7 @@ let num = workerData.num || 7;
 let res = cpu_intensive(num);
 parentPort.postMessage(res);
 
+// https://gist.github.com/sqren/5083d73f184acae0c5b7
 function cpu_intensive(baseNumber) {
     let result = 0;
     for (var i = Math.pow(baseNumber, 7); i >= 0; i--) {
@@ -31,7 +32,7 @@ function callFunction(functionName, data, sync, incomingHeaders) {
         headers["content-type"] = "application/json";
 
         if (!sync) {
-            headers["X-Tinyfaas-Async"] = "true";
+            headers["x-tinyfaas-async"] = "true";
         } else {
             delete headers["x-tinyfaas-async"];
         }
@@ -78,8 +79,9 @@ export default async (req, res) => {
         worker.on("error", (m) => reject(m));
     });
     
-    await Promise.all([w1, w2]);
-
+    await w1;
+    await w2;
+    
     let sensorID = event.originalEvent ? event.originalEvent.sensorID : 0;
     let chain = event.originalEvent ? event.originalEvent.chain : 1;
 

@@ -16,9 +16,8 @@ function callFunction(functionName, data, sync, incomingHeaders) {
         headers["content-type"] = "application/json";
 
         if (!sync) {
-            headers["X-Tinyfaas-Async"] = "true";
+            headers["x-tinyfaas-async"] = "true";
         } else {
-            delete headers["X-Tinyfaas-Async"];
             delete headers["x-tinyfaas-async"];
         }
 
@@ -50,8 +49,8 @@ function callFunction(functionName, data, sync, incomingHeaders) {
 
 function randn_bm() {
     var u = 0, v = 0;
-    while (u === 0) u = Math.random();
-    while (v === 0) v = Math.random();
+    while (u === 0) u = Math.random(); //Converting [0,1) to (0,1)
+    while (v === 0) v = Math.random(); //Converting [0,1) to (0,1)
     return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 }
 
@@ -62,19 +61,19 @@ export default async (req, res) => {
     let event = {
         Temperature: {
             sensorID: sensorID,
-            value: (randn_bm() * 50) - 10,
+            value: (randn_bm() * 50) - 10, // Between -10 and 40
         },
         Sound: {
             sensorID: sensorID,
-            value: (randn_bm() * 50) - 10,
+            value: (randn_bm() * 50) - 10, // Between -10 and 40
         },
         AirQuality: {
             sensorID: sensorID,
-            value: (randn_bm() * 50) - 10,
+            value: (randn_bm() * 50) - 10, // Between -10 and 40
         },
         EmergencyVehicle: {
             sensorID: sensorID,
-            value: (randn_bm() * 50) - 10,
+            value: (randn_bm() * 50) - 10, // Between -10 and 40
         },
     };
     

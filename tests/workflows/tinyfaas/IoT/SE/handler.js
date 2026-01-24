@@ -13,6 +13,13 @@ export default async (req, res) => {
 
     // Original: ddb.putItem to SensorDataTable with SensorID and Message
     // Simulating DynamoDB PutItem latency
+    // let params = {
+    //     TableName: "SensorDataTable",
+    //     Item : {
+    //         'SensorID': {N: event["sensorID"] + ''},
+    //         'Message': {S: JSON.stringify(event)}
+    //     }
+    // }
     console.log(`Simulating DynamoDB PutItem (${DDB_PUT_MS}ms)...`);
     await sleep(DDB_PUT_MS);
 

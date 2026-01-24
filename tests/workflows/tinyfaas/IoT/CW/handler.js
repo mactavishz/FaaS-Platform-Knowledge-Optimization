@@ -27,7 +27,7 @@ export default (req, res) => {
     const event = req.body;
     console.log("CheckSensor: Event:", event);
 
-    let times = 500000;
+    let times = 500_000;
     try {
         if (event.sieve) {
             times = parseInt(event.sieve);

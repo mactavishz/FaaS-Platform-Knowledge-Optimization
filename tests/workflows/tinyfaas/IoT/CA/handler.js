@@ -15,7 +15,7 @@ function callFunction(functionName, data, sync, incomingHeaders) {
         headers["content-type"] = "application/json";
 
         if (!sync) {
-            headers["X-Tinyfaas-Async"] = "true";
+            headers["x-tinyfaas-async"] = "true";
         } else {
             delete headers["x-tinyfaas-async"];
         }

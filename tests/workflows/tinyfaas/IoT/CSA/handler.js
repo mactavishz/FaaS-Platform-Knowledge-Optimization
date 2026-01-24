@@ -50,12 +50,24 @@ export default async (req, res) => {
 
     // Original: ddb.putItem to UseCaseTable with SensorID=1001
     // Simulating DynamoDB PutItem latency
+    // let params = {
+    //     TableName: "UseCaseTable",
+    //     Item : {
+    //         'SensorID': {N: '1001'},
+    //         'Message': {S: JSON.stringify(event)}
+    //     }
+    // }
     console.log(`Simulating DynamoDB PutItem (${DDB_PUT_MS}ms)...`);
-    await sleep(DDB_PUT_MS);
+
+    let result = null
+    try {
+        result = await sleep(DDB_PUT_MS);
+    } catch (error) {
+        await new Promise(resolve => setTimeout(resolve, 100)) // Sleep 100ms if this doesnt work
+    }
 
     res.json({
         from: "CheckSoundAccident",
-        simulated: true,
-        computeTime: duration,
+        result: result,
     });
 };

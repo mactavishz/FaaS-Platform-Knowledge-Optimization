@@ -42,6 +42,13 @@ export default async (req, res) => {
 
     // Original: ddb.putItem to UseCaseTable with SensorID=998
     // Simulating DynamoDB PutItem latency
+    // let params = {
+    //     TableName: "UseCaseTable",
+    //     Item : {
+    //         'SensorID': {N: '998'},
+    //         'Message': {S: JSON.stringify(event)}
+    //     }
+    // }
     console.log(`Simulating DynamoDB PutItem (${DDB_PUT_MS}ms)...`);
     
     // Wait for CPU work and simulated DB write in parallel

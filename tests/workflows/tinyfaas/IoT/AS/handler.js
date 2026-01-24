@@ -16,6 +16,7 @@ let num = workerData.num || 7;
 let res = cpu_intensive(num);
 parentPort.postMessage(res);
 
+// https://gist.github.com/sqren/5083d73f184acae0c5b7
 function cpu_intensive(baseNumber) {
     let result = 0;
     for (var i = Math.pow(baseNumber, 7); i >= 0; i--) {
@@ -42,6 +43,7 @@ export default async (req, res) => {
     });
 
     // Calculate range for batch writes
+    let promises = []
     let val1 = parseInt(event.location) || 0;
     let val2 = (parseInt(event.location) || 0) + (parseInt(event.chain) || 1);
     let startLoc = Math.min(val1, val2);
@@ -49,18 +51,29 @@ export default async (req, res) => {
     let itemCount = endLoc - startLoc + 1;
 
     console.log("Setting Sensor from", startLoc, "to", endLoc, `(${itemCount} items)`);
-
-    // Original: loop of ddb.putItem calls to UseCaseTable
-    // Simulating batch DynamoDB writes (total latency scales with item count)
-    let batchLatency = DDB_PUT_MS * itemCount;
-    console.log(`Simulating DynamoDB batch writes (${batchLatency}ms for ${itemCount} items)...`);
-    
-    // Wait for CPU work and simulated DB writes in parallel
-    await Promise.all([w1, w2, sleep(batchLatency)]);
+    for (let currId = startLoc; currId <= endLoc; currId++) {
+        // let params = {
+        //     TableName: "UseCaseTable",
+        //     Item : {
+        //         'SensorID': {N: currId + ''},
+        //         'Message': {S: JSON.stringify(event)}
+        //     }
+        // }
+        try {
+            let response = await sleep(DDB_PUT_MS);
+            promises.push(response)
+        } catch (error) {
+            console.log(error)
+            await new Promise(resolve => setTimeout(resolve, 100)) // Sleep 100ms if this doesnt work
+        }
+    }
+    await w1
+    await w2
+    let answers = await Promise.all(promises) 
 
     res.json({
         from: "ActionSignage",
         simulated: true,
-        itemCount: itemCount,
+        itemCount: answers,
     });
 };
