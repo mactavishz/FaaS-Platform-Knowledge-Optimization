@@ -1,67 +1,51 @@
 // IoT-I: AnalyzeSensor - Entry function for tinyFaaS
 // Express-style handler (req, res)
 
-const http = require("http");
+import got from "got";
 
 const GATEWAY_BASE = "http://tinyfaas.com";
 
 // Helper to call another function via the gateway
 function callFunction(functionName, data, sync, incomingHeaders) {
-    return new Promise((resolve, reject) => {
+    return (async () => {
         const url = new URL(`${GATEWAY_BASE}/fn/iot-${functionName}`);
-        const postData = JSON.stringify(data);
-        
-        // Start with all incoming headers to preserve tracing headers
+
         const headers = Object.assign({}, incomingHeaders || {});
-        
-        // Overwrite necessary fields
-        headers["Content-Type"] = "application/json";
-        headers["Content-Length"] = Buffer.byteLength(postData);
-        
-        // Remove host header to avoid conflicts
-        delete headers["host"];
-        delete headers["content-length"]; // Remove lowercase version
-        
-        // For async calls, set the async header
+        delete headers.host;
+        delete headers["content-length"];
+        headers["content-type"] = "application/json";
+
         if (!sync) {
             headers["X-Tinyfaas-Async"] = "true";
         } else {
             delete headers["X-Tinyfaas-Async"];
+            delete headers["x-tinyfaas-async"];
         }
-        
-        const options = {
-            hostname: url.hostname,
-            port: url.port || 80,
-            path: url.pathname,
-            method: "POST",
-            headers: headers,
-        };
-        
-        const req = http.request(options, (res) => {
-            let body = "";
-            res.on("data", (chunk) => { body += chunk; });
-            res.on("end", () => {
-                if (!sync) {
-                    // Async call returns immediately
-                    resolve({});
-                } else {
-                    try {
-                        resolve(body ? JSON.parse(body) : {});
-                    } catch (e) {
-                        resolve({});
-                    }
-                }
+
+        try {
+            const res = await got.post(url, {
+                json: data,
+                headers,
+                retry: { limit: 0 },
+                throwHttpErrors: false,
+                followRedirect: false,
+                responseType: "text",
             });
-        });
-        
-        req.on("error", (e) => {
-            console.error(`Error calling ${functionName}:`, e.message);
-            reject(e);
-        });
-        
-        req.write(postData);
-        req.end();
-    });
+
+            if (!sync) {
+                return {};
+            }
+
+            try {
+                return res.body ? JSON.parse(res.body) : {};
+            } catch {
+                return {};
+            }
+        } catch (err) {
+            console.error(`Error calling ${functionName}:`, err && err.message ? err.message : err);
+            throw err;
+        }
+    })();
 }
 
 function randn_bm() {
@@ -71,7 +55,7 @@ function randn_bm() {
     return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 }
 
-module.exports = async (req, res) => {
+export default async (req, res) => {
     console.log("AnalyzeSensor: Event:", req.body);
     
     let sensorID = Math.floor(Math.random() * 101);

@@ -29,7 +29,7 @@ function eratosthenes(limit) {
     return primes;
 }
 
-module.exports = async (req, res) => {
+export default async (req, res) => {
     const event = req.body;
     console.log("CheckSoundAccident: Event:", event);
 

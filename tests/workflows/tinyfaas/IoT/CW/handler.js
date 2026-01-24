@@ -23,7 +23,7 @@ function eratosthenes(limit) {
     return primes;
 }
 
-module.exports = (req, res) => {
+export default (req, res) => {
     const event = req.body;
     console.log("CheckSensor: Event:", event);
 

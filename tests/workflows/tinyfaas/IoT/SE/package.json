@@ -2,5 +2,6 @@
   "name": "handler",
   "version": "1.0.0",
   "description": "IoT StoreEvent",
+  "type": "module",
   "main": "handler.js"
 }

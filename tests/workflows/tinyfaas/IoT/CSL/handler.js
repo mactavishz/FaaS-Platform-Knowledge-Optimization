@@ -8,7 +8,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const DDB_GET_MS = parseInt(process.env.IOT_DDB_GET_MS) || 20;
 const DDB_PUT_MS = parseInt(process.env.IOT_DDB_PUT_MS) || 25;
 
-module.exports = async (req, res) => {
+export default async (req, res) => {
     const event = req.body;
     console.log("CheckSoundLoud: Event:", event);
 

@@ -2,7 +2,7 @@
 // Express-style handler (req, res)
 // DynamoDB calls replaced with simulated latency
 
-const { Worker } = require("worker_threads");
+import { Worker } from "node:worker_threads";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -25,7 +25,7 @@ function cpu_intensive(baseNumber) {
 }
 `;
 
-module.exports = async (req, res) => {
+export default async (req, res) => {
     const event = req.body;
     console.log("ActionSignage: Event:", event);
 

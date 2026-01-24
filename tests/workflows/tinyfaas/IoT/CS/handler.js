@@ -1,68 +1,52 @@
 // IoT-CS: CheckSound - calls CSL and CSA in parallel (sync)
 // Express-style handler (req, res)
 
-const http = require("http");
+import got from "got";
 
 const GATEWAY_BASE = "http://tinyfaas.com";
 
 function callFunction(functionName, data, sync, incomingHeaders) {
-    return new Promise((resolve, reject) => {
+    return (async () => {
         const url = new URL(`${GATEWAY_BASE}/fn/iot-${functionName}`);
-        const postData = JSON.stringify(data);
-        
-        // Start with all incoming headers to preserve tracing headers
+
         const headers = Object.assign({}, incomingHeaders || {});
-        
-        // Overwrite necessary fields
-        headers["Content-Type"] = "application/json";
-        headers["Content-Length"] = Buffer.byteLength(postData);
-        
-        // Remove host header to avoid conflicts
-        delete headers["host"];
-        delete headers["content-length"]; // Remove lowercase version
-        
-        // For async calls, set the async header
+        delete headers.host;
+        delete headers["content-length"];
+        headers["content-type"] = "application/json";
+
         if (!sync) {
             headers["X-Tinyfaas-Async"] = "true";
         } else {
             delete headers["x-tinyfaas-async"];
         }
-        
-        const options = {
-            hostname: url.hostname,
-            port: url.port || 80,
-            path: url.pathname,
-            method: "POST",
-            headers: headers,
-        };
-        
-        const req = http.request(options, (res) => {
-            let body = "";
-            res.on("data", (chunk) => { body += chunk; });
-            res.on("end", () => {
-                if (!sync) {
-                    resolve({});
-                } else {
-                    try {
-                        resolve(body ? JSON.parse(body) : {});
-                    } catch (e) {
-                        resolve({});
-                    }
-                }
+
+        try {
+            const res = await got.post(url, {
+                json: data,
+                headers,
+                retry: { limit: 0 },
+                throwHttpErrors: false,
+                followRedirect: false,
+                responseType: "text",
             });
-        });
-        
-        req.on("error", (e) => {
-            console.error(`Error calling ${functionName}:`, e.message);
-            reject(e);
-        });
-        
-        req.write(postData);
-        req.end();
-    });
+
+            if (!sync) {
+                return {};
+            }
+
+            try {
+                return res.body ? JSON.parse(res.body) : {};
+            } catch {
+                return {};
+            }
+        } catch (err) {
+            console.error(`Error calling ${functionName}:`, err && err.message ? err.message : err);
+            throw err;
+        }
+    })();
 }
 
-module.exports = async (req, res) => {
+export default async (req, res) => {
     let event = req.body;
     console.log("CheckSound: Event:", event);
 

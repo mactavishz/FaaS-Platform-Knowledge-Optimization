@@ -7,7 +7,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Simulated DynamoDB PutItem latency (configurable via env)
 const DDB_PUT_MS = parseInt(process.env.IOT_DDB_PUT_MS) || 25;
 
-module.exports = async (req, res) => {
+export default async (req, res) => {
     const event = req.body;
     console.log("StoreEvent: Event:", event);
 
