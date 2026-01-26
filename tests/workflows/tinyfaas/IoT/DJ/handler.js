@@ -1,13 +1,39 @@
-// IoT-DJ: DetectJam - CPU work + simulated DynamoDB write
+// IoT-DJ: DetectJam - CPU work + Supabase write
 // Express-style handler (req, res)
-// DynamoDB calls replaced with simulated latency
+// DynamoDB simulation replaced with Supabase
 
 import { Worker } from "node:worker_threads";
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+import { createClient } from "@supabase/supabase-js";
 
-// Simulated DynamoDB PutItem latency (configurable via env)
-const DDB_PUT_MS = parseInt(process.env.IOT_DDB_PUT_MS) || 25;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+
+const USE_CASE_TABLE = "use_case";
+const SUPABASE_SCHEMA = "public";
+
+let supabase;
+function getSupabase() {
+    if (supabase) return supabase;
+
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+        const missing = [
+            !SUPABASE_URL ? "SUPABASE_URL" : null,
+            !SUPABASE_KEY ? "SUPABASE_KEY" : null,
+        ].filter(Boolean);
+        throw new Error(`Missing required env vars: ${missing.join(", ")}`);
+    }
+
+    supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+        auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+        },
+        db: { schema: SUPABASE_SCHEMA },
+    });
+    return supabase;
+}
 
 const js_string = `
 const { workerData, parentPort } = require('worker_threads');
@@ -40,22 +66,29 @@ export default async (req, res) => {
         worker.on("error", (m) => reject(m));
     });
 
-    // Original: ddb.putItem to UseCaseTable with SensorID=998
-    // Simulating DynamoDB PutItem latency
-    // let params = {
-    //     TableName: "UseCaseTable",
-    //     Item : {
-    //         'SensorID': {N: '998'},
-    //         'Message': {S: JSON.stringify(event)}
-    //     }
-    // }
-    console.log(`Simulating DynamoDB PutItem (${DDB_PUT_MS}ms)...`);
-    
-    // Wait for CPU work and simulated DB write in parallel
-    await Promise.all([w1, w2, sleep(DDB_PUT_MS)]);
+    try {
+        const dbWrite = getSupabase().from(USE_CASE_TABLE).upsert(
+            {
+                sensor_id: 998,
+                message: event,
+            },
+            { onConflict: "sensor_id" },
+        );
 
-    res.json({
-        from: "DetectJam",
-        simulated: true,
-    });
+        const [, , dbRes] = await Promise.all([w1, w2, dbWrite]);
+        if (dbRes?.error) {
+            throw new Error(`Supabase upsert failed: ${dbRes.error.message}`);
+        }
+
+        res.json({
+            from: "DetectJam",
+            simulated: false,
+        });
+    } catch (err) {
+        console.error("DetectJam: failed to persist", err);
+        res.status(500).json({
+            error: "DetectJam failed",
+            message: err instanceof Error ? err.message : String(err),
+        });
+    }
 };

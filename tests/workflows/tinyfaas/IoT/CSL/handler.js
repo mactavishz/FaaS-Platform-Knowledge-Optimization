@@ -1,12 +1,37 @@
-// IoT-CSL: CheckSoundLoud - simulated DynamoDB queries + conditional write
+// IoT-CSL: CheckSoundLoud - Supabase queries + conditional write
 // Express-style handler (req, res)
-// DynamoDB calls replaced with simulated latency
+// DynamoDB simulation replaced with Supabase
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+import { createClient } from "@supabase/supabase-js";
 
-// Simulated DynamoDB latencies (configurable via env)
-const DDB_GET_MS = parseInt(process.env.IOT_DDB_GET_MS) || 20;
-const DDB_PUT_MS = parseInt(process.env.IOT_DDB_PUT_MS) || 25;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+
+const USE_CASE_TABLE = "use_case";
+const SUPABASE_SCHEMA = "public";
+
+let supabase;
+function getSupabase() {
+    if (supabase) return supabase;
+
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+        const missing = [
+            !SUPABASE_URL ? "SUPABASE_URL" : null,
+            !SUPABASE_KEY ? "SUPABASE_KEY" : null,
+        ].filter(Boolean);
+        throw new Error(`Missing required env vars: ${missing.join(", ")}`);
+    }
+
+    supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+        auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+        },
+        db: { schema: SUPABASE_SCHEMA },
+    });
+    return supabase;
+}
 
 export default async (req, res) => {
     const event = req.body;
@@ -15,65 +40,59 @@ export default async (req, res) => {
     let callingEvent = event.originalEvent || {};
     let sensorID = callingEvent.sensorID || 0;
 
-    // let params = {
-    //     TableName: "UseCaseTable",
-    //     KeyConditionExpression: "#sd = :sid",
-    //     ExpressionAttributeNames:{
-    //         "#sd": "SensorID"
-    //     },
-    //     ExpressionAttributeValues: {
-    //         ":sid": {N: '' + (callingEvent["sensorID"] + 1)}
-    //     }
-    // }
-    // console.log("Querying with Params (1)", params)
-    // Original: two DynamoDB queries for neighbor sensor IDs (sensorID+1 and sensorID-1)
-    let nextTemp = null
     try {
-        console.log(`Simulating DynamoDB Query for sensorID ${sensorID + 1} (${DDB_GET_MS}ms)...`);
-        nextTemp = await sleep(DDB_GET_MS);
-    } catch (error) {
-        await new Promise(resolve => setTimeout(resolve, 100)) // Sleep 100ms if this doesnt work
-    }
+        const sb = getSupabase();
+        const [nextRes, prevRes] = await Promise.all([
+            sb.from(USE_CASE_TABLE)
+                .select("sensor_id,message,updated_at")
+                .eq("sensor_id", sensorID + 1)
+                .maybeSingle(),
+            sb.from(USE_CASE_TABLE)
+                .select("sensor_id,message,updated_at")
+                .eq("sensor_id", sensorID - 1)
+                .maybeSingle(),
+        ]);
 
-    // params = {
-    //     TableName: "UseCaseTable",
-    //     KeyConditionExpression: "#sd = :sid",
-    //     ExpressionAttributeNames:{
-    //         "#sd": "SensorID"
-    //     },
-    //     ExpressionAttributeValues: {
-    //         ":sid": {N: (callingEvent["sensorID"] - 1) + ''}
-    //     }
-    // }
-    // console.log("Querying with Params (2)", params)
+        if (nextRes.error) {
+            throw new Error(`Supabase select failed (next): ${nextRes.error.message}`);
+        }
+        if (prevRes.error) {
+            throw new Error(`Supabase select failed (prev): ${prevRes.error.message}`);
+        }
 
-    console.log(`Simulating DynamoDB Query for sensorID ${sensorID - 1} (${DDB_GET_MS}ms)...`);
-    await sleep(DDB_GET_MS);
+        console.log("Doing some magic with nextTemp and beforeTemp");
+        void nextRes.data;
+        void prevRes.data;
+        let isTooLoud = true; // preserved behavior
 
-    console.log("Doing some magic with nextTemp and beforeTemp");
-    let isTooLoud = true; // Original: hardcoded to true
+        console.log("IsTooLoud:", isTooLoud);
 
-    console.log("IsTooLoud:", isTooLoud);
+        if (isTooLoud) {
+            const { error } = await sb.from(USE_CASE_TABLE).upsert(
+                {
+                    sensor_id: 1500,
+                    message: event,
+                },
+                { onConflict: "sensor_id" },
+            );
+            if (error) {
+                throw new Error(`Supabase upsert failed: ${error.message}`);
+            }
 
-    if (isTooLoud) {
-        // Original: ddb.putItem to UseCaseTable with SensorID=1500
-        // Set an Alert so that something can happen. I dont know, maybe a technichan would look at the site or whatever
-        // params = {
-        //     TableName: "UseCaseTable",
-        //     Item : {
-        //         'SensorID': {N: '1500'},
-        //         'Message': {S: JSON.stringify(event)}
-        //     }
-        // }
-        console.log(`Simulating DynamoDB PutItem for alert (${DDB_PUT_MS}ms)...`);
-        await sleep(DDB_PUT_MS);
+            res.json({
+                from: "CheckSoundLoud",
+                simulated: false,
+                isTooLoud: true,
+            });
+            return;
+        }
 
-        res.json({
-            from: "CheckSoundLoud",
-            simulated: true,
-            isTooLoud: true,
-        });
-    } else {
         res.json({});
+    } catch (err) {
+        console.error("CheckSoundLoud: DB operation failed", err);
+        res.status(500).json({
+            error: "CheckSoundLoud failed",
+            message: err instanceof Error ? err.message : String(err),
+        });
     }
 };

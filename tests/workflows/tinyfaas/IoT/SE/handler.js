@@ -1,31 +1,67 @@
 // IoT-SE: StoreEvent - persists sensor data
 // Express-style handler (req, res)
-// DynamoDB calls replaced with simulated latency
+// DynamoDB simulation replaced with Supabase
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+import { createClient } from "@supabase/supabase-js";
 
-// Simulated DynamoDB PutItem latency (configurable via env)
-const DDB_PUT_MS = parseInt(process.env.IOT_DDB_PUT_MS) || 25;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+
+const SENSOR_DATA_TABLE = "sensor_data";
+const SUPABASE_SCHEMA = "public";
+
+let supabase;
+function getSupabase() {
+  if (supabase) return supabase;
+
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    const missing = [
+      !SUPABASE_URL ? "SUPABASE_URL" : null,
+      !SUPABASE_KEY ? "SUPABASE_KEY" : null,
+    ].filter(Boolean);
+    throw new Error(`Missing required env vars: ${missing.join(", ")}`);
+  }
+
+  supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+    db: { schema: SUPABASE_SCHEMA },
+  });
+  return supabase;
+}
 
 export default async (req, res) => {
-    const event = req.body;
-    console.log("StoreEvent: Event:", event);
+  const event = req.body;
+  console.log("StoreEvent: Event:", event);
 
-    // Original: ddb.putItem to SensorDataTable with SensorID and Message
-    // Simulating DynamoDB PutItem latency
-    // let params = {
-    //     TableName: "SensorDataTable",
-    //     Item : {
-    //         'SensorID': {N: event["sensorID"] + ''},
-    //         'Message': {S: JSON.stringify(event)}
-    //     }
-    // }
-    console.log(`Simulating DynamoDB PutItem (${DDB_PUT_MS}ms)...`);
-    await sleep(DDB_PUT_MS);
+  try {
+    const sensorId = Number.parseInt(String(event?.sensorID ?? "0"), 10);
+    const { error } = await getSupabase()
+      .from(SENSOR_DATA_TABLE)
+      .upsert(
+        {
+          sensor_id: Number.isFinite(sensorId) ? sensorId : 0,
+          message: event,
+        },
+        { onConflict: "sensor_id" },
+      );
+    if (error) {
+      throw new Error(`Supabase upsert failed: ${error.message}`);
+    }
 
     res.json({
-        from: "StoreEvent",
-        simulated: true,
-        sensorID: event.sensorID,
+      from: "StoreEvent",
+      simulated: false,
+      sensorID: event?.sensorID,
     });
+  } catch (err) {
+    console.error("StoreEvent: failed to persist", err);
+    res.status(500).json({
+      error: "StoreEvent failed",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
 };

@@ -8,6 +8,8 @@ functions:
   iot-as:
     lang: nodejs
     handler: ./AS
+    environment_file:
+      - .env.yaml
   iot-ca:
     lang: nodejs
     handler: ./CA
@@ -17,9 +19,13 @@ functions:
   iot-csa:
     lang: nodejs
     handler: ./CSA
+    environment_file:
+      - .env.yaml
   iot-csl:
     lang: nodejs
     handler: ./CSL
+    environment_file:
+      - .env.yaml
   iot-ct:
     lang: nodejs
     handler: ./CT
@@ -29,6 +35,10 @@ functions:
   iot-dj:
     lang: nodejs
     handler: ./DJ
+    environment_file:
+      - .env.yaml
   iot-se:
     lang: nodejs
     handler: ./SE
+    environment_file:
+      - .env.yaml

@@ -1,11 +1,37 @@
-// IoT-CSA: CheckSoundAccident - CPU work + simulated DynamoDB write
+// IoT-CSA: CheckSoundAccident - CPU work + Supabase write
 // Express-style handler (req, res)
-// DynamoDB calls replaced with simulated latency
+// DynamoDB simulation replaced with Supabase
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+import { createClient } from "@supabase/supabase-js";
 
-// Simulated DynamoDB PutItem latency (configurable via env)
-const DDB_PUT_MS = parseInt(process.env.IOT_DDB_PUT_MS) || 25;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+
+const USE_CASE_TABLE = "use_case";
+const SUPABASE_SCHEMA = "public";
+
+let supabase;
+function getSupabase() {
+    if (supabase) return supabase;
+
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+        const missing = [
+            !SUPABASE_URL ? "SUPABASE_URL" : null,
+            !SUPABASE_KEY ? "SUPABASE_KEY" : null,
+        ].filter(Boolean);
+        throw new Error(`Missing required env vars: ${missing.join(", ")}`);
+    }
+
+    supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+        auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+        },
+        db: { schema: SUPABASE_SCHEMA },
+    });
+    return supabase;
+}
 
 function eratosthenes(limit) {
     var primes = [];
@@ -48,26 +74,27 @@ export default async (req, res) => {
     let duration = Date.now() - start;
     console.log("Took time:", duration, "For length", primes.length);
 
-    // Original: ddb.putItem to UseCaseTable with SensorID=1001
-    // Simulating DynamoDB PutItem latency
-    // let params = {
-    //     TableName: "UseCaseTable",
-    //     Item : {
-    //         'SensorID': {N: '1001'},
-    //         'Message': {S: JSON.stringify(event)}
-    //     }
-    // }
-    console.log(`Simulating DynamoDB PutItem (${DDB_PUT_MS}ms)...`);
-
-    let result = null
     try {
-        result = await sleep(DDB_PUT_MS);
-    } catch (error) {
-        await new Promise(resolve => setTimeout(resolve, 100)) // Sleep 100ms if this doesnt work
-    }
+        const { error } = await getSupabase().from(USE_CASE_TABLE).upsert(
+            {
+                sensor_id: 1001,
+                message: event,
+            },
+            { onConflict: "sensor_id" },
+        );
+        if (error) {
+            throw new Error(`Supabase upsert failed: ${error.message}`);
+        }
 
-    res.json({
-        from: "CheckSoundAccident",
-        result: result,
-    });
+        res.json({
+            from: "CheckSoundAccident",
+            stored: true,
+        });
+    } catch (err) {
+        console.error("CheckSoundAccident: failed to persist", err);
+        res.status(500).json({
+            error: "CheckSoundAccident failed",
+            message: err instanceof Error ? err.message : String(err),
+        });
+    }
 };
