@@ -59,7 +59,7 @@ export default async (req, res) => {
     const event = req.body;
     console.log("CheckSoundAccident: Event:", event);
 
-    let times = 500000;
+    let times = 500_000;
     try {
         if (event.sieve) {
             times = parseInt(event.sieve);
@@ -74,27 +74,20 @@ export default async (req, res) => {
     let duration = Date.now() - start;
     console.log("Took time:", duration, "For length", primes.length);
 
+    let dbRes;
     try {
-        const { error } = await getSupabase().from(USE_CASE_TABLE).upsert(
+         dbRes = await getSupabase().from(USE_CASE_TABLE).upsert(
             {
                 sensor_id: 1001,
                 message: event,
             },
             { onConflict: "sensor_id" },
-        );
-        if (error) {
-            throw new Error(`Supabase upsert failed: ${error.message}`);
-        }
-
-        res.json({
-            from: "CheckSoundAccident",
-            stored: true,
-        });
+        ).select();
     } catch (err) {
-        console.error("CheckSoundAccident: failed to persist", err);
-        res.status(500).json({
-            error: "CheckSoundAccident failed",
-            message: err instanceof Error ? err.message : String(err),
-        });
+        await new Promise(resolve => setTimeout(resolve, 100)) // Sleep 100ms if this doesnt work
     }
+    res.json({
+        from: "CheckSoundAccident",
+        result: dbRes,
+    });
 };

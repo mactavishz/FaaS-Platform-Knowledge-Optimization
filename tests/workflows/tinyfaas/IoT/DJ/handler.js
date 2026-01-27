@@ -66,29 +66,18 @@ export default async (req, res) => {
         worker.on("error", (m) => reject(m));
     });
 
-    try {
-        const dbWrite = getSupabase().from(USE_CASE_TABLE).upsert(
-            {
-                sensor_id: 998,
-                message: event,
-            },
-            { onConflict: "sensor_id" },
-        );
+    const dbRes = await getSupabase().from(USE_CASE_TABLE).upsert(
+        {
+            sensor_id: 998,
+            message: event,
+        },
+        { onConflict: "sensor_id" },
+    ).select();
+    await w1;
+    await w2;
 
-        const [, , dbRes] = await Promise.all([w1, w2, dbWrite]);
-        if (dbRes?.error) {
-            throw new Error(`Supabase upsert failed: ${dbRes.error.message}`);
-        }
-
-        res.json({
-            from: "DetectJam",
-            simulated: false,
-        });
-    } catch (err) {
-        console.error("DetectJam: failed to persist", err);
-        res.status(500).json({
-            error: "DetectJam failed",
-            message: err instanceof Error ? err.message : String(err),
-        });
-    }
+    res.json({
+        from: "DetectJam",
+        useCase: dbRes
+    });
 };

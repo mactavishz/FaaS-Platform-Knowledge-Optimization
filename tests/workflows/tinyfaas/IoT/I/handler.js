@@ -81,7 +81,10 @@ export default async (req, res) => {
     
     const headers = req.headers;
     // Sync call to cw (CheckSensor)
-    await callFunction("cw", { originalEvent: event.Temperature }, true, headers);
+    const cwResult = await callFunction("cw", { originalEvent: event.Temperature }, true, headers);
+    if (!cwResult.valid) {
+        console.log("AnalyzeSensor: CheckSensor data invalid.");
+    }
 
     // Sync call to se (StoreEvent)
     await callFunction("se", event.Temperature, true, headers);

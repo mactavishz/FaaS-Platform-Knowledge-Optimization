@@ -40,59 +40,48 @@ export default async (req, res) => {
     let callingEvent = event.originalEvent || {};
     let sensorID = callingEvent.sensorID || 0;
 
+    let nextRes, prevRes;
+    const sb = getSupabase();
     try {
-        const sb = getSupabase();
-        const [nextRes, prevRes] = await Promise.all([
-            sb.from(USE_CASE_TABLE)
-                .select("sensor_id,message,updated_at")
-                .eq("sensor_id", sensorID + 1)
-                .maybeSingle(),
-            sb.from(USE_CASE_TABLE)
-                .select("sensor_id,message,updated_at")
-                .eq("sensor_id", sensorID - 1)
-                .maybeSingle(),
-        ]);
-
-        if (nextRes.error) {
-            throw new Error(`Supabase select failed (next): ${nextRes.error.message}`);
-        }
-        if (prevRes.error) {
-            throw new Error(`Supabase select failed (prev): ${prevRes.error.message}`);
-        }
-
-        console.log("Doing some magic with nextTemp and beforeTemp");
-        void nextRes.data;
-        void prevRes.data;
-        let isTooLoud = true; // preserved behavior
-
-        console.log("IsTooLoud:", isTooLoud);
-
-        if (isTooLoud) {
-            const { error } = await sb.from(USE_CASE_TABLE).upsert(
-                {
-                    sensor_id: 1500,
-                    message: event,
-                },
-                { onConflict: "sensor_id" },
-            );
-            if (error) {
-                throw new Error(`Supabase upsert failed: ${error.message}`);
-            }
-
-            res.json({
-                from: "CheckSoundLoud",
-                simulated: false,
-                isTooLoud: true,
-            });
-            return;
-        }
-
-        res.json({});
+        nextRes = await sb.from(USE_CASE_TABLE)
+            .select("sensor_id,message,updated_at")
+            .eq("sensor_id", sensorID + 1)
+            .maybeSingle();
     } catch (err) {
-        console.error("CheckSoundLoud: DB operation failed", err);
-        res.status(500).json({
-            error: "CheckSoundLoud failed",
-            message: err instanceof Error ? err.message : String(err),
-        });
+        console.log("CheckSoundLoud: failed to query next", err);
+        await new Promise(resolve => setTimeout(resolve, 100)) // Sleep 100ms if this doesnt work
     }
+    
+    try {
+        prevRes = await sb.from(USE_CASE_TABLE)
+            .select("sensor_id,message,updated_at")
+            .eq("sensor_id", sensorID - 1)
+            .maybeSingle();
+    } catch (err) {
+        console.log("CheckSoundLoud: failed to query prev", err);
+        await new Promise(resolve => setTimeout(resolve, 100)) // Sleep 100ms if this doesnt work
+    }
+
+    console.log("Doing some magic with nextTemp and beforeTemp: ", nextRes, prevRes);
+    let isTooLoud = true; // preserved behavior
+
+    console.log("IsTooLoud:", isTooLoud);
+
+    if (isTooLoud) {
+        const dbRes = await sb.from(USE_CASE_TABLE).upsert(
+            {
+                sensor_id: 1500,
+                message: event,
+            },
+            { onConflict: "sensor_id" },
+        );
+
+        res.json({
+            from: "CheckSoundLoud",
+            useCase: dbRes
+        });
+        return;
+    }
+
+    res.json({});
 };

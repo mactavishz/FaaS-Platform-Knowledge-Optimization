@@ -37,31 +37,16 @@ export default async (req, res) => {
   const event = req.body;
   console.log("StoreEvent: Event:", event);
 
-  try {
-    const sensorId = Number.parseInt(String(event?.sensorID ?? "0"), 10);
-    const { error } = await getSupabase()
-      .from(SENSOR_DATA_TABLE)
-      .upsert(
-        {
-          sensor_id: Number.isFinite(sensorId) ? sensorId : 0,
-          message: event,
-        },
-        { onConflict: "sensor_id" },
-      );
-    if (error) {
-      throw new Error(`Supabase upsert failed: ${error.message}`);
-    }
-
-    res.json({
-      from: "StoreEvent",
-      simulated: false,
-      sensorID: event?.sensorID,
-    });
-  } catch (err) {
-    console.error("StoreEvent: failed to persist", err);
-    res.status(500).json({
-      error: "StoreEvent failed",
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
+  const sensorId = Number.parseInt(String(event?.sensorID ?? "0"), 10);
+  const dbRes = await getSupabase()
+    .from(SENSOR_DATA_TABLE)
+    .upsert(
+      {
+        sensor_id: Number.isFinite(sensorId) ? sensorId : 0,
+        message: event,
+      },
+      { onConflict: "sensor_id" },
+    ).select();
+  console.log("StoreEvent: DB Result:", dbRes);
+  res.json(dbRes);
 };

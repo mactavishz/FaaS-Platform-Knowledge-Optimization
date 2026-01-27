@@ -72,33 +72,30 @@ export default async (req, res) => {
   let val2 = (parseInt(event.location) || 0) + (parseInt(event.chain) || 1);
   let startLoc = Math.min(val1, val2);
   let endLoc = Math.max(val1, val2);
-  let itemCount = endLoc - startLoc + 1;
 
-  try {
-    const sb = getSupabase();
-    const rows = [];
-    for (let currId = startLoc; currId <= endLoc; currId++) {
-      rows.push({ sensor_id: currId, message: event });
+  const sb = getSupabase();
+  const promises = [];
+  for (let currId = startLoc; currId <= endLoc; currId++) {
+    try {
+      promises.push(sb
+        .from(USE_CASE_TABLE)
+        .upsert({
+            sensor_id: currId,
+            message: event,
+        }, { onConflict: "sensor_id" }).select());
+    } catch (err) {
+      console.log("Failed to queue upsert for sensor_id:", currId);
+      console.log(err)
+      await new Promise(resolve => setTimeout(resolve, 100)) // Sleep 100ms if this doesnt work
     }
-
-    const dbWrite = sb
-      .from(USE_CASE_TABLE)
-      .upsert(rows, { onConflict: "sensor_id" });
-    const [, , dbRes] = await Promise.all([w1, w2, dbWrite]);
-    if (dbRes?.error) {
-      throw new Error(`Supabase upsert failed: ${dbRes.error.message}`);
-    }
-
-    res.json({
-      from: "ActionSignage",
-      simulated: false,
-      itemCount,
-    });
-  } catch (err) {
-    console.error("ActionSignage: DB operation failed", err);
-    res.status(500).json({
-      error: "ActionSignage failed",
-      message: err instanceof Error ? err.message : String(err),
-    });
   }
+
+  await w1;
+  await w2;
+  const result = await Promise.all(promises);
+
+  res.json({
+    from: "ActionSignage",
+    useCase: result
+  });
 };
