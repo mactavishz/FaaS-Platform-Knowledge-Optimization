@@ -18,7 +18,7 @@ if command -v psql >/dev/null 2>&1; then
 fi
 
 if command -v docker >/dev/null 2>&1; then
-  docker run --rm -i postgres:16-alpine psql -h "${SUPABASE_DB_URL}" -p 5432 -d "${DB_NAME}" -U "${DB_USER}" -v ON_ERROR_STOP=1 -f - < "$SQL_FILE"
+  docker run --rm -i postgres:18-alpine psql -h "${SUPABASE_DB_URL}" -p 5432 -d "${DB_NAME}" -U "${DB_USER}" -v ON_ERROR_STOP=1 -f - < "$SQL_FILE"
   exit 0
 fi
 

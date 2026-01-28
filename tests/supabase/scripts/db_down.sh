@@ -13,12 +13,12 @@ if [[ -z "${SUPABASE_DB_URL:-}" ]]; then
 fi
 
 if command -v psql >/dev/null 2>&1; then
-  psql -h "${SUPABASE_DB_URL}" -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -f "$SQL_FILE"
+  psql -h "${SUPABASE_DB_URL}" -p 5432 -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -f "$SQL_FILE"
   exit 0
 fi
 
 if command -v docker >/dev/null 2>&1; then
-  docker run --rm -i postgres:16-alpine psql -h "${SUPABASE_DB_URL}" -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -f - < "$SQL_FILE"
+  docker run --rm -i postgres:18-alpine psql -h "${SUPABASE_DB_URL}" -p 5432 -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -f - < "$SQL_FILE"
   exit 0
 fi
 
