@@ -25,7 +25,7 @@ func New(options ...Option) *CallGraphTracker {
 		functionStats:     make(map[string]*FunctionStats),
 		callerToCallees:   make(map[string]map[string]bool),
 		calleeToCallers:   make(map[string]map[string]bool),
-		executionContexts: make(map[string]map[string]time.Time),
+		executionContexts: make(map[string]map[string]executionContext),
 		contextLastAccess: make(map[string]time.Time),
 		startTime:         time.Now(),
 		cleanupStop:       make(chan struct{}),
@@ -116,13 +116,16 @@ func (t *CallGraphTracker) Enabled() bool {
 }
 
 // StartExecution marks the beginning of a function execution for a specific request
-func (t *CallGraphTracker) StartExecution(functionName string, requestID string, timestamp time.Time) {
+func (t *CallGraphTracker) StartExecution(functionName string, requestID string, executionID string, timestamp time.Time) {
 	if !t.config.Enabled {
 		return
 	}
 
-	if functionName == "" || requestID == "" {
-		t.logger.Warn("functionName or requestID is empty", zap.String("function", functionName), zap.String("requestID", requestID))
+	if functionName == "" || requestID == "" || executionID == "" {
+		t.logger.Warn("functionName, requestID, or executionID is empty",
+			zap.String("function", functionName),
+			zap.String("requestID", requestID),
+			zap.String("executionID", executionID))
 		return
 	}
 
@@ -131,11 +134,14 @@ func (t *CallGraphTracker) StartExecution(functionName string, requestID string,
 
 	// Initialize request context if needed
 	if t.executionContexts[requestID] == nil {
-		t.executionContexts[requestID] = make(map[string]time.Time)
+		t.executionContexts[requestID] = make(map[string]executionContext)
 	}
 
 	// Store start time for this function in this request
-	t.executionContexts[requestID][functionName] = timestamp
+	t.executionContexts[requestID][executionID] = executionContext{
+		functionName: functionName,
+		startTime:    timestamp,
+	}
 
 	// Update last access time for TTL tracking
 	t.contextLastAccess[requestID] = time.Now()
@@ -143,13 +149,14 @@ func (t *CallGraphTracker) StartExecution(functionName string, requestID string,
 	t.logger.Debug("started execution",
 		zap.String("function", functionName),
 		zap.String("requestID", requestID),
+		zap.String("executionID", executionID),
 		zap.Time("timestamp", timestamp))
 }
 
 // RecordEdge records an edge in the call graph when caller invokes callee
 // It automatically calculates edge execution time from the execution context
 // caller is empty string for external calls (entry points)
-func (t *CallGraphTracker) RecordEdge(caller, callee string, requestID string, timestamp time.Time) {
+func (t *CallGraphTracker) RecordEdge(caller, callee string, requestID string, callerExecutionID string, timestamp time.Time) {
 	if !t.config.Enabled {
 		return
 	}
@@ -174,18 +181,37 @@ func (t *CallGraphTracker) RecordEdge(caller, callee string, requestID string, t
 	if caller != "" && requestID != "" {
 		// Look up when caller started in this request
 		if requestCtx, ok := t.executionContexts[requestID]; ok {
-			if startTime, ok := requestCtx[caller]; ok {
-				executionTime = timestamp.Sub(startTime)
+			if callerExecutionID == "" {
+				t.logger.Warn("caller executionID is empty",
+					zap.String("caller", caller),
+					zap.String("callee", callee),
+					zap.String("requestID", requestID))
+				// Can't calculate edge time, skip recording
+				return
+			}
+			if ctx, ok := requestCtx[callerExecutionID]; ok {
+				if ctx.functionName != caller {
+					t.logger.Warn("caller executionID does not match caller",
+						zap.String("caller", caller),
+						zap.String("callee", callee),
+						zap.String("requestID", requestID),
+						zap.String("executionID", callerExecutionID))
+					// Can't calculate edge time, skip recording
+					return
+				}
+				executionTime = timestamp.Sub(ctx.startTime)
 				t.logger.Debug("calculated edge execution time",
 					zap.String("caller", caller),
 					zap.String("callee", callee),
 					zap.String("requestID", requestID),
+					zap.String("executionID", callerExecutionID),
 					zap.Duration("executionTime", executionTime))
 			} else {
-				t.logger.Warn("caller start time not found",
+				t.logger.Warn("caller execution context not found",
 					zap.String("caller", caller),
 					zap.String("callee", callee),
-					zap.String("requestID", requestID))
+					zap.String("requestID", requestID),
+					zap.String("executionID", callerExecutionID))
 				// Can't calculate edge time, skip recording
 				return
 			}
@@ -239,17 +265,21 @@ func (t *CallGraphTracker) RecordEdge(caller, callee string, requestID string, t
 		zap.String("caller", caller),
 		zap.String("callee", callee),
 		zap.String("requestID", requestID),
+		zap.String("executionID", callerExecutionID),
 		zap.Duration("edgeExecutionTime", executionTime))
 }
 
 // EndExecution marks the end of a function execution, records function stats, and cleans up execution context
-func (t *CallGraphTracker) EndExecution(functionName string, requestID string, timestamp time.Time) {
+func (t *CallGraphTracker) EndExecution(functionName string, requestID string, executionID string, timestamp time.Time) {
 	if !t.config.Enabled {
 		return
 	}
 
-	if functionName == "" || requestID == "" {
-		t.logger.Warn("functionName or requestID is empty", zap.String("function", functionName), zap.String("requestID", requestID))
+	if functionName == "" || requestID == "" || executionID == "" {
+		t.logger.Warn("functionName, requestID, or executionID is empty",
+			zap.String("function", functionName),
+			zap.String("requestID", requestID),
+			zap.String("executionID", executionID))
 		return
 	}
 
@@ -260,11 +290,21 @@ func (t *CallGraphTracker) EndExecution(functionName string, requestID string, t
 	var execTime time.Duration
 	var startTime time.Time
 	if requestCtx, ok := t.executionContexts[requestID]; ok {
-		if start, ok := requestCtx[functionName]; ok {
-			startTime = start
+		if ctx, ok := requestCtx[executionID]; ok {
+			if ctx.functionName != functionName {
+				t.logger.Warn("execution context function mismatch",
+					zap.String("function", functionName),
+					zap.String("requestID", requestID),
+					zap.String("executionID", executionID))
+				return
+			}
+			startTime = ctx.startTime
 			execTime = timestamp.Sub(startTime)
 		} else {
-			t.logger.Warn("start time not found for function in request context", zap.String("function", functionName), zap.String("requestID", requestID))
+			t.logger.Warn("execution context not found for function",
+				zap.String("function", functionName),
+				zap.String("requestID", requestID),
+				zap.String("executionID", executionID))
 			return
 		}
 	} else {
@@ -307,7 +347,7 @@ func (t *CallGraphTracker) EndExecution(functionName string, requestID string, t
 
 	// Clean up execution context
 	if requestCtx, ok := t.executionContexts[requestID]; ok {
-		delete(requestCtx, functionName)
+		delete(requestCtx, executionID)
 
 		// If this was the last function in this request, clean up the entire request context
 		if len(requestCtx) == 0 {
@@ -319,6 +359,7 @@ func (t *CallGraphTracker) EndExecution(functionName string, requestID string, t
 	t.logger.Debug("ended execution",
 		zap.String("function", functionName),
 		zap.String("requestID", requestID),
+		zap.String("executionID", executionID),
 		zap.Time("timestamp", timestamp))
 }
 
@@ -622,7 +663,7 @@ func (t *CallGraphTracker) Clear() {
 	t.functionStats = make(map[string]*FunctionStats)
 	t.callerToCallees = make(map[string]map[string]bool)
 	t.calleeToCallers = make(map[string]map[string]bool)
-	t.executionContexts = make(map[string]map[string]time.Time)
+	t.executionContexts = make(map[string]map[string]executionContext)
 	t.contextLastAccess = make(map[string]time.Time)
 	t.startTime = time.Now()
 }
@@ -715,7 +756,11 @@ func (t *CallGraphTracker) ClearFunctionData(functionName string) {
 
 	// Clean up any active execution contexts for this function
 	for requestID, ctx := range t.executionContexts {
-		delete(ctx, functionName)
+		for executionID, execCtx := range ctx {
+			if execCtx.functionName == functionName {
+				delete(ctx, executionID)
+			}
+		}
 		if len(ctx) == 0 {
 			delete(t.executionContexts, requestID)
 			delete(t.contextLastAccess, requestID)

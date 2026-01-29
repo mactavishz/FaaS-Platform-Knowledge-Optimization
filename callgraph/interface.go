@@ -9,16 +9,16 @@ type Tracker interface {
 
 	// StartExecution marks the beginning of a function execution for a specific request
 	// This should be called before invoking the function container
-	StartExecution(functionName string, requestID string, timestamp time.Time)
+	StartExecution(functionName string, requestID string, executionID string, timestamp time.Time)
 
 	// RecordEdge records an edge in the call graph when caller invokes callee
 	// It automatically calculates edge execution time from the execution context
 	// caller is empty string for external calls (entry points)
-	RecordEdge(caller, callee string, requestID string, timestamp time.Time)
+	RecordEdge(caller, callee string, requestID string, callerExecutionID string, timestamp time.Time)
 
 	// EndExecution marks the end of a function execution for a specific request
 	// It calculates and records function execution stats, then cleans up the execution context
-	EndExecution(functionName string, requestID string, timestamp time.Time)
+	EndExecution(functionName string, requestID string, executionID string, timestamp time.Time)
 
 	// RecordScaleUp records a scale-up or a cold-start event for the given function
 	RecordScaleUp(functionName string, timestamp time.Time, duration time.Duration, cold bool)

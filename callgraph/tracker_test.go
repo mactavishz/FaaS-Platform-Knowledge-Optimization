@@ -20,28 +20,30 @@ var testRequestCounter int64
 func simulateEdge(t *CallGraphTracker, caller, callee string, edgeTime, execTime time.Duration) string {
 	counter := atomic.AddInt64(&testRequestCounter, 1)
 	requestID := fmt.Sprintf("test-%d-%d", time.Now().UnixNano(), counter)
+	callerExecutionID := fmt.Sprintf("exec-caller-%d-%d", time.Now().UnixNano(), counter)
+	calleeExecutionID := fmt.Sprintf("exec-callee-%d-%d", time.Now().UnixNano(), counter)
 	now := time.Now()
 
 	// If caller exists, start its execution first (needed for edge time calculation)
 	if caller != "" {
-		t.StartExecution(caller, requestID, now)
+		t.StartExecution(caller, requestID, callerExecutionID, now)
 	}
 
 	// Record the edge (caller -> callee)
 	callTime := now.Add(edgeTime)
-	t.RecordEdge(caller, callee, requestID, callTime)
+	t.RecordEdge(caller, callee, requestID, callerExecutionID, callTime)
 
 	// Start and end callee execution (this records callee's function stats)
-	t.StartExecution(callee, requestID, callTime)
+	t.StartExecution(callee, requestID, calleeExecutionID, callTime)
 	endTime := callTime.Add(execTime)
-	t.EndExecution(callee, requestID, endTime)
+	t.EndExecution(callee, requestID, calleeExecutionID, endTime)
 
 	// Clean up caller's context without recording stats (caller is managed separately)
 	// We manually clean up instead of calling EndExecution to avoid recording caller stats
 	if caller != "" {
 		t.mutex.Lock()
 		if requestCtx, ok := t.executionContexts[requestID]; ok {
-			delete(requestCtx, caller)
+			delete(requestCtx, callerExecutionID)
 			if len(requestCtx) == 0 {
 				delete(t.executionContexts, requestID)
 				delete(t.contextLastAccess, requestID)
@@ -57,11 +59,12 @@ func simulateEdge(t *CallGraphTracker, caller, callee string, edgeTime, execTime
 func simulateFuncExec(t *CallGraphTracker, functionName string, execTime time.Duration) string {
 	counter := atomic.AddInt64(&testRequestCounter, 1)
 	requestID := fmt.Sprintf("test-%d-%d", time.Now().UnixNano(), counter)
+	executionID := fmt.Sprintf("exec-%d-%d", time.Now().UnixNano(), counter)
 	now := time.Now()
 
-	t.StartExecution(functionName, requestID, now)
+	t.StartExecution(functionName, requestID, executionID, now)
 	endTime := now.Add(execTime)
-	t.EndExecution(functionName, requestID, endTime)
+	t.EndExecution(functionName, requestID, executionID, endTime)
 
 	return requestID
 }
@@ -512,10 +515,10 @@ func TestSelfLoopPrevention(t *testing.T) {
 	now := time.Now()
 
 	// Start execution of funcA
-	tracker.StartExecution("funcA", requestID, now)
+	tracker.StartExecution("funcA", requestID, "exec-1", now)
 
 	// Try to record a self-loop
-	tracker.RecordEdge("funcA", "funcA", requestID, now.Add(100*time.Millisecond))
+	tracker.RecordEdge("funcA", "funcA", requestID, "exec-1", now.Add(100*time.Millisecond))
 
 	// Should have no edges recorded (self-loop rejected)
 	assert.Equal(t, 0, tracker.EdgeCount())
@@ -535,10 +538,10 @@ func TestEmptyCalleeValidation(t *testing.T) {
 	now := time.Now()
 
 	// Start execution
-	tracker.StartExecution("funcA", requestID, now)
+	tracker.StartExecution("funcA", requestID, "exec-1", now)
 
 	// Try to record with empty callee
-	tracker.RecordEdge("funcA", "", requestID, now.Add(100*time.Millisecond))
+	tracker.RecordEdge("funcA", "", requestID, "exec-1", now.Add(100*time.Millisecond))
 
 	// Should have no edges recorded
 	assert.Equal(t, 0, tracker.EdgeCount())
@@ -1099,12 +1102,12 @@ func TestClearFunctionDataWithActiveContexts(t *testing.T) {
 	now := time.Now()
 
 	// Start execution but don't end it (simulating in-flight request)
-	tracker.StartExecution("funcA", requestID, now)
+	tracker.StartExecution("funcA", requestID, "exec-active", now)
 
 	// Verify context exists
 	tracker.mutex.RLock()
 	assert.NotNil(t, tracker.executionContexts[requestID])
-	assert.NotNil(t, tracker.executionContexts[requestID]["funcA"])
+	assert.NotNil(t, tracker.executionContexts[requestID]["exec-active"])
 	tracker.mutex.RUnlock()
 
 	// Delete the function while request is in-flight
@@ -1113,7 +1116,7 @@ func TestClearFunctionDataWithActiveContexts(t *testing.T) {
 	// Context for funcA should be cleaned up
 	tracker.mutex.RLock()
 	if ctx, ok := tracker.executionContexts[requestID]; ok {
-		_, funcExists := ctx["funcA"]
+		_, funcExists := ctx["exec-active"]
 		assert.False(t, funcExists, "funcA should be removed from execution context")
 	}
 	tracker.mutex.RUnlock()
@@ -1158,11 +1161,11 @@ func TestStartExecutionAndRecordEdge(t *testing.T) {
 	now := time.Now()
 
 	// Start execution of funcA
-	tracker.StartExecution("funcA", requestID, now)
+	tracker.StartExecution("funcA", requestID, "exec-a", now)
 
 	// 100ms later, funcA calls funcB
 	callTime := now.Add(100 * time.Millisecond)
-	tracker.RecordEdge("funcA", "funcB", requestID, callTime)
+	tracker.RecordEdge("funcA", "funcB", requestID, "exec-a", callTime)
 
 	// Verify edge was recorded with correct execution time
 	assert.Equal(t, 1, tracker.EdgeCount())
@@ -1185,7 +1188,7 @@ func TestRecordEdgeExternalEntry(t *testing.T) {
 	now := time.Now()
 
 	// External call to funcA (no StartExecution needed for caller)
-	tracker.RecordEdge("", "funcA", requestID, now)
+	tracker.RecordEdge("", "funcA", requestID, "", now)
 
 	// Verify edge was recorded
 	assert.Equal(t, 1, tracker.EdgeCount())
@@ -1207,18 +1210,18 @@ func TestRecordEdgeChain(t *testing.T) {
 	t0 := time.Now()
 
 	// External → funcA
-	tracker.RecordEdge("", "funcA", requestID, t0)
-	tracker.StartExecution("funcA", requestID, t0)
+	tracker.RecordEdge("", "funcA", requestID, "", t0)
+	tracker.StartExecution("funcA", requestID, "exec-a", t0)
 
 	// 50ms later: funcA → funcB
 	t1 := t0.Add(50 * time.Millisecond)
-	tracker.RecordEdge("funcA", "funcB", requestID, t1)
-	tracker.StartExecution("funcB", requestID, t1)
+	tracker.RecordEdge("funcA", "funcB", requestID, "exec-a", t1)
+	tracker.StartExecution("funcB", requestID, "exec-b", t1)
 
 	// 30ms later: funcB → funcC
 	t2 := t1.Add(30 * time.Millisecond)
-	tracker.RecordEdge("funcB", "funcC", requestID, t2)
-	tracker.StartExecution("funcC", requestID, t2)
+	tracker.RecordEdge("funcB", "funcC", requestID, "exec-b", t2)
+	tracker.StartExecution("funcC", requestID, "exec-c", t2)
 
 	// Verify all edges
 	assert.Equal(t, 3, tracker.EdgeCount())
@@ -1244,18 +1247,18 @@ func TestConcurrentRequestsWithRequestID(t *testing.T) {
 
 	// Request 1: A → B (100ms edge time)
 	req1 := "req-001"
-	tracker.StartExecution("funcA", req1, now)
-	tracker.RecordEdge("funcA", "funcB", req1, now.Add(100*time.Millisecond))
+	tracker.StartExecution("funcA", req1, "exec-1", now)
+	tracker.RecordEdge("funcA", "funcB", req1, "exec-1", now.Add(100*time.Millisecond))
 
 	// Request 2: A → B (200ms edge time)
 	req2 := "req-002"
-	tracker.StartExecution("funcA", req2, now)
-	tracker.RecordEdge("funcA", "funcB", req2, now.Add(200*time.Millisecond))
+	tracker.StartExecution("funcA", req2, "exec-2", now)
+	tracker.RecordEdge("funcA", "funcB", req2, "exec-2", now.Add(200*time.Millisecond))
 
 	// Request 3: A → C (150ms edge time)
 	req3 := "req-003"
-	tracker.StartExecution("funcA", req3, now)
-	tracker.RecordEdge("funcA", "funcC", req3, now.Add(150*time.Millisecond))
+	tracker.StartExecution("funcA", req3, "exec-3", now)
+	tracker.RecordEdge("funcA", "funcC", req3, "exec-3", now.Add(150*time.Millisecond))
 
 	// Verify edges (2 unique edge relationships: A→B and A→C)
 	assert.Equal(t, 2, tracker.EdgeCount())
@@ -1284,7 +1287,7 @@ func TestEndExecution(t *testing.T) {
 	now := time.Now()
 
 	// Start execution
-	tracker.StartExecution("funcA", requestID, now)
+	tracker.StartExecution("funcA", requestID, "exec-1", now)
 
 	// Verify context exists
 	tracker.mutex.RLock()
@@ -1293,7 +1296,7 @@ func TestEndExecution(t *testing.T) {
 
 	// End execution
 	endTime := now.Add(100 * time.Millisecond)
-	tracker.EndExecution("funcA", requestID, endTime)
+	tracker.EndExecution("funcA", requestID, "exec-1", endTime)
 
 	// Verify context is cleaned up
 	tracker.mutex.RLock()
@@ -1317,10 +1320,35 @@ func TestRecordEdgeWithoutStartExecution(t *testing.T) {
 	now := time.Now()
 
 	// Try to record edge without StartExecution
-	tracker.RecordEdge("funcA", "funcB", requestID, now)
+	tracker.RecordEdge("funcA", "funcB", requestID, "exec-missing", now)
 
 	// Should not record the edge since caller start time is unknown
 	assert.Equal(t, 0, tracker.EdgeCount())
+}
+
+// TestConcurrentSameFunctionExecutionIDIsolation ensures concurrent invocations under same requestID do not collide
+func TestConcurrentSameFunctionExecutionIDIsolation(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
+	defer tracker.Stop()
+
+	requestID := "req-concurrent"
+	now := time.Now()
+
+	tracker.StartExecution("funcA", requestID, "exec-1", now)
+	tracker.StartExecution("funcA", requestID, "exec-2", now.Add(10*time.Millisecond))
+
+	tracker.EndExecution("funcA", requestID, "exec-1", now.Add(100*time.Millisecond))
+	tracker.EndExecution("funcA", requestID, "exec-2", now.Add(120*time.Millisecond))
+
+	stats, ok := tracker.GetFunctionStats("funcA")
+	require.True(t, ok)
+	assert.Equal(t, 2, stats.TotalCalls)
+
+	tracker.mutex.RLock()
+	_, exists := tracker.executionContexts[requestID]
+	tracker.mutex.RUnlock()
+	assert.False(t, exists, "execution context should be cleaned up after both invocations")
 }
 
 // TestMultipleFunctionsInSameRequest tests complex workflow
@@ -1336,18 +1364,18 @@ func TestMultipleFunctionsInSameRequest(t *testing.T) {
 	//                       A → C (A calls both B and C)
 
 	// External call to A
-	tracker.RecordEdge("", "A", requestID, t0)
-	tracker.StartExecution("A", requestID, t0)
+	tracker.RecordEdge("", "A", requestID, "", t0)
+	tracker.StartExecution("A", requestID, "exec-a", t0)
 
 	// A calls B at t=50ms
 	t1 := t0.Add(50 * time.Millisecond)
-	tracker.RecordEdge("A", "B", requestID, t1)
-	tracker.StartExecution("B", requestID, t1)
+	tracker.RecordEdge("A", "B", requestID, "exec-a", t1)
+	tracker.StartExecution("B", requestID, "exec-b", t1)
 
 	// A calls C at t=100ms (A started at t=0)
 	t2 := t0.Add(100 * time.Millisecond)
-	tracker.RecordEdge("A", "C", requestID, t2)
-	tracker.StartExecution("C", requestID, t2)
+	tracker.RecordEdge("A", "C", requestID, "exec-a", t2)
+	tracker.StartExecution("C", requestID, "exec-c", t2)
 
 	// Verify edges
 	assert.Equal(t, 3, tracker.EdgeCount())
@@ -1382,7 +1410,7 @@ func TestContextCleanup(t *testing.T) {
 	now := time.Now()
 
 	// Start execution but don't end it
-	tracker.StartExecution("funcA", requestID, now)
+	tracker.StartExecution("funcA", requestID, "exec-cleanup", now)
 
 	// Verify context exists
 	tracker.mutex.RLock()

@@ -74,8 +74,8 @@ type CallGraphTracker struct {
 	// Callee to callers mapping for quick lookup
 	calleeToCallers map[string]map[string]bool
 
-	// Execution context tracking: requestID -> functionName -> startTime
-	executionContexts map[string]map[string]time.Time
+	// Execution context tracking: requestID -> executionID -> context
+	executionContexts map[string]map[string]executionContext
 
 	// Track when each request context was last accessed (for TTL cleanup)
 	contextLastAccess map[string]time.Time
@@ -88,6 +88,12 @@ type CallGraphTracker struct {
 	cleanupDone chan struct{}
 
 	mutex sync.RWMutex
+}
+
+// executionContext holds information about a function's execution
+type executionContext struct {
+	functionName string
+	startTime    time.Time
 }
 
 // AggregatedEdge represents aggregated call data between two functions
