@@ -1,12 +1,12 @@
 [submodule "tinyFaaS"]
-	path = tinyFaaS
-	url = git@github.com:mactavishz/tinyFaaS.git
+	path =	tinyFaaS
+	url  =	https://github.com/mactavishz/tinyFaaS.git
 [submodule "faasd"]
-	path = faasd
-	url = git@github.com:mactavishz/faasd.git
+	path =	faasd
+	url  =	https://github.com/mactavishz/faasd.git
 [submodule "faas-cli"]
-	path = faas-cli
-	url = git@github.com:mactavishz/faas-cli.git
+	path =	faas-cli
+	url  =	https://github.com/mactavishz/faas-cli.git
 [submodule "go-sdk"]
-	path = go-sdk
-	url = git@github.com:mactavishz/go-sdk.git
+	path =	go-sdk
+	url  =	https://github.com/mactavishz/go-sdk
