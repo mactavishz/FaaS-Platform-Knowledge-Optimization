@@ -4,13 +4,11 @@ set -e
 
 export PROJECT_ROOT=/vagrant
 
-echo "==> Stopping existing tinyFaaS services..."
-sudo systemctl stop tf-manager 2>/dev/null || echo "tf-manager not running"
-sudo systemctl stop tf-rproxy 2>/dev/null || echo "tf-rproxy not running"
-sudo systemctl stop tf-gateway 2>/dev/null || echo "tf-gateway not running"
-
 # Navigate to tinyFaaS directory
 cd $PROJECT_ROOT/tinyFaaS
+
+echo "==> Shutting down the old services..."
+sudo make down
 
 echo "==> Building and installing tinyFaaS..."
 sudo make install
