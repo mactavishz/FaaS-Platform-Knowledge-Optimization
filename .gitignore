@@ -40,3 +40,6 @@ tmp/
 
 # local registry
 registry/
+
+# node modules
+node_modules/
