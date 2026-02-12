@@ -1,0 +1,16 @@
+{
+  "name": "benchmark",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "packageManager": "pnpm@10.28.2",
+  "scripts": {
+    "run:workflow-cold": "k6 run scripts/workflow_cold_latency.js",
+    "run:latency": "k6 run scripts/latency.ts"
+  },
+  "devDependencies": {
+    "@types/k6": "^1.5.0"
+  }
+}
