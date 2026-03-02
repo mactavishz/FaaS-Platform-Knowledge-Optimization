@@ -1,0 +1,7 @@
+{
+  "name": "handler",
+  "version": "1.0.0",
+  "description": "Tree E - leaf function",
+  "type": "module",
+  "main": "handler.js"
+}

@@ -1,0 +1,107 @@
+// Tree-C: Intermediate function with CPU work, calls F/G async
+// Express-style handler (req, res)
+
+import got from "got";
+import { Worker } from "node:worker_threads";
+
+const GATEWAY_BASE = "http://tinyfaas.com";
+
+const js_string = `
+const { workerData, parentPort } = require('worker_threads');
+
+let num = workerData.num || 7;
+let res = cpu_intensive(num);
+
+parentPort.postMessage(res);
+
+function cpu_intensive(baseNumber) {
+    let result = 0;
+    for (var i = Math.pow(baseNumber, 7); i >= 0; i--) {
+        result += Math.atan(i) * Math.tan(i);
+    }
+    return result;
+}
+`;
+
+function callFunction(functionName, data, sync, incomingHeaders) {
+    return (async () => {
+        const url = new URL(`${GATEWAY_BASE}/fn/tree-${functionName}`);
+
+        const headers = Object.assign({}, incomingHeaders || {});
+        delete headers.host;
+        delete headers["content-length"];
+        headers["content-type"] = "application/json";
+
+        if (!sync) {
+            headers["x-tinyfaas-async"] = "true";
+        } else {
+            delete headers["x-tinyfaas-async"];
+        }
+
+        try {
+            const res = await got.post(url, {
+                json: data,
+                headers,
+                retry: { limit: 0 },
+                throwHttpErrors: false,
+                followRedirect: false,
+                responseType: "text",
+            });
+
+            if (!sync) {
+                return {};
+            }
+
+            try {
+                return res.body ? JSON.parse(res.body) : {};
+            } catch {
+                return {};
+            }
+        } catch (err) {
+            console.error(
+                `Error calling ${functionName}:`,
+                err && err.message ? err.message : err,
+            );
+            throw err;
+        }
+    })();
+}
+
+export default async (req, res) => {
+    console.log("Event for C:", req.body);
+
+    let calls = [];
+    calls.push(callFunction("f", { test: "event" }, false, req.headers));
+    calls.push(callFunction("g", { test: "event" }, false, req.headers));
+
+    let num = req.body?.num ?? 7;
+
+    let w1 = new Promise((resolve, reject) => {
+        const worker = new Worker(js_string, {
+            workerData: { num },
+            eval: true,
+        });
+        worker.on("message", (m) => resolve(m));
+        worker.on("error", (m) => reject(m));
+    });
+    let w2 = new Promise((resolve, reject) => {
+        const worker = new Worker(js_string, {
+            workerData: { num },
+            eval: true,
+        });
+        worker.on("message", (m) => resolve(m));
+        worker.on("error", (m) => reject(m));
+    });
+
+    let r1 = await w1;
+    let r2 = await w2;
+
+    let results = await Promise.all(calls);
+
+    console.log("Results are", results);
+
+    res.json({
+        results: results,
+        w: [r1, r2],
+    });
+};

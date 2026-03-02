@@ -1,0 +1,45 @@
+provider:
+  name: tinyfaas
+functions:
+  tree-a:
+    lang: nodejs
+    handler: ./A
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  tree-b:
+    lang: nodejs
+    handler: ./B
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  tree-c:
+    lang: nodejs
+    handler: ./C
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  tree-d:
+    lang: nodejs
+    handler: ./D
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  tree-e:
+    lang: nodejs
+    handler: ./E
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  tree-f:
+    lang: nodejs
+    handler: ./F
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  tree-g:
+    lang: nodejs
+    handler: ./G
+    limits:
+      cpu: 0.25
+      memory: 256Mi
