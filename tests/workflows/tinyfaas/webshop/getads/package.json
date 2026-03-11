@@ -1,0 +1,8 @@
+{
+  "name": "handler",
+  "version": "1.0.0",
+  "description": "Webshop GetAds",
+  "type": "module",
+  "dependencies": {},
+  "main": "handler.js"
+}

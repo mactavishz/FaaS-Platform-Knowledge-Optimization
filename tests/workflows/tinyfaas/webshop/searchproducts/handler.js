@@ -1,0 +1,59 @@
+// Webshop-searchproducts: SearchProducts - searches products by name or description
+// Express-style handler (req, res)
+
+import got from "got";
+
+const GATEWAY_BASE = "http://tinyfaas.com";
+
+function callFunction(functionName, data, sync, incomingHeaders) {
+    return (async () => {
+        const url = new URL(`${GATEWAY_BASE}/fn/webshop-${functionName}`);
+
+        const headers = Object.assign({}, incomingHeaders || {});
+        delete headers.host;
+        delete headers["content-length"];
+        headers["content-type"] = "application/json";
+
+        if (!sync) {
+            headers["x-tinyfaas-async"] = "true";
+        } else {
+            delete headers["x-tinyfaas-async"];
+        }
+
+        try {
+            const res = await got.post(url, {
+                json: data,
+                headers,
+                retry: { limit: 0 },
+                throwHttpErrors: false,
+                followRedirect: false,
+                responseType: "text",
+            });
+
+            if (!sync) return {};
+            try {
+                return res.body ? JSON.parse(res.body) : {};
+            } catch {
+                return {};
+            }
+        } catch (err) {
+            console.error(`Error calling ${functionName}:`, err && err.message ? err.message : err);
+            throw err;
+        }
+    })();
+}
+
+export default async (req, res) => {
+    const event = req.body;
+    console.log("SearchProducts: Event:", event);
+
+    const headers = req.headers;
+    const query = String(event.query || "");
+
+    const productsList = await callFunction("listproducts", {}, true, headers);
+    const results = (productsList.products || []).filter(
+        (p) => p.name.includes(query) || p.description.includes(query),
+    );
+
+    res.json(results);
+};

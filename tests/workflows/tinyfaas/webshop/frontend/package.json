@@ -1,0 +1,10 @@
+{
+  "name": "handler",
+  "version": "1.0.0",
+  "description": "Webshop Frontend",
+  "type": "module",
+  "dependencies": {
+    "got": "14.6.6"
+  },
+  "main": "handler.js"
+}

@@ -1,0 +1,10 @@
+{
+  "name": "handler",
+  "version": "1.0.0",
+  "description": "Webshop CartStorage",
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "2.49.1"
+  },
+  "main": "handler.js"
+}
