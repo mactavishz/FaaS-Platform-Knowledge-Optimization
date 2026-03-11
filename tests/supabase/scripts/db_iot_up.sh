@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-SQL_FILE="$ROOT_DIR/sql/create_tables.sql"
+SQL_FILE="$ROOT_DIR/sql/create_iot_tables.sql"
 DB_USER="postgres"
 DB_NAME="postgres"
 

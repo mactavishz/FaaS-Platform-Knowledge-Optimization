@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-SQL_FILE="$ROOT_DIR/sql/drop_tables.sql"
+SQL_FILE="$ROOT_DIR/sql/truncate_webshop_tables.sql"
 DB_USER="postgres"
 DB_NAME="postgres"
 
@@ -22,5 +22,5 @@ if command -v docker >/dev/null 2>&1; then
   exit 0
 fi
 
-echo "Neither 'psql' nor 'docker' is available to run teardown." >&2
+echo "Neither 'psql' nor 'docker' is available to run truncate." >&2
 exit 1
