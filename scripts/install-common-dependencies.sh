@@ -29,5 +29,8 @@ sh -c 'cat > /etc/profile.d/go.sh <<EOF
 export PATH=\$PATH:/usr/local/go/bin
 EOF'
 
-# Also add to vagrant user's bashrc for interactive shells
-echo 'export PATH=$PATH:/usr/local/go/bin' >> /home/vagrant/.bashrc
+# Also add to the deploy user's bashrc for interactive shells
+DEPLOY_USER="${DEPLOY_USER:-vagrant}"
+if [ -d "/home/$DEPLOY_USER" ]; then
+    echo 'export PATH=$PATH:/usr/local/go/bin' >> "/home/$DEPLOY_USER/.bashrc"
+fi

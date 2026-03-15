@@ -2,7 +2,7 @@
 
 set -e
 
-export PROJECT_ROOT=/vagrant
+export PROJECT_ROOT="${PROJECT_ROOT:-/vagrant}"
 
 # Navigate to tinyFaaS directory
 cd $PROJECT_ROOT/tinyFaaS
@@ -62,9 +62,9 @@ echo "==> Reloading systemd daemon..."
 sudo systemctl daemon-reload
 
 echo "==> Starting tinyFaaS services..."
-sudo systemctl start tf-gateway
-sudo systemctl start tf-rproxy
-sudo systemctl start tf-manager
+sudo systemctl enable --now tf-gateway
+sudo systemctl enable --now tf-rproxy
+sudo systemctl enable --now tf-manager
 
 # Wait a moment and check if services are running
 sleep 3
