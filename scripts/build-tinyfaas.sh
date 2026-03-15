@@ -8,10 +8,10 @@ export PROJECT_ROOT="${PROJECT_ROOT:-/vagrant}"
 cd $PROJECT_ROOT/tinyFaaS
 
 echo "==> Shutting down the old services..."
-sudo make down
+make down
 
 echo "==> Building and installing tinyFaaS..."
-sudo make install
+make install
 
 echo "==> Configuring tinyFaaS environment..."
 # Set default values
