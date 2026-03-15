@@ -14,7 +14,7 @@
 import got from "got";
 import { Worker } from "worker_threads";
 
-const GATEWAY_BASE = "http://tinyfaas.com";
+const GATEWAY_BASE = process.env.TINYFAAS_GATEWAY_URL || "http://tinyfaas.com";
 
 // Worker thread code (CommonJS, evaluated inline)
 const WORKER_CODE = `

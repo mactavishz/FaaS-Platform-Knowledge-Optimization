@@ -4,7 +4,7 @@
 import got from "got";
 import { Worker } from "node:worker_threads";
 
-const GATEWAY_BASE = "http://tinyfaas.com";
+const GATEWAY_BASE = process.env.TINYFAAS_GATEWAY_URL || "http://tinyfaas.com";
 
 const js_string = `
 const { workerData, parentPort } = require('worker_threads');

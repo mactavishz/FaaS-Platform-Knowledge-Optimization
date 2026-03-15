@@ -3,7 +3,7 @@
 
 import got from "got";
 
-const GATEWAY_BASE = "http://tinyfaas.com";
+const GATEWAY_BASE = process.env.TINYFAAS_GATEWAY_URL || "http://tinyfaas.com";
 
 // Helper to call another function via the gateway
 function callFunction(functionName, data, sync, incomingHeaders) {

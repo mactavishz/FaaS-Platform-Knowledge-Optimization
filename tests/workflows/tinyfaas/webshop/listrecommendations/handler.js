@@ -4,7 +4,7 @@
 
 import got from "got";
 
-const GATEWAY_BASE = "http://tinyfaas.com";
+const GATEWAY_BASE = process.env.TINYFAAS_GATEWAY_URL || "http://tinyfaas.com";
 
 function callFunction(functionName, data, sync, incomingHeaders) {
     return (async () => {
