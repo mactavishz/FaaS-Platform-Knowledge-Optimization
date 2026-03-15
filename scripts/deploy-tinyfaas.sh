@@ -19,15 +19,17 @@ DEFAULT_DEPLOY_DIR="/opt/faas-platform"
 # ---------------------------------------------------------------------------
 usage() {
     cat <<EOF
-Usage: $(basename "$0") --host <user@host> --env-file <path> [OPTIONS]
+Usage: $(basename "$0") --host <host> --env-file <path> [OPTIONS]
 
 Deploy tinyFaaS to a remote Ubuntu server.
 
 Required:
-  --host <user@host>        SSH target (e.g., ubuntu@192.168.1.100)
+  --host <host>             SSH target — a bare alias (e.g., hetzner), user@host,
+                            or user@ip. Bare aliases are resolved via ~/.ssh/config.
   --env-file <path>         Local path to .tinyfaas.env file to upload
 
 Optional:
+  --port <number>           SSH port (default: 22, or as set in ~/.ssh/config)
   --branch <name>           Git branch to deploy (default: $DEFAULT_BRANCH)
   --github-token <token>    GitHub PAT for HTTPS clone
                             (fallback: GITHUB_TOKEN environment variable)
@@ -37,8 +39,11 @@ Optional:
   --help                    Show this help message
 
 Examples:
-  # Fresh deploy with all defaults
-  $(basename "$0") --host ubuntu@192.168.1.100 --env-file .tinyfaas.env
+  # Fresh deploy using an SSH config alias
+  $(basename "$0") --host hetzner --env-file .tinyfaas.env
+
+  # Fresh deploy with explicit user@ip and custom port
+  $(basename "$0") --host ubuntu@192.168.1.100 --port 2222 --env-file .tinyfaas.env
 
   # Deploy a specific branch with explicit token and SSH key
   $(basename "$0") --host ubuntu@myserver.com \\
@@ -48,7 +53,7 @@ Examples:
     --ssh-key ~/.ssh/id_ed25519
 
   # Re-deploy (update) skipping dependency installation
-  $(basename "$0") --host ubuntu@myserver.com --env-file .tinyfaas.env --skip-deps
+  $(basename "$0") --host hetzner --env-file .tinyfaas.env --skip-deps
 EOF
 }
 
@@ -60,6 +65,7 @@ ENV_FILE=""
 BRANCH="$DEFAULT_BRANCH"
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 SSH_KEY=""
+SSH_PORT=""
 DEPLOY_DIR="$DEFAULT_DEPLOY_DIR"
 SKIP_DEPS=false
 
@@ -67,6 +73,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --host)          HOST="$2"; shift 2 ;;
         --env-file)      ENV_FILE="$2"; shift 2 ;;
+        --port)          SSH_PORT="$2"; shift 2 ;;
         --branch)        BRANCH="$2"; shift 2 ;;
         --github-token)  GITHUB_TOKEN="$2"; shift 2 ;;
         --ssh-key)       SSH_KEY="$2"; shift 2 ;;
@@ -105,6 +112,11 @@ if [[ -n "$SSH_KEY" && ! -f "$SSH_KEY" ]]; then
     errors=$((errors + 1))
 fi
 
+if [[ -n "$SSH_PORT" && ! "$SSH_PORT" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: --port must be a number: $SSH_PORT"
+    errors=$((errors + 1))
+fi
+
 if [[ $errors -gt 0 ]]; then
     echo
     usage
@@ -114,9 +126,18 @@ fi
 # ---------------------------------------------------------------------------
 # SSH/SCP helpers
 # ---------------------------------------------------------------------------
+# ssh uses -p, scp uses -P for port — build separate option strings.
 SSH_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o BatchMode=yes"
+SCP_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o BatchMode=yes"
+
+if [[ -n "$SSH_PORT" ]]; then
+    SSH_OPTS="$SSH_OPTS -p $SSH_PORT"
+    SCP_OPTS="$SCP_OPTS -P $SSH_PORT"
+fi
+
 if [[ -n "$SSH_KEY" ]]; then
     SSH_OPTS="$SSH_OPTS -i $SSH_KEY"
+    SCP_OPTS="$SCP_OPTS -i $SSH_KEY"
 fi
 
 ssh_cmd() {
@@ -126,7 +147,7 @@ ssh_cmd() {
 
 scp_cmd() {
     # shellcheck disable=SC2086
-    scp $SSH_OPTS "$@"
+    scp $SCP_OPTS "$@"
 }
 
 # ---------------------------------------------------------------------------
