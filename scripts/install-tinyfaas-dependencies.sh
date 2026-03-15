@@ -14,7 +14,7 @@ fi
 export ARCH
 
 # Remove any existing docker, containerd, runc installations
-apt-get remove $(dpkg --get-selections docker.io docker-compose docker-compose-v2 docker-doc podman-docker containerd runc | cut -f1)
+apt-get remove -y $(dpkg --get-selections docker.io docker-compose docker-compose-v2 docker-doc podman-docker containerd runc | cut -f1) 2>/dev/null || true
 
 # Install docker
 install -m 0755 -d /etc/apt/keyrings
