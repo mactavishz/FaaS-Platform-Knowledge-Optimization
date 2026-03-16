@@ -32,5 +32,12 @@ EOF'
 # Also add to the deploy user's bashrc for interactive shells
 DEPLOY_USER="${DEPLOY_USER:-vagrant}"
 if [ -d "/home/$DEPLOY_USER" ]; then
-    echo 'export PATH=$PATH:/usr/local/go/bin' >> "/home/$DEPLOY_USER/.bashrc"
+  GO_PATH_ENTRY="/usr/local/go/bin"
+  BASHRC_FILE="/home/$DEPLOY_USER/.bashrc"
+
+  # Keep this idempotent across repeated deploy runs.
+  touch "$BASHRC_FILE"
+  if ! grep -Fqs "$GO_PATH_ENTRY" "$BASHRC_FILE"; then
+    echo 'export PATH=$PATH:/usr/local/go/bin' >> "$BASHRC_FILE"
+  fi
 fi
