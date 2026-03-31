@@ -17,6 +17,17 @@ const (
 	ExponentialMovingAverage
 )
 
+func (m AveragingMethod) String() string {
+	switch m {
+	case ExponentialMovingAverage:
+		return "EMA"
+	case SimpleMovingAverage:
+		fallthrough
+	default:
+		return "SMA"
+	}
+}
+
 type SMAConfig struct {
 	// WindowSize is the window size for Simple Moving Average
 	// Only used when AveragingMethod is SimpleMovingAverage
@@ -34,6 +45,15 @@ type EMAConfig struct {
 type Config struct {
 	// Enabled indicates whether call graph tracking is enabled
 	Enabled bool
+
+	// Method selects the averaging strategy used for execution-time statistics.
+	Method AveragingMethod
+
+	// SMAConfig applies when Method is SimpleMovingAverage.
+	SMAConfig *SMAConfig
+
+	// EMAConfig applies when Method is ExponentialMovingAverage.
+	EMAConfig *EMAConfig
 
 	// ContextTTL is the time-to-live for execution contexts
 	// Contexts older than this will be cleaned up to prevent memory leaks

@@ -96,6 +96,55 @@ func TestNewTrackerWithConfig(t *testing.T) {
 	assert.Equal(t, SimpleMovingAverage, tracker.averagingMethod)
 }
 
+func TestNewTrackerWithConfigEMA(t *testing.T) {
+	config := &Config{
+		Enabled:                true,
+		Method:                 ExponentialMovingAverage,
+		EMAConfig:              &EMAConfig{Alpha: 0.42},
+		ContextTTL:             1,
+		ContextCleanupInterval: 1,
+		Prewarm: &PrewarmConfig{
+			Enabled: true,
+		},
+	}
+
+	tracker := New(
+		WithConfig(config),
+		WithLogger(zap.NewNop()),
+	)
+	tracker.Start()
+	defer tracker.Stop()
+
+	assert.Equal(t, ExponentialMovingAverage, tracker.averagingMethod)
+	require.NotNil(t, tracker.emaConfig)
+	assert.Equal(t, 0.42, tracker.emaConfig.Alpha)
+	assert.Nil(t, tracker.smaConfig)
+}
+
+func TestNewTrackerWithConfigInvalidMethodFallsBackToSMA(t *testing.T) {
+	config := &Config{
+		Enabled:                true,
+		Method:                 AveragingMethod(99),
+		ContextTTL:             1,
+		ContextCleanupInterval: 1,
+		Prewarm: &PrewarmConfig{
+			Enabled: true,
+		},
+	}
+
+	tracker := New(
+		WithConfig(config),
+		WithLogger(zap.NewNop()),
+	)
+	tracker.Start()
+	defer tracker.Stop()
+
+	assert.Equal(t, SimpleMovingAverage, tracker.averagingMethod)
+	require.NotNil(t, tracker.smaConfig)
+	assert.Equal(t, DEFAULT_SMA_WINDOW_SIZE, tracker.smaConfig.WindowSize)
+	assert.Nil(t, tracker.emaConfig)
+}
+
 func TestRecord(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
 	tracker.Start()

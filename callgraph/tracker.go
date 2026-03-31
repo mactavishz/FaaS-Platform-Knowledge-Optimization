@@ -31,10 +31,7 @@ func New(options ...Option) *CallGraphTracker {
 		cleanupStop:       make(chan struct{}),
 		cleanupDone:       make(chan struct{}),
 	}
-	// Default to SMA
-	WithSMA(&SMAConfig{
-		WindowSize: DEFAULT_SMA_WINDOW_SIZE,
-	})(tracker)
+	applyAveragingConfig(tracker, tracker.config)
 	for _, option := range options {
 		option(tracker)
 	}
@@ -48,20 +45,29 @@ func WithConfig(config *Config) Option {
 			panic(err)
 		}
 		tracker.config = config
+		applyAveragingConfig(tracker, config)
 	}
 }
 
 func WithSMA(smaConfig *SMAConfig) Option {
 	return func(tracker *CallGraphTracker) {
 		tracker.averagingMethod = SimpleMovingAverage
+		if smaConfig == nil {
+			smaConfig = &SMAConfig{WindowSize: DEFAULT_SMA_WINDOW_SIZE}
+		}
 		tracker.smaConfig = smaConfig
+		tracker.emaConfig = nil
 	}
 }
 
 func WithEMA(emaConfig *EMAConfig) Option {
 	return func(tracker *CallGraphTracker) {
 		tracker.averagingMethod = ExponentialMovingAverage
+		if emaConfig == nil {
+			emaConfig = &EMAConfig{Alpha: DEFAULT_EMA_ALPHA}
+		}
 		tracker.emaConfig = emaConfig
+		tracker.smaConfig = nil
 	}
 }
 
@@ -80,9 +86,35 @@ func DefaultLogger() *zap.Logger {
 func DefaultConfig() *Config {
 	return &Config{
 		Enabled:                true,
+		Method:                 SimpleMovingAverage,
+		SMAConfig:              &SMAConfig{WindowSize: DEFAULT_SMA_WINDOW_SIZE},
 		ContextTTL:             DefaultContextTTL,
 		ContextCleanupInterval: DefaultContextCleanupInterval,
 		Prewarm:                DefaultPrewarmConfig(),
+	}
+}
+
+func applyAveragingConfig(tracker *CallGraphTracker, config *Config) {
+	if config == nil {
+		WithSMA(&SMAConfig{WindowSize: DEFAULT_SMA_WINDOW_SIZE})(tracker)
+		return
+	}
+
+	switch config.Method {
+	case ExponentialMovingAverage:
+		emaConfig := config.EMAConfig
+		if emaConfig == nil {
+			emaConfig = &EMAConfig{Alpha: DEFAULT_EMA_ALPHA}
+		}
+		WithEMA(emaConfig)(tracker)
+	case SimpleMovingAverage:
+		fallthrough
+	default:
+		smaConfig := config.SMAConfig
+		if smaConfig == nil {
+			smaConfig = &SMAConfig{WindowSize: DEFAULT_SMA_WINDOW_SIZE}
+		}
+		WithSMA(smaConfig)(tracker)
 	}
 }
 
