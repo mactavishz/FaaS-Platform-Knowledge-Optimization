@@ -34,6 +34,11 @@ build-faas-cli:
 	# run make command inside faas-cli directory
 	make -C faas-cli go-build
 
+.PHONY: test-faas-cli
+test-faas-cli:
+	# run make command inside faas-cli directory
+	make -C faas-cli test-unit
+
 .PHONY: clean-faas-cli
 clean-faas-cli:
 	make -C faas-cli clean
