@@ -4,8 +4,8 @@
 // Supported operations (req.body.operation):
 //   "get"       - homepage: currencies, products (currency-converted), ads, cart, recommendations
 //   "cart"      - cart view with shipment quote (sync)
-//   "addcart"   - add a product to the cart, return updated cart (async)
-//   "checkout"  - delegate to the checkout orchestrator (async)
+//   "addcart"   - add a product to the cart, return updated cart (sync)
+//   "checkout"  - delegate to the checkout orchestrator (sync)
 //   "emptycart" - clear the user's cart (async)
 
 import got from "got";
@@ -118,7 +118,7 @@ export default async (req, res) => {
                     productId: event.productId || "0",
                     quantity: event.quantity || 1,
                 },
-                false,
+                true,
                 headers,
             );
             const updatedCart = await callFunction("getcart", { userId }, true, headers);
@@ -127,7 +127,7 @@ export default async (req, res) => {
         }
 
         case "checkout": {
-            // Delegate to the checkout orchestrator (fire-and-forget)
+            // Delegate to the checkout orchestrator (synchronous)
             await callFunction(
                 "checkout",
                 {
@@ -137,7 +137,7 @@ export default async (req, res) => {
                     email: event.email,
                     creditCard: event.creditCard || { creditCardNumber: event.creditCardNumber },
                 },
-                false,
+                true,
                 headers,
             );
             res.json({ userId });

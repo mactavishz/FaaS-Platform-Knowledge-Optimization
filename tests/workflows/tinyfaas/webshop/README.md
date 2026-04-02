@@ -36,6 +36,11 @@ Legend:
 - `sync` — the caller awaits a result before continuing.
 - `async` — fire-and-forget; the caller does not wait for the result.
 
+Current frontend behavior:
+
+- `operation="addcart"` is synchronous from `frontend` to `addcartitem`
+- `operation="checkout"` is synchronous from `frontend` to `checkout`
+
 ```text
 frontend (entry, dispatches by operation)
 
@@ -55,13 +60,13 @@ frontend (entry, dispatches by operation)
     |-sync-> shipmentquote
 
   operation="addcart"
-    |-async-> addcartitem
-    |           |-async-> cartstorage  [Supabase: UPSERT INTO webshop_cart]
+    |-sync->  addcartitem
+    |           |-sync->  cartstorage  [Supabase: UPSERT INTO webshop_cart]
     |-sync->  getcart
                 |-sync-> cartstorage  [Supabase: SELECT webshop_cart WHERE user_id=?]
 
   operation="checkout"
-    |-async-> checkout
+    |-sync->  checkout
                 |-sync->  getcart
                 |           |-sync-> cartstorage  [Supabase: SELECT webshop_cart WHERE user_id=?]
                 |-sync->  listproducts

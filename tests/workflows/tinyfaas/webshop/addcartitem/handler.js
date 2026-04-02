@@ -49,7 +49,7 @@ export default async (req, res) => {
 
     const headers = req.headers;
 
-    // Async fire-and-forget: cartstorage handles the actual upsert
+    // Synchronous call: wait for cartstorage upsert to complete
     await callFunction(
         "cartstorage",
         {
@@ -58,7 +58,7 @@ export default async (req, res) => {
             productId: event.productId,
             quantity: event.quantity,
         },
-        false,
+        true,
         headers,
     );
 
