@@ -1,0 +1,346 @@
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+import { Counter, Trend } from 'k6/metrics';
+import {
+  buildInvokePath,
+  envBool,
+  envInt,
+  envList,
+  envString,
+  normalizeBaseUrl,
+  parseJsonSafe,
+  workflowScaledDown,
+} from './lib/utils.js';
+
+const browseMs = new Trend('browse_ms');
+const addcartMs = new Trend('addcart_ms');
+const checkoutMs = new Trend('checkout_ms');
+const journeyMs = new Trend('journey_ms');
+const scaleDownWaitMs = new Trend('scale_down_wait_ms');
+
+const invokeFailures = new Counter('invoke_failures');
+const listFailures = new Counter('list_failures');
+const stateValidationFailures = new Counter('state_validation_failures');
+const scaleDownTimeouts = new Counter('scale_down_timeouts');
+
+const gatewayUrl = normalizeBaseUrl(envString('GATEWAY_URL', 'http://127.0.0.1:8888', false));
+const entryFunction = envString('ENTRY_FUNCTION', 'webshop-frontend', false);
+const invokePathTemplate = envString('INVOKE_PATH', '/fn/{name}', false);
+const listPath = envString('LIST_PATH', '/system/list', false);
+
+const workflowFunctions = parseWorkflowFunctions();
+const strictFunctions = envBool('STRICT_FUNCTIONS', true);
+
+const expectedStatus = envInt('EXPECTED_STATUS', 200);
+const invokeTimeoutMs = envInt('INVOKE_TIMEOUT_MS', 60000);
+const pollIntervalMs = envInt('POLL_INTERVAL_MS', 500);
+const scaleDownTimeoutMs = envInt('SCALE_DOWN_TIMEOUT_MS', 120000);
+const idleWaitMs = envInt('IDLE_WAIT_MS', 35000);
+const maxDuration = envString('MAX_DURATION', '60m', false);
+const gracefulStop = envString('GRACEFUL_STOP', '30s', false);
+
+const currency = envString('CURRENCY', 'EUR', false);
+const productPlan = parseProductPlan();
+const runId = envString('RUN_ID', 'webshop-bench', false);
+const runLabel = envString('RUN_LABEL', '', false);
+
+const checkoutAddress = parseJsonOrDefault(
+  envString('CHECKOUT_ADDRESS_JSON', '{"street":"123 Main St"}', false),
+  { street: '123 Main St' },
+  'CHECKOUT_ADDRESS_JSON',
+);
+const checkoutEmail = envString('CHECKOUT_EMAIL', 'bench-user@example.com', false);
+const checkoutCreditCard = parseJsonOrDefault(
+  envString('CHECKOUT_CREDIT_CARD_JSON', '{"creditCardNumber":"4111111111111111"}', false),
+  { creditCardNumber: '4111111111111111' },
+  'CHECKOUT_CREDIT_CARD_JSON',
+);
+
+const frontendUrl = `${gatewayUrl}${buildInvokePath(invokePathTemplate, entryFunction)}`;
+const listUrl = `${gatewayUrl}${listPath}`;
+
+export const options = {
+  scenarios: {
+    default: {
+      executor: 'shared-iterations',
+      vus: envInt('VUS', 1),
+      iterations: envInt('ITERATIONS', 10),
+      maxDuration,
+      gracefulStop,
+    },
+  },
+};
+
+export default function () {
+  const journeyStart = Date.now();
+  const userId = `${runId}-vu${__VU}-iter${__ITER}`;
+  const baseTags = {
+    entry: entryFunction,
+    workflow: workflowFunctions.join(','),
+    label: runLabel,
+  };
+
+  cleanupCart(userId, baseTags);
+
+  waitForScaleDown({ ...baseTags, phase: 'before_browse' });
+
+  const browseResult = invokeFrontend(
+    'get',
+    {
+      userId,
+      currency,
+    },
+    { ...baseTags, step: 'browse' },
+  );
+  browseMs.add(browseResult.response.timings.duration, { ...baseTags, step: 'browse' });
+  validateBrowsePayload(browseResult.body, baseTags);
+
+  idleAndScaleDown('before_addcart', baseTags);
+
+  for (const product of productPlan) {
+    const addcartResult = invokeFrontend(
+      'addcart',
+      {
+        userId,
+        productId: product.productId,
+        quantity: product.quantity,
+      },
+      { ...baseTags, step: 'addcart' },
+    );
+    addcartMs.add(addcartResult.response.timings.duration, {
+      ...baseTags,
+      step: 'addcart',
+      product_id: product.productId,
+    });
+    validateAddcartPayload(addcartResult.body, product, baseTags);
+  }
+
+  idleAndScaleDown('before_checkout', baseTags);
+
+  const checkoutResult = invokeFrontend(
+    'checkout',
+    {
+      userId,
+      currency,
+      address: checkoutAddress,
+      email: checkoutEmail,
+      creditCard: checkoutCreditCard,
+    },
+    { ...baseTags, step: 'checkout' },
+  );
+  checkoutMs.add(checkoutResult.response.timings.duration, { ...baseTags, step: 'checkout' });
+  validateCheckoutPayload(checkoutResult.body, userId, baseTags);
+
+  journeyMs.add(Date.now() - journeyStart, { ...baseTags, step: 'journey' });
+}
+
+function parseWorkflowFunctions() {
+  const configured = envList('WORKFLOW_FUNCTIONS', false);
+  if (configured.length > 0) {
+    return configured;
+  }
+  return [
+    'webshop-frontend',
+    'webshop-checkout',
+    'webshop-addcartitem',
+    'webshop-emptycart',
+    'webshop-getcart',
+    'webshop-cartstorage',
+    'webshop-listproducts',
+    'webshop-listrecommendations',
+    'webshop-currency',
+    'webshop-supportedcurrencies',
+    'webshop-getads',
+    'webshop-shipmentquote',
+    'webshop-shiporder',
+    'webshop-email',
+  ];
+}
+
+function parseProductPlan() {
+  const productIds = envList('PRODUCT_IDS', false);
+  const quantities = envList('PRODUCT_QUANTITIES', false);
+
+  const ids = productIds.length > 0 ? productIds : ['3', '8'];
+  const qtys = quantities.length > 0 ? quantities : ['1', '2'];
+
+  const plan = [];
+  for (let i = 0; i < ids.length; i += 1) {
+    const rawQuantity = qtys[i] || qtys[qtys.length - 1] || '1';
+    const parsedQuantity = parseInt(rawQuantity, 10);
+    if (Number.isNaN(parsedQuantity) || parsedQuantity <= 0) {
+      throw new Error(`Invalid quantity for PRODUCT_QUANTITIES at index ${i}: ${rawQuantity}`);
+    }
+    plan.push({ productId: ids[i], quantity: parsedQuantity });
+  }
+  return plan;
+}
+
+function parseJsonOrDefault(raw, defaultValue, envKey) {
+  const parsed = parseJsonSafe(raw);
+  if (parsed === null) {
+    throw new Error(`Invalid JSON for ${envKey}`);
+  }
+  if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return defaultValue;
+  }
+  return parsed;
+}
+
+function invokeFrontend(operation, payload, tags) {
+  const requestBody = JSON.stringify({ operation, ...payload });
+  const response = http.post(frontendUrl, requestBody, {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    timeout: `${invokeTimeoutMs}ms`,
+    tags,
+  });
+
+  const statusOk = check(response, {
+    'invoke status ok': (res) => res.status === expectedStatus,
+  });
+
+  if (!statusOk) {
+    invokeFailures.add(1, tags);
+  }
+
+  return {
+    response,
+    body: parseJsonSafe(response.body),
+  };
+}
+
+function waitForScaleDown(tags) {
+  if (workflowFunctions.length === 0) {
+    return;
+  }
+
+  const waitStart = Date.now();
+  while (true) {
+    const elapsed = Date.now() - waitStart;
+    if (elapsed > scaleDownTimeoutMs) {
+      scaleDownTimeouts.add(1, tags);
+      throw new Error(
+        `Scale-down wait exceeded ${scaleDownTimeoutMs}ms for workflow ${workflowFunctions.join(',')}`,
+      );
+    }
+
+    const listResponse = http.get(listUrl, {
+      timeout: `${invokeTimeoutMs}ms`,
+      tags,
+    });
+
+    const listOk = check(listResponse, {
+      'list status ok': (res) => res.status === 200,
+    });
+    if (!listOk) {
+      listFailures.add(1, tags);
+    } else {
+      const payload = parseJsonSafe(listResponse.body);
+      if (!payload) {
+        listFailures.add(1, tags);
+      } else if (workflowScaledDown(payload, workflowFunctions, strictFunctions)) {
+        scaleDownWaitMs.add(Date.now() - waitStart, tags);
+        return;
+      }
+    }
+
+    sleep(pollIntervalMs / 1000);
+  }
+}
+
+function idleAndScaleDown(phase, baseTags) {
+  sleep(idleWaitMs / 1000);
+  waitForScaleDown({ ...baseTags, phase });
+}
+
+function cleanupCart(userId, baseTags) {
+  invokeFrontend(
+    'emptycart',
+    {
+      userId,
+    },
+    { ...baseTags, step: 'cleanup_emptycart' },
+  );
+  waitForCartEmpty(userId, baseTags, 'cleanup_verify');
+}
+
+function waitForCartEmpty(userId, baseTags, step) {
+  const timeoutLabel = step || 'cart_empty';
+  const cleanupTimeoutMs = envInt('CLEANUP_TIMEOUT_MS', 60000);
+  const stateStart = Date.now();
+
+  while (true) {
+    const cart = loadCart(userId, { ...baseTags, step: `${timeoutLabel}_poll` });
+    if (cart && cart.length === 0) {
+      return;
+    }
+
+    if (Date.now() - stateStart > cleanupTimeoutMs) {
+      stateValidationFailures.add(1, { ...baseTags, step: timeoutLabel });
+      throw new Error(`Timeout waiting for empty cart (${timeoutLabel}) for user ${userId}`);
+    }
+
+    sleep(pollIntervalMs / 1000);
+  }
+}
+
+function loadCart(userId, tags) {
+  const result = invokeFrontend(
+    'cart',
+    {
+      userId,
+    },
+    tags,
+  );
+
+  if (!result.body || !Array.isArray(result.body.cart)) {
+    stateValidationFailures.add(1, tags);
+    return null;
+  }
+  return result.body.cart;
+}
+
+function validateBrowsePayload(payload, baseTags) {
+  if (!payload) {
+    stateValidationFailures.add(1, { ...baseTags, step: 'browse_validate' });
+    return;
+  }
+
+  const valid = check(payload, {
+    'browse has products': (data) => Array.isArray(data.productsList) && data.productsList.length === 11,
+    'browse has cart': (data) => Array.isArray(data.cart),
+    'browse has recommendations': (data) => Array.isArray(data.recommendations),
+  });
+
+  if (!valid) {
+    stateValidationFailures.add(1, { ...baseTags, step: 'browse_validate' });
+  }
+}
+
+function validateAddcartPayload(payload, product, baseTags) {
+  if (!payload || !Array.isArray(payload.cart)) {
+    stateValidationFailures.add(1, { ...baseTags, step: 'addcart_validate' });
+    return;
+  }
+
+  const found = payload.cart.some((row) => row && row.itemId === product.productId);
+  if (!found) {
+    stateValidationFailures.add(1, {
+      ...baseTags,
+      step: 'addcart_validate',
+      product_id: product.productId,
+    });
+  }
+}
+
+function validateCheckoutPayload(payload, userId, baseTags) {
+  const valid = check(payload, {
+    'checkout returns user': (data) => data && data.userId === userId,
+  });
+
+  if (!valid) {
+    stateValidationFailures.add(1, { ...baseTags, step: 'checkout_validate' });
+  }
+}

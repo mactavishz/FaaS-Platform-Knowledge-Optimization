@@ -18,6 +18,8 @@ pnpm -C tests/benchmark install
 
 This benchmark sends one request to a workflow entry function, records the client-observed latency, then waits for all workflow functions to scale down (`/system/list` reports `running=false`) before sending the next request. This intentionally triggers cold starts.
 
+This script uses a `shared-iterations` scenario with configurable `MAX_DURATION` and `GRACEFUL_STOP`, so longer cold-start runs do not get cut off by the default k6 time limit.
+
 ### Environment variables
 
 - `GATEWAY_URL` (default: `http://127.0.0.1:8888`)
@@ -29,6 +31,8 @@ This benchmark sends one request to a workflow entry function, records the clien
 
 - `ITERATIONS` (default: `10`)
 - `VUS` (default: `1`)
+- `MAX_DURATION` (default: `60m`)
+- `GRACEFUL_STOP` (default: `30s`)
 
 - `METHOD` (default: `POST`)
 - `BODY` (default: `{}`)
@@ -46,7 +50,125 @@ ENTRY_FUNCTION=iot-i \
 WORKFLOW_FUNCTIONS=iot-i,iot-cw,iot-se,iot-ct,iot-cs,iot-ca,iot-csl,iot-csa,iot-dj,iot-as \
 GATEWAY_URL=http://127.0.0.1:8888 \
 ITERATIONS=10 \
+MAX_DURATION=60m \
 k6 run tests/benchmark/scripts/workflow_cold_latency.js
 ```
 
 Note: the IoT workflow includes async fan-out. This benchmark measures the entry invocation latency, not the full end-to-end completion across async branches.
+
+## Webshop cold-sensitive user journey benchmark
+
+This benchmark drives the `webshop-frontend` function as a shopping session:
+
+1. cleanup cart
+2. browse products (`operation=get`)
+3. add products to cart (`operation=addcart`)
+4. checkout (`operation=checkout`)
+
+It is designed to compare `TF_CALLGRAPH_ENABLED=false|true` while keeping autoscaler enabled.
+
+In the current webshop workflow, frontend `addcart` and `checkout` are synchronous.
+The benchmark therefore measures direct end-to-end step latency for those operations.
+
+### Script
+
+- `tests/benchmark/scripts/webshop_user_journey.js`
+
+### Environment variables
+
+Required/important:
+
+- `GATEWAY_URL` (default: `http://127.0.0.1:8888`)
+- `ENTRY_FUNCTION` (default: `webshop-frontend`)
+- `WORKFLOW_FUNCTIONS` (optional; defaults to the exercised webshop function set)
+- `RUN_ID` (default: `webshop-bench`)
+
+Traffic and iteration:
+
+- `ITERATIONS` (default: `10`)
+- `VUS` (default: `1`)
+- `IDLE_WAIT_MS` (default: `35000`)
+- `MAX_DURATION` (default: `60m`)
+- `GRACEFUL_STOP` (default: `30s`)
+
+Timeout and polling:
+
+- `INVOKE_TIMEOUT_MS` (default: `60000`)
+- `POLL_INTERVAL_MS` (default: `500`)
+- `CLEANUP_TIMEOUT_MS` (default: `60000`)
+- `SCALE_DOWN_TIMEOUT_MS` (default: `120000`)
+- `STRICT_FUNCTIONS` (default: `true`)
+
+Journey payload tuning:
+
+- `CURRENCY` (default: `EUR`)
+- `PRODUCT_IDS` (default: `3,8`)
+- `PRODUCT_QUANTITIES` (default: `1,2`)
+- `CHECKOUT_ADDRESS_JSON` (default: `{"street":"123 Main St"}`)
+- `CHECKOUT_EMAIL` (default: `bench-user@example.com`)
+- `CHECKOUT_CREDIT_CARD_JSON` (default: `{"creditCardNumber":"4111111111111111"}`)
+
+Compatibility/path options:
+
+- `INVOKE_PATH` (default: `/fn/{name}`)
+- `LIST_PATH` (default: `/system/list`)
+- `EXPECTED_STATUS` (default: `200`)
+
+### Metrics emitted
+
+- `browse_ms`
+- `addcart_ms`
+- `checkout_ms`
+- `journey_ms`
+- `scale_down_wait_ms`
+- `invoke_failures`
+- `list_failures`
+- `state_validation_failures`
+- `scale_down_timeouts`
+
+### Recommended run protocol
+
+1. Keep autoscaler enabled in both conditions: `TF_AUTOSCALER_ENABLED=true`.
+2. Set idle scale-down to `30s` for both conditions: `TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION=30s`.
+3. Rebuild tinyFaaS after env changes.
+4. Deploy `tests/workflows/tinyfaas/webshop/stack.yml`.
+5. Run one short training pass for each condition before measured samples.
+6. Run measured samples with `VUS=1` for strict cold-sensitive comparison.
+
+### Example: training pass (callgraph disabled)
+
+```bash
+RUN_ID=webshop-off-train \
+GATEWAY_URL=http://127.0.0.1:8888 \
+ITERATIONS=3 \
+VUS=1 \
+IDLE_WAIT_MS=35000 \
+MAX_DURATION=60m \
+k6 run tests/benchmark/scripts/webshop_user_journey.js
+```
+
+### Example: measured pass (callgraph disabled)
+
+```bash
+RUN_ID=webshop-off-measure \
+GATEWAY_URL=http://127.0.0.1:8888 \
+ITERATIONS=10 \
+VUS=1 \
+IDLE_WAIT_MS=35000 \
+MAX_DURATION=60m \
+k6 run tests/benchmark/scripts/webshop_user_journey.js
+```
+
+### Example: measured pass (callgraph enabled)
+
+```bash
+RUN_ID=webshop-on-measure \
+GATEWAY_URL=http://127.0.0.1:8888 \
+ITERATIONS=10 \
+VUS=1 \
+IDLE_WAIT_MS=35000 \
+MAX_DURATION=60m \
+k6 run tests/benchmark/scripts/webshop_user_journey.js
+```
+
+Note: callgraph on/off is controlled by tinyFaaS runtime env (`TF_CALLGRAPH_ENABLED`), not by the k6 script.

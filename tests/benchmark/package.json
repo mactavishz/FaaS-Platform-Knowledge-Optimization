@@ -8,7 +8,7 @@
   "packageManager": "pnpm@10.28.2",
   "scripts": {
     "run:workflow-cold": "k6 run scripts/workflow_cold_latency.js",
-    "run:latency": "k6 run scripts/latency.ts"
+    "run:webshop-journey": "k6 run scripts/webshop_user_journey.js"
   },
   "devDependencies": {
     "@types/k6": "^1.5.0"

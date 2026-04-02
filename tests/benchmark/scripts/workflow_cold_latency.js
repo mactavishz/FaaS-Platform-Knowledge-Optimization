@@ -30,10 +30,19 @@ const invokeTimeoutMs = envInt('INVOKE_TIMEOUT_MS', 60000);
 const pollIntervalMs = envInt('POLL_INTERVAL_MS', 500);
 const scaleDownTimeoutMs = envInt('SCALE_DOWN_TIMEOUT_MS', 900000);
 const strictFunctions = envBool('STRICT_FUNCTIONS', true);
+const maxDuration = envString('MAX_DURATION', '60m', false);
+const gracefulStop = envString('GRACEFUL_STOP', '30s', false);
 
 export const options = {
-  iterations: envInt('ITERATIONS', 10),
-  vus: envInt('VUS', 1),
+  scenarios: {
+    default: {
+      executor: 'shared-iterations',
+      vus: envInt('VUS', 1),
+      iterations: envInt('ITERATIONS', 10),
+      maxDuration,
+      gracefulStop,
+    },
+  },
 };
 
 export default function () {
