@@ -4,6 +4,12 @@ functions:
   linear2-a:
     lang: python3
     handler: ./a
+    limits:
+      cpu: 0.25
+      memory: 256Mi
   linear2-b:
     lang: python3
     handler: ./b
+    limits:
+      cpu: 0.25
+      memory: 256Mi
