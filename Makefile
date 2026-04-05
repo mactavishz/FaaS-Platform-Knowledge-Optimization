@@ -19,10 +19,19 @@ build-faasd:
 build-tinyfaas:
 	vagrant provision tinyfaas --provision-with build
 
+.PHONY: build-tinyfaas-profile
+build-tinyfaas-profile:
+	@if [ -z "$(PROFILE)" ]; then echo "Usage: make build-tinyfaas-profile PROFILE=<env-file>"; exit 1; fi
+	vagrant ssh tinyfaas -c "PROJECT_ROOT=/vagrant TF_ENV_FILE=/vagrant/tests/integration/env/$(PROFILE) bash /vagrant/scripts/build-tinyfaas.sh"
+
 .PHONY: test-tinyfaas
 test-tinyfaas:
 	make -C tinyFaaS unit-test
 	make -C tinyFaaS integration-test
+
+.PHONY: test-integration
+test-integration: build-faas-cli
+	go test -count=1 -v -timeout 10m ./tests/integration/...
 
 .PHONY: unit-test
 unit-test:

@@ -15,24 +15,28 @@ make install
 
 echo "==> Configuring tinyFaaS environment..."
 
-# Set default values
-TF_AUTOSCALER_ENABLED=${TF_AUTOSCALER_ENABLED:-true}
-TF_CALLGRAPH_ENABLED=${TF_CALLGRAPH_ENABLED:-true}
-TF_CALLGRAPH_METHOD=${TF_CALLGRAPH_METHOD:-SMA}
-TF_CALLGRAPH_SMA_WINDOW_SIZE=${TF_CALLGRAPH_SMA_WINDOW_SIZE:-10}
-TF_CALLGRAPH_EMA_ALPHA=${TF_CALLGRAPH_EMA_ALPHA:-0.3}
-TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION=${TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION:-5m}
-TF_GATEWAY_IP=${TF_GATEWAY_IP:-0.0.0.0}
-TF_GATEWAY_PORT=${TF_GATEWAY_PORT:-80}
-TF_RPROXY_PORT=${TF_RPROXY_PORT:-8000}
-TF_MANAGER_PORT=${TF_MANAGER_PORT:-8080}
-TF_ENV=${TF_ENV:-development}
-
-# Load local config if exists (git-ignored)
-if [ -f "$PROJECT_ROOT/.tinyfaas.env" ]; then
-    echo "==> Loading local configuration from .tinyfaas.env"
-    source "$PROJECT_ROOT/.tinyfaas.env"
+# Load configuration file if present.
+# By default this uses .tinyfaas.env, but tests can override via TF_ENV_FILE.
+TF_ENV_FILE=${TF_ENV_FILE:-"$PROJECT_ROOT/.tinyfaas.env"}
+if [ -f "$TF_ENV_FILE" ]; then
+    echo "==> Loading configuration from $TF_ENV_FILE"
+    source "$TF_ENV_FILE"
+else
+    echo "==> No env file found at $TF_ENV_FILE, using defaults/env vars"
 fi
+
+# Set default values after loading env file so partially specified profiles still work.
+: "${TF_AUTOSCALER_ENABLED:=true}"
+: "${TF_CALLGRAPH_ENABLED:=true}"
+: "${TF_CALLGRAPH_METHOD:=SMA}"
+: "${TF_CALLGRAPH_SMA_WINDOW_SIZE:=10}"
+: "${TF_CALLGRAPH_EMA_ALPHA:=0.3}"
+: "${TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION:=5m}"
+: "${TF_GATEWAY_IP:=0.0.0.0}"
+: "${TF_GATEWAY_PORT:=80}"
+: "${TF_RPROXY_PORT:=8000}"
+: "${TF_MANAGER_PORT:=8080}"
+: "${TF_ENV:=development}"
 
 echo "==> Autoscaler settings: ENABLED=$TF_AUTOSCALER_ENABLED, IDLE_DURATION=$TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION"
 echo "==> Callgraph settings: ENABLED=$TF_CALLGRAPH_ENABLED, METHOD=$TF_CALLGRAPH_METHOD, SMA_WINDOW_SIZE=$TF_CALLGRAPH_SMA_WINDOW_SIZE, EMA_ALPHA=$TF_CALLGRAPH_EMA_ALPHA"
