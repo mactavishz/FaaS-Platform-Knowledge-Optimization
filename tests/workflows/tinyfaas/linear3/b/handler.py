@@ -7,8 +7,24 @@ import requests
 GATEWAY_BASE = os.environ.get("TINYFAAS_GATEWAY_URL", "http://tinyfaas.com")
 
 
+def _build_forward_headers(
+    headers: typing.Optional[typing.Dict[str, str]],
+) -> typing.Dict[str, str]:
+    forwarded = dict(headers or {})
+    forwarded.pop("host", None)
+    forwarded.pop("Host", None)
+    forwarded.pop("content-length", None)
+    forwarded.pop("Content-Length", None)
+    return forwarded
+
+
 def handle(
     input: typing.Optional[str], headers: typing.Optional[typing.Dict[str, str]]
 ) -> typing.Optional[str]:
-    res = requests.get(f"{GATEWAY_BASE}/fn/linear3-c", headers=headers)
+    res = requests.post(
+        f"{GATEWAY_BASE}/fn/linear3-c",
+        headers=_build_forward_headers(headers),
+        json={},
+        timeout=30,
+    )
     return {"msg": "Function linear3-b is finished", "data": res.json()}
