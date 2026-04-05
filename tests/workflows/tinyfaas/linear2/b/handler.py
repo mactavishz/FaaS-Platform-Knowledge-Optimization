@@ -1,10 +1,14 @@
-#!/usr/bin/env python3
+import asyncio
 
-import time
-import typing
+from fastapi import Request
+from fastapi.responses import JSONResponse
 
-def handle(input: typing.Optional[str], headers: typing.Optional[typing.Dict[str, str]]) -> typing.Optional[str]:
-    time.sleep(0.3)
-    return {
-        "msg": "Function linear2-b is finished",
-    }
+
+async def handle(request: Request) -> JSONResponse:
+    _ = request
+    await asyncio.sleep(0.3)
+    return JSONResponse(
+        content={
+            "msg": "Function linear2-b is finished",
+        }
+    )

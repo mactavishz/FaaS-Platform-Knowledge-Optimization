@@ -1,10 +1,12 @@
-#!/usr/bin/env python3
+from fastapi import Request
+from fastapi.responses import JSONResponse
 
-import typing
-import requests
 
-def handle(input: typing.Optional[str], headers: typing.Optional[typing.Dict[str, str]]) -> typing.Optional[str]:
-    return {
-        "msg": "Function linear3-c is finished",
-        "data": "Hello World! End of the story."
-    }
+async def handle(request: Request) -> JSONResponse:
+    _ = request
+    return JSONResponse(
+        content={
+            "msg": "Function linear3-c is finished",
+            "data": "Hello World! End of the story.",
+        }
+    )
