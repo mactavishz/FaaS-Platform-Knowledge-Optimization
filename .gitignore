@@ -35,11 +35,17 @@ go.work.sum
 # vagrant
 .vagrant
 
-#
+# temporary files
 tmp/
+
+# build artifacts
+build/
 
 # local registry
 registry/
 
 # node modules
 node_modules/
+
+# faas-cli templates
+template
