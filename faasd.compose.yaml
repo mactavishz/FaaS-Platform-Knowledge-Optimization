@@ -1,20 +1,18 @@
 services:
   registry:
     image: registry:latest
-    restart: always
+    restart: unless-stopped
     environment:
-      REGISTRY_AUTH: htpasswd
-      REGISTRY_AUTH_HTPASSWD_REALM: Registry Realm
-      REGISTRY_AUTH_HTPASSWD_PATH: /auth/registry.password
+      OTEL_TRACES_EXPORTER: none
+      REGISTRY_STORAGE: filesystem
       REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /var/lib/registry
-      REGISTRY_HTTP_HEADERS_Access-Control-Allow-Origin: '[http://127:0.0.1:5080]'
+      REGISTRY_STORAGE_DELETE_ENABLED: true
+      REGISTRY_HTTP_HEADERS_Access-Control-Allow-Origin: '[http://127.0.0.1:5080]'
       REGISTRY_HTTP_HEADERS_Access-Control-Allow-Methods: '[HEAD,GET,OPTIONS,DELETE]'
       REGISTRY_HTTP_HEADERS_Access-Control-Allow-Credentials: '[true]'
       REGISTRY_HTTP_HEADERS_Access-Control-Allow-Headers: '[Authorization,Accept,Cache-Control]'
       REGISTRY_HTTP_HEADERS_Access-Control-Expose-Headers: '[Docker-Content-Digest]'
     volumes:
-      # Mount the password file
-      - ./registry/registry.password:/auth/registry.password
       # Mount the data directory
       - ./registry/data:/var/lib/registry
     ports:
@@ -25,7 +23,7 @@ services:
     ports:
       - 5080:80
     environment:
-      - SINGLE_REGISTRY=true
+      - SINGLE_REGISTRY=false
       - REGISTRY_TITLE=Docker Registry UI
       - DELETE_IMAGES=true
       - SHOW_CONTENT_DIGEST=true
