@@ -48,6 +48,13 @@ else
     sudo /usr/local/bin/faasd install
 fi
 
+echo "Configuring faasd local registry pull settings..."
+sudo REGISTRY_HOSTNAME="${REGISTRY_HOSTNAME:-registry.local}" \
+    REGISTRY_PORT="${REGISTRY_PORT:-5050}" \
+    REGISTRY_HOST_GATEWAY_IP="${REGISTRY_HOST_GATEWAY_IP:-}" \
+    FAASD_PLAIN_HTTP_REGISTRIES="${FAASD_PLAIN_HTTP_REGISTRIES:-}" \
+    bash "$PROJECT_ROOT/scripts/configure-faasd-registry.sh"
+
 # Wait for services to start
 echo "Waiting for services to start..."
 sleep 5
