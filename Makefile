@@ -1,7 +1,8 @@
 LOCAL_OPENFAAS_URL=http://127.0.0.1:8080
-LOCAL_TINYFAAS_URL=http://127.0.0.1:9090
-LOCAL_TINYFAAS_MGMT_URL=http://127.0.0.1:9091
 FAASD_SECRETES_PATH=/var/lib/faasd/secrets
+LOCAL_REGISTRY_HOST=registry.local
+LOCAL_REGISTRY_PORT=5050
+LOCAL_REGISTRY_UI_URL=http://127.0.0.1:5080
 
 .PHONY: faasd-login
 faasd-login:
@@ -14,6 +15,39 @@ faasd-passwd:
 .PHONY: build-faasd
 build-faasd:
 	vagrant provision faasd --provision-with build
+
+.PHONY: registry-up
+registry-up:
+	docker compose -f faasd.compose.yaml up -d registry registry-ui
+	@echo "Local registry: http://127.0.0.1:$(LOCAL_REGISTRY_PORT)"
+	@echo "Registry UI: $(LOCAL_REGISTRY_UI_URL)"
+
+.PHONY: registry-down
+registry-down:
+	docker compose -f faasd.compose.yaml down
+
+.PHONY: registry-clean
+registry-clean: registry-down
+	rm -rf ./registry/data/*
+	make registry-up
+
+.PHONY: configure-host-registry
+configure-host-registry:
+	sudo bash ./scripts/configure-host-registry.sh $(LOCAL_REGISTRY_HOST) 127.0.0.1
+
+.PHONY: check-host-registry
+check-host-registry:
+	ping -c 1 $(LOCAL_REGISTRY_HOST)
+
+.PHONY: configure-faasd-registry
+configure-faasd-registry:
+	vagrant ssh faasd -c "sudo REGISTRY_HOSTNAME=$(LOCAL_REGISTRY_HOST) REGISTRY_PORT=$(LOCAL_REGISTRY_PORT) bash /vagrant/scripts/configure-faasd-registry.sh"
+
+.PHONY: faasd-up
+faasd-up: registry-up build-faasd faasd-login
+	@echo "faasd local development environment is ready"
+	@echo "Gateway: $(LOCAL_OPENFAAS_URL)"
+	@echo "Registry: http://127.0.0.1:$(LOCAL_REGISTRY_PORT)"
 
 .PHONY: build-tinyfaas
 build-tinyfaas:
