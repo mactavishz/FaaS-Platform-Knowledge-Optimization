@@ -39,10 +39,6 @@ configure-host-registry:
 check-host-registry:
 	ping -c 1 $(LOCAL_REGISTRY_HOST)
 
-.PHONY: configure-faasd-registry
-configure-faasd-registry:
-	vagrant ssh faasd -c "sudo REGISTRY_HOSTNAME=$(LOCAL_REGISTRY_HOST) REGISTRY_PORT=$(LOCAL_REGISTRY_PORT) bash /vagrant/scripts/configure-faasd-registry.sh"
-
 .PHONY: faasd-up
 faasd-up: registry-up build-faasd faasd-login
 	@echo "faasd local development environment is ready"
@@ -57,6 +53,11 @@ build-tinyfaas:
 build-tinyfaas-profile:
 	@if [ -z "$(PROFILE)" ]; then echo "Usage: make build-tinyfaas-profile PROFILE=<env-file>"; exit 1; fi
 	vagrant ssh tinyfaas -c "PROJECT_ROOT=/vagrant TF_ENV_FILE=/vagrant/tests/integration/env/$(PROFILE) bash /vagrant/scripts/build-tinyfaas.sh"
+
+.PHONY: tinyfaas-up
+tinyfaas-up: build-tinyfaas
+	@echo "tinyFaaS local development environment is ready"
+	@echo "Gateway: http://localhost:8888"
 
 .PHONY: test-tinyfaas
 test-tinyfaas:
