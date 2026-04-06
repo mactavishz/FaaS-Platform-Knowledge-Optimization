@@ -39,24 +39,26 @@ The built `faas-cli` binary will be placed in `$GOBIN` (typically `~/go/bin` or 
 
 ### Start faasd (OpenFaaS)
 
+Faasd needs a local registry to be configured and running before it can start. The `faasd-up` target will handle this for you.
+
 ```bash
 # Start the faasd VM
 vagrant up faasd
 
-# Get the admin password
-make faasd-passwd
-
-# Login to faasd
-make faasd-login
+# Start the local registry, build faasd, and start faasd
+make faasd-up
 ```
 
-The OpenFaaS gateway will be available at `http://127.0.0.1:8080`
+The OpenFaaS gateway will be available at `http://127.0.0.1:8080` by default.
 
 ### Start tinyFaaS
 
 ```bash
 # Start the tinyFaaS VM
 vagrant up tinyfaas
+
+# Build and start tinyFaaS
+make tinyfaas-up
 ```
 
 The tinyFaaS gateway will be available at:
@@ -70,7 +72,7 @@ Once you've built `faas-cli` with `make build-faas-cli`, you can use it to deplo
 
 ### Deploy a Function to OpenFaaS (faasd)
 
-Please refer to the [OpenFaaS documentation](https://docs.openfaas.com/cli/install/)
+TBD
 
 ### Deploy a Function to tinyFaaS
 
@@ -172,4 +174,5 @@ faas-cli deploy -f tinyfaas-stack.yml
 
 - If `faas-cli` is not in your PATH, make sure `$GOBIN` is added to your PATH or use the full path to the binary
 - For faasd authentication issues, run `make faasd-login` again
+- For local registry resolution issues, verify `/etc/hosts` contains `registry.local` or run `make check-host-registry` to validate. If missing, run `make configure-host-registry` to add the entry.
 - To restart the VMs: `vagrant halt <vm-name> && vagrant up <vm-name>`
