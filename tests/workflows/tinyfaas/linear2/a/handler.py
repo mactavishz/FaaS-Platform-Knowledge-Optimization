@@ -24,5 +24,9 @@ async def handle(request: Request) -> JSONResponse:
         timeout=30,
     )
     return JSONResponse(
-        content={"msg": "Function linear2-a is finished", "data": res.json()}
+        content={
+            "msg": "Function linear2-a is finished",
+            "linear2-b-body": res.json(),
+            "request_headers": dict(request.headers),
+        }
     )

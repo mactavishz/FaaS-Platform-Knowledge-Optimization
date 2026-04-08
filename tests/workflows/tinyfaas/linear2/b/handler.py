@@ -10,5 +10,6 @@ async def handle(request: Request) -> JSONResponse:
     return JSONResponse(
         content={
             "msg": "Function linear2-b is finished",
+            "request_headers": dict(request.headers),
         }
     )
