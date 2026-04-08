@@ -29,6 +29,11 @@ This script uses a `shared-iterations` scenario with configurable `MAX_DURATION`
 - `INVOKE_PATH` (default: `/fn/{name}`)
 - `LIST_PATH` (default: `/system/list`)
 
+For OpenFaaS/faasd, set:
+
+- `GATEWAY_URL=http://127.0.0.1:8080`
+- `INVOKE_PATH=/function/{name}`
+
 - `ITERATIONS` (default: `10`)
 - `VUS` (default: `1`)
 - `MAX_DURATION` (default: `60m`)
@@ -113,6 +118,11 @@ Compatibility/path options:
 - `INVOKE_PATH` (default: `/fn/{name}`)
 - `LIST_PATH` (default: `/system/list`)
 - `EXPECTED_STATUS` (default: `200`)
+
+For OpenFaaS/faasd, set:
+
+- `GATEWAY_URL=http://127.0.0.1:8080`
+- `INVOKE_PATH=/function/{name}`
 
 ### Metrics emitted
 
