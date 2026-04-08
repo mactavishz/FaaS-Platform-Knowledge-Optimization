@@ -1,5 +1,6 @@
 provider:
   name: tinyfaas
+  gateway: ${TINYFAAS_GATEWAY_URL:-http://127.0.0.1:8888}
 functions:
   linear3-a:
     lang: python3
