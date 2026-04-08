@@ -1,15 +1,10 @@
-import asyncio
+from time import sleep
 
-from fastapi import Request
-from fastapi.responses import JSONResponse
-
-
-async def handle(request: Request) -> JSONResponse:
-    _ = request
-    await asyncio.sleep(0.3)
-    return JSONResponse(
-        content={
+def handle(request):
+    sleep(0.3)
+    return {
+        "body": {
             "msg": "Function linear2-b is finished",
             "request_headers": dict(request.headers),
         }
-    )
+    }

@@ -1,32 +1,30 @@
-import asyncio
 import os
+from time import sleep
 
 import requests
-from fastapi import Request
-from fastapi.responses import JSONResponse
 
 GATEWAY_BASE = os.environ.get("TINYFAAS_GATEWAY_URL", "http://tinyfaas.com")
 
 
-def _build_forward_headers(request: Request) -> dict[str, str]:
+def _build_forward_headers(request) -> dict[str, str]:
     forwarded = dict(request.headers)
-    forwarded.pop("host", None)
-    forwarded.pop("content-length", None)
+    forwarded.pop("Host", None)
+    forwarded.pop("Content-Length", None)
     return forwarded
 
 
-async def handle(request: Request) -> JSONResponse:
-    await asyncio.sleep(0.5)
+def handle(request):
+    sleep(0.5)
     res = requests.post(
         f"{GATEWAY_BASE}/fn/linear2-b",
         headers=_build_forward_headers(request),
         json={},
         timeout=30,
     )
-    return JSONResponse(
-        content={
+    return {
+        "body": {
             "msg": "Function linear2-a is finished",
             "linear2-b-body": res.json(),
             "request_headers": dict(request.headers),
         }
-    )
+    }
