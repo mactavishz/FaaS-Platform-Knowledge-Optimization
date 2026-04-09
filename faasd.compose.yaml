@@ -11,11 +11,20 @@ services:
     ports:
       - 5050:5000
   registry-ui:
-    image: quiq/registry-ui
-    restart: unless-stopped
-    environment:
-      REGISTRY_HOSTNAME: registry:5000
-      REGISTRY_INSECURE: true
-      ACCESS_CONTROL_ANYONE_CAN_DELETE_TAGS: true
+    image: joxit/docker-registry-ui:main
+    restart: always
     ports:
-      - 5080:8000
+      - 5080:80
+    environment:
+      - SINGLE_REGISTRY=false
+      - REGISTRY_TITLE=Docker Registry UI
+      - DELETE_IMAGES=true
+      - SHOW_CONTENT_DIGEST=true
+      - NGINX_PROXY_PASS_URL=http://registry:5000
+      - SHOW_CATALOG_NB_TAGS=true
+      - CATALOG_MIN_BRANCHES=1
+      - CATALOG_MAX_BRANCHES=1
+      - TAGLIST_PAGE_SIZE=100
+      - REGISTRY_SECURED=false
+      - CATALOG_ELEMENTS_LIMIT=1000
+    container_name: registry-ui
