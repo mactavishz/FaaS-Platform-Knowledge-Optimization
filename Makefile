@@ -18,7 +18,7 @@ build-faasd:
 
 .PHONY: registry-up
 registry-up:
-	docker compose -f faasd.compose.yaml up -d registry registry-ui
+	docker compose -f faasd.compose.yaml up -d
 	@echo "Local registry: http://127.0.0.1:$(LOCAL_REGISTRY_PORT)"
 	@echo "Registry UI: $(LOCAL_REGISTRY_UI_URL)"
 
