@@ -24,20 +24,17 @@ rm -rf /usr/local/go
 curl -sSL https://go.dev/dl/go$GO_VERSION.linux-$ARCH.tar.gz -o /tmp/go.tar.gz \
   && tar -xzf /tmp/go.tar.gz -C /usr/local
 
-# Add Go to PATH system-wide using /etc/profile.d/
-sh -c 'cat > /etc/profile.d/go.sh <<EOF
-export PATH=\$PATH:/usr/local/go/bin
-EOF'
+# Expose Go binaries from the extracted tree without breaking GOROOT discovery.
+ln -sf /usr/local/go/bin/go /usr/local/bin/go
+ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 
-# Also add to the deploy user's bashrc for interactive shells
-DEPLOY_USER="${DEPLOY_USER:-vagrant}"
-if [ -d "/home/$DEPLOY_USER" ]; then
-  GO_PATH_ENTRY="/usr/local/go/bin"
-  BASHRC_FILE="/home/$DEPLOY_USER/.bashrc"
+# Test golang installation
+go version
 
-  # Keep this idempotent across repeated deploy runs.
-  touch "$BASHRC_FILE"
-  if ! grep -Fqs "$GO_PATH_ENTRY" "$BASHRC_FILE"; then
-    echo 'export PATH=$PATH:/usr/local/go/bin' >> "$BASHRC_FILE"
-  fi
-fi
+# Install go tools
+echo "Installing golang tools ..."
+GOBIN=/usr/local/bin go install github.com/jesseduffield/lazydocker@latest
+NERDCTL_VERSION=2.2.2
+curl -sSL https://github.com/containerd/nerdctl/releases/download/v$NERDCTL_VERSION/nerdctl-$NERDCTL_VERSION-linux-$ARCH.tar.gz \
+  -o /tmp/nerdctl.tar.gz \
+  && tar -C /usr/local/bin -xzf /tmp/nerdctl.tar.gz
