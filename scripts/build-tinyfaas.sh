@@ -81,7 +81,7 @@ sudo systemctl enable --now tf-rproxy
 sudo systemctl enable --now tf-manager
 
 # Wait a moment and check if services are running
-sleep 3
+sleep 5
 if systemctl is-active --quiet tf-gateway && systemctl is-active --quiet tf-rproxy && systemctl is-active --quiet tf-manager; then
     echo "==> tinyFaaS is running successfully!"
     echo "==> Service status:"
