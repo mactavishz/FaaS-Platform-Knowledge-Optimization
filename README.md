@@ -46,7 +46,7 @@ Faasd needs a local registry to be configured and running before it can start. T
 vagrant up faasd
 
 # Start the local registry, build faasd, and start faasd
-make faasd-up
+make build-faasd
 ```
 
 The OpenFaaS gateway will be available at `http://127.0.0.1:8080` by default.
@@ -174,5 +174,4 @@ faas-cli deploy -f tinyfaas-stack.yml
 
 - If `faas-cli` is not in your PATH, make sure `$GOBIN` is added to your PATH or use the full path to the binary
 - For faasd authentication issues, run `make faasd-login` again
-- For local registry resolution issues, verify `/etc/hosts` contains `registry.local` or run `make check-host-registry` to validate. If missing, run `make configure-host-registry` to add the entry.
 - To restart the VMs: `vagrant halt <vm-name> && vagrant up <vm-name>`
