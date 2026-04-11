@@ -16,31 +16,6 @@ else
 fi
 export ARCH
 
-# Install CNI plugins
-echo "Installing CNI plugins ..."
-rm -rf /opt/cni
-mkdir -p /opt/cni/bin
-curl -sSL https://github.com/containernetworking/plugins/releases/download/v${CNI_PLUGIN_VERSION}/cni-plugins-linux-${ARCH}-v${CNI_PLUGIN_VERSION}.tgz | tar -xz -C /opt/cni/bin
-
-# Add CNI to PATH system-wide
-sh -c 'cat > /etc/profile.d/cni.sh <<EOF
-export PATH=\$PATH:/opt/cni/bin
-EOF'
-
-# Also add to vagrant user's bashrc for interactive shells
-echo 'export PATH=$PATH:/opt/cni/bin' >> /home/vagrant/.bashrc
-
-# Make a config folder for CNI definitions
-mkdir -p /etc/cni/net.d
-
-# Make an initial loopback configuration
-sh -c 'cat >/etc/cni/net.d/99-loopback.conf <<-EOF
-{
-    "cniVersion": "1.1.0",
-    "type": "loopback"
-}
-EOF'
-
 # Install containerd
 echo "Installing containerd ..."
 curl -sSL https://github.com/containerd/containerd/releases/download/v$CONTAINERD_VERSION/containerd-$CONTAINERD_VERSION-linux-$ARCH.tar.gz -o /tmp/containerd.tar.gz \
@@ -56,11 +31,17 @@ curl -sLS https://raw.githubusercontent.com/containerd/containerd/v$CONTAINERD_V
 echo "[Manager]" | tee -a /tmp/containerd.service
 echo "DefaultTimeoutStartSec=3m" | tee -a /tmp/containerd.service
 
-cp /tmp/containerd.service /lib/systemd/system/
-systemctl enable containerd
+cp /tmp/containerd.service /etc/systemd/system/containerd.service
 
 systemctl daemon-reload
-systemctl restart containerd
+systemctl enable --now containerd
+
+# Install CNI plugins
+echo "Installing CNI plugins ..."
+rm -rf /opt/cni
+curl -sSL https://github.com/containernetworking/plugins/releases/download/v${CNI_PLUGIN_VERSION}/cni-plugins-linux-${ARCH}-v${CNI_PLUGIN_VERSION}.tgz -o /tmp/cni-plugins.tgz
+mkdir -p /opt/cni/bin
+tar Cxzvf /opt/cni/bin /tmp/cni-plugins.tgz
 
 # enable ipv4 forwarding 
 /sbin/sysctl -w net.ipv4.conf.all.forwarding=1
