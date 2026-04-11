@@ -28,51 +28,6 @@ wait_for_gateway() {
     return 1
 }
 
-validate_registry_pull_config() {
-    local registry_hostname="${REGISTRY_HOSTNAME:-registry.local}"
-    local provider_env
-    local dropin_file="/etc/systemd/system/faasd-provider.service.d/10-local-registry.conf"
-    local provider_started_at
-    local dropin_updated_at
-
-    provider_env="$(sudo systemctl show faasd-provider --property=Environment --value || true)"
-    if [[ "${provider_env}" != *"FAASD_PLAIN_HTTP_REGISTRIES="* ]]; then
-        echo "ERROR: faasd-provider is missing FAASD_PLAIN_HTTP_REGISTRIES."
-        echo "faasd will attempt HTTPS pulls and fail against the local HTTP registry."
-        echo "Current Environment from systemd: ${provider_env}"
-        return 1
-    fi
-
-    if ! grep -Eq "[[:space:]]${registry_hostname}([[:space:]]|$)" /etc/hosts; then
-        echo "ERROR: /etc/hosts in faasd VM is missing ${registry_hostname}."
-        echo "faasd cannot resolve local registry alias without this entry."
-        return 1
-    fi
-
-    if [[ ! -f "${dropin_file}" ]]; then
-        echo "ERROR: expected drop-in file not found: ${dropin_file}"
-        return 1
-    fi
-
-    provider_started_at="$(sudo systemctl show faasd-provider --property=ActiveEnterTimestamp --value || true)"
-    dropin_updated_at="$(stat -c '%y' "${dropin_file}" || true)"
-
-    if [[ -z "${provider_started_at}" || -z "${dropin_updated_at}" ]]; then
-        echo "ERROR: unable to read faasd-provider start time or registry drop-in timestamp."
-        return 1
-    fi
-
-    if ! sudo sh -c "tr '\0' '\n' </proc/\$(systemctl show faasd-provider --property=MainPID --value)/environ | grep -q '^FAASD_PLAIN_HTTP_REGISTRIES='"; then
-        echo "ERROR: running faasd-provider process does not include FAASD_PLAIN_HTTP_REGISTRIES in its environment."
-        echo "Restart faasd-provider so new drop-in variables are applied."
-        return 1
-    fi
-
-    echo "faasd-provider started at: ${provider_started_at}"
-    echo "registry drop-in updated at: ${dropin_updated_at}"
-    echo "Verified faasd registry pull configuration for ${registry_hostname}."
-}
-
 cd $PROJECT_ROOT/faasd
 
 echo "==> Shutting down the old services..."
@@ -102,22 +57,6 @@ else
     fi
     exit 1
 fi
-
-echo "Configuring faasd local registry pull settings..."
-sudo REGISTRY_HOSTNAME="${REGISTRY_HOSTNAME:-registry.local}" \
-    REGISTRY_PORT="${REGISTRY_PORT:-5050}" \
-    REGISTRY_HOST_GATEWAY_IP="${REGISTRY_HOST_GATEWAY_IP:-}" \
-    RESTART_FAASD_SERVICES=0 \
-    FAASD_PLAIN_HTTP_REGISTRIES="${FAASD_PLAIN_HTTP_REGISTRIES:-}" \
-    bash "$PROJECT_ROOT/scripts/configure-faasd-registry.sh"
-
-echo "Reloading systemd and restarting faasd services with final config..."
-sudo systemctl daemon-reload
-sudo systemctl restart faasd-provider
-sudo systemctl restart faasd
-
-echo "Validating faasd local registry pull settings..."
-validate_registry_pull_config
 
 # Wait for services to start
 wait_for_gateway
