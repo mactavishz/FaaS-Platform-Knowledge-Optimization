@@ -845,7 +845,6 @@ func (t *CallGraphTracker) GetPrewarmTargets(functionName string) []PrewarmTarge
 		}
 	}
 
-	// TODO: review this logic
 	for callee := range callees {
 		key := edgeKey(functionName, callee)
 		edgeStats, exists := t.edgeStats[key]
@@ -949,8 +948,6 @@ func (t *CallGraphTracker) FromJSON(data []byte) error {
 
 	return nil
 }
-
-// ====== Implementation for PathAnalyzer interface ======
 
 // GetCallPaths returns all unique call paths starting from external calls
 // This properly handles DAG (Directed Acyclic Graph) topologies with branches
