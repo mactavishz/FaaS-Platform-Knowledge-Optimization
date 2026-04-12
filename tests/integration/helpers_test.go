@@ -17,7 +17,7 @@ import (
 
 const (
 	defaultGatewayURL = "http://127.0.0.1:8888"
-	linear2StackPath  = "tests/workflows/tinyfaas/linear2/stack.yml"
+	linear3StackPath  = "tests/workflows/tinyfaas/linear3/stack.yaml"
 )
 
 type functionStatus struct {
@@ -139,11 +139,11 @@ func wipeFunctions(t *testing.T) {
 	t.Log("[step] wipe completed")
 }
 
-func deployLinear2Workflow(t *testing.T) {
+func deployLinear3Workflow(t *testing.T) {
 	t.Helper()
-	t.Log("[step] deploying linear2 workflow")
+	t.Log("[step] deploying linear3 workflow")
 
-	stack := filepath.Join(repoRoot(t), linear2StackPath)
+	stack := filepath.Join(repoRoot(t), linear3StackPath)
 	mustCommand(t, 5*time.Minute, repoRoot(t),
 		"faas-cli",
 		"deploy",
@@ -151,7 +151,7 @@ func deployLinear2Workflow(t *testing.T) {
 		"--gateway", defaultGatewayURL,
 		"-f", stack,
 	)
-	t.Log("[step] linear2 workflow deployed")
+	t.Log("[step] linear3 workflow deployed")
 }
 
 func invokeFunctionEventually(t *testing.T, functionName string, timeout time.Duration) []byte {
