@@ -22,6 +22,8 @@ def handle(request):
     return {
         "body": {
             "msg": "Function linear3-b is finished",
+            "request_headers": dict(request.headers),
+            "env": dict(os.environ),
             "data": res.json(),
         }
     }
