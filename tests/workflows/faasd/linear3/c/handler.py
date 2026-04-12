@@ -1,3 +1,4 @@
+import os
 from time import sleep
 
 
@@ -8,5 +9,6 @@ def handle(event, context):
         "body": {
             "msg": "Function linear3-c is finished",
             "request_headers": dict(event.headers),
+            "env": dict(os.environ),
         },
     }

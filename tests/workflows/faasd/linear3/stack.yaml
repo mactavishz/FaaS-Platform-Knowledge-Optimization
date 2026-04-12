@@ -4,7 +4,7 @@ provider:
   gateway: ${FAASD_GATEWAY_URL:-http://127.0.0.1:8080}
 functions:
   linear3-a:
-    lang: python3-http
+    lang: python3-http-debian
     handler: ./a
     image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/linear3-a:latest
     build_args:
@@ -13,7 +13,7 @@ functions:
       cpu: 0.25
       memory: 256Mi
   linear3-b:
-    lang: python3-http
+    lang: python3-http-debian
     handler: ./b
     image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/linear3-b:latest
     build_args:
@@ -22,7 +22,7 @@ functions:
       cpu: 0.25
       memory: 256Mi
   linear3-c:
-    lang: python3-http
+    lang: python3-http-debian
     handler: ./c
     image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/linear3-c:latest
     build_args:

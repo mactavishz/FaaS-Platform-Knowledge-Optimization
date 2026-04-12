@@ -28,5 +28,6 @@ def handle(event, context):
             "msg": "Function linear3-b is finished",
             "linear3-c-body": res.json(),
             "request_headers": dict(event.headers),
+            "env": dict(os.environ),
         },
     }
