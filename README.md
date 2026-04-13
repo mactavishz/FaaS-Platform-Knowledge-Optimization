@@ -22,11 +22,11 @@ Testing faasd requires a local registry to be running and accessible. You need t
   "registry.local:5050"
 ],
 "proxies": {
-  "default": {
-    "noProxy": "registry.local,localhost,127.0.0.0/8"
-  }
+  "no-proxy": "registry.local,localhost,127.0.0.0/8"
 }
 ```
+
+> Note: Proxy configurations specified in the daemon.json are ignored by Docker Desktop. If you use Docker Desktop, you can configure proxies using the Docker Desktop UI under Settings > Resources > Proxies.
 
 ## Building the Project
 
