@@ -1,0 +1,9 @@
+{
+  "name": "handler",
+  "version": "1.0.0",
+  "description": "tree G (faasd)",
+  "main": "handler.js",
+  "scripts": {
+    "test": "echo \"No tests\""
+  }
+}
