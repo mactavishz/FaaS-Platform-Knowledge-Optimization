@@ -15,13 +15,18 @@ We suggest setting up your Go environment with [mise](https://github.com/jdx/mis
 Testing faasd requires a local registry to be running and accessible. You need to ensure that:
 
 - Ensure `registry.local` resolves to the local registry IP (e.g., via `/etc/hosts` or DNS).
-- Ensure `NO_PROXY` includes at least: `registry.local,registry.local:5050,127.0.0.0/8` to bypass docker proxies for local registry access.
-- Ensure Docker insecure registries are configured for `registry.local:5050`.
+- Ensure Docker proxies and insecure registries are configured in your Docker daemon configuration (e.g., `$HOME/.docker/daemonjson` or `/etc/docker/daemon.json`) to allow pushing to `registry.local:5050` without TLS and bypassing proxies:
 
-Refer to the following resources for detailed setup instructions:
-
-- [https://docs.docker.com/engine/daemon/proxy/](https://docs.docker.com/engine/daemon/proxy/)
-- [https://jrehkemper.de/content/linux/docker/docker-configure-insecure-registry/](https://jrehkemper.de/content/linux/docker/docker-configure-insecure-registry/)
+```json
+"insecure-registries": [
+  "registry.local:5050"
+],
+"proxies": {
+  "default": {
+    "noProxy": "registry.local,localhost,127.0.0.0/8"
+  }
+}
+```
 
 ## Building the Project
 
