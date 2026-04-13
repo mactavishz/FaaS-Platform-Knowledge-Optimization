@@ -1,8 +1,16 @@
 import os
+import logging
 
 import requests
 
 GATEWAY_BASE = os.environ.get("TINYFAAS_GATEWAY_URL", "http://tinyfaas.com")
+logging.basicConfig(
+    level=logging.INFO,
+    format="{asctime} {levelname} {message}",
+    style="{",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logging.getLogger().setLevel(logging.INFO)
 
 
 def _build_forward_headers(request) -> dict[str, str]:
@@ -13,6 +21,8 @@ def _build_forward_headers(request) -> dict[str, str]:
 
 
 def handle(request):
+    logging.info("Function linear3-b is called")
+    logging.info("Function linear3-b is calling linear3-c")
     res = requests.post(
         f"{GATEWAY_BASE}/fn/linear3-c",
         headers=_build_forward_headers(request),
