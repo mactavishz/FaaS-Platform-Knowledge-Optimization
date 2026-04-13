@@ -28,23 +28,28 @@ wait_for_gateway() {
     return 1
 }
 
-cd $PROJECT_ROOT/faasd
-
 echo "==> Shutting down the old services..."
-make down
+make -C $PROJECT_ROOT/faasd down
 
+# Build and install gateway binary first
+echo "==> Building and installing faasd-gateway..."
+make -C $PROJECT_ROOT/faas-gateway install
+
+# Build and install faasd
 echo "==> Building and installing faasd..."
-make install
+make -C $PROJECT_ROOT/faasd install
 
 # wait for the services to start
-if sudo systemctl is-active --quiet faasd && systemctl is-active --quiet faasd-provider; then
+if sudo systemctl is-active --quiet faasd && sudo systemctl is-active --quiet faasd-provider && sudo systemctl is-active --quiet faasd-gateway; then
     echo "==> faasd is running successfully!"
     echo "==> Service status:"
     sudo systemctl status faasd --no-pager -l | head -10
     sudo systemctl status faasd-provider --no-pager -l | head -10
+    sudo systemctl status faasd-gateway --no-pager -l | head -10
     echo "==> View logs with:"
     echo "    journalctl -u faasd -f"
     echo "    journalctl -u faasd-provider -f"
+    echo "    journalctl -u faasd-gateway -f"
 else
     echo "==> ERROR: faasd failed to start."
     if ! systemctl is-active --quiet faasd; then
@@ -54,6 +59,10 @@ else
     if ! systemctl is-active --quiet faasd-provider; then
         echo "==> faasd-provider failed:"
         sudo systemctl status faasd-provider --no-pager -l
+    fi
+    if ! systemctl is-active --quiet faasd-gateway; then
+        echo "==> faasd-gateway failed:"
+        sudo systemctl status faasd-gateway --no-pager -l
     fi
     exit 1
 fi
