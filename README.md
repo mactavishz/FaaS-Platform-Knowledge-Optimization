@@ -10,6 +10,19 @@ Optimize FaaS platform cold starts using platform knowledge
 
 We suggest setting up your Go environment with [mise](https://github.com/jdx/mise).
 
+## Environment Setup
+
+Testing faasd requires a local registry to be running and accessible. You need to ensure that:
+
+- Ensure `registry.local` resolves to the local registry IP (e.g., via `/etc/hosts` or DNS).
+- Ensure `NO_PROXY` includes at least: `registry.local,registry.local:5050,127.0.0.0/8` to bypass docker proxies for local registry access.
+- Ensure Docker insecure registries are configured for `registry.local:5050`.
+
+Refer to the following resources for detailed setup instructions:
+
+- [https://docs.docker.com/engine/daemon/proxy/](https://docs.docker.com/engine/daemon/proxy/)
+- [https://jrehkemper.de/content/linux/docker/docker-configure-insecure-registry/](https://jrehkemper.de/content/linux/docker/docker-configure-insecure-registry/)
+
 ## Building the Project
 
 ### Start the VMs
