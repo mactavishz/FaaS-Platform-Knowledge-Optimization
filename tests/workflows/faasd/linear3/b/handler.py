@@ -1,10 +1,17 @@
 import os
 from time import sleep
-
+import logging
 import requests
 
 
 GATEWAY_BASE = os.environ.get("FAASD_GATEWAY_URL", "http://faasd.com").rstrip("/")
+logging.basicConfig(
+    level=logging.INFO,
+    format="{asctime} {levelname} {message}",
+    style="{",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logging.getLogger().setLevel(logging.INFO)
 
 
 def _build_forward_headers(headers: dict) -> dict[str, str]:
@@ -15,7 +22,9 @@ def _build_forward_headers(headers: dict) -> dict[str, str]:
 
 
 def handle(event, context):
+    logging.info("Function linear3-b is called")
     sleep(0.3)
+    logging.info("Function linear3-b is calling linear3-c")
     res = requests.post(
         f"{GATEWAY_BASE}/function/linear3-c",
         headers=_build_forward_headers(event.headers),
