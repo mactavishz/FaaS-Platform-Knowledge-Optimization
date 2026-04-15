@@ -1,7 +1,7 @@
 // Webshop-searchproducts: SearchProducts - searches products by name or description
 // Express-style handler (req, res)
 
-import got from "got";
+import axios from "axios";
 
 const GATEWAY_BASE = process.env.TINYFAAS_GATEWAY_URL || "http://tinyfaas.com";
 
@@ -21,18 +21,22 @@ function callFunction(functionName, data, sync, incomingHeaders) {
         }
 
         try {
-            const res = await got.post(url, {
-                json: data,
+            const res = await axios.post(url.toString(), data, {
                 headers,
-                retry: { limit: 0 },
-                throwHttpErrors: false,
-                followRedirect: false,
-                responseType: "text",
+                timeout: 30000,
+                maxRedirects: 0,
+                validateStatus: () => true,
             });
 
             if (!sync) return {};
             try {
-                return res.body ? JSON.parse(res.body) : {};
+                if (res.data === undefined || res.data === null || res.data === "") {
+                    return {};
+                }
+                if (typeof res.data === "object") {
+                    return res.data;
+                }
+                return JSON.parse(res.data);
             } catch {
                 return {};
             }
