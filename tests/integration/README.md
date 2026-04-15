@@ -1,45 +1,71 @@
-# Root Integration Tests
+# Integration Tests
 
-This directory contains root-level tinyFaaS integration tests that validate autoscaler and callgraph behavior using workflow-based scenarios.
+This directory contains integration tests in two categories:
+
+- Platform behavior scenarios (autoscaler/callgraph)
+- Workflow functionality scenarios (no autoscaler, no callgraph)
 
 ## Prerequisites
 
-- Vagrant VM is running: `vagrant up tinyfaas`
+- Vagrant VM is running: `vagrant up tinyfaas` or `vagrant ssh faasd`
 - Go toolchain installed
 - Docker available in the tinyfaas VM (handled by provisioning)
 
-## Scenarios
+## Platform Behavior Scenarios
 
-The test suite rebuilds tinyFaaS with one of these profiles in `tests/integration/env/`:
+The platform behavior suite rebuilds tinyFaaS with one of these profiles in `tests/integration/env/`:
 
 - `no-autoscaler-no-callgraph.env`
 - `autoscaler-only.env`
 - `autoscaler-and-callgraph.env`
 
-All scenarios use the workflow stack at `tests/workflows/tinyfaas/linear2/stack.yml`.
+These tests currently deploy `tests/workflows/tinyfaas/linear3/stack.yaml`.
 
-## Run
+## Workflow Functionality Scenarios
 
-Run all root integration tests:
+Workflow functionality tests cover all workflow directories under `tests/workflows/tinyfaas/`:
+
+- `linear3`
+- `tree`
+- `IoT`
+- `webshop`
+
+All workflow functionality tests rebuild tinyFaaS with:
+
+- `no-autoscaler-no-callgraph.env`
+
+### External prerequisites
+
+`IoT` and `webshop` workflow tests require local env files and Supabase-backed state:
+
+- `tests/workflows/tinyfaas/IoT/.env.yaml`
+- `tests/workflows/tinyfaas/webshop/.env.yaml`
+
+Missing/unconfigured env files are treated as test failures.
+
+## Run Integration Tests for tinyFaaS
+
+Run all integration tests for both faad and tinyFaaS:
 
 ```bash
 make test-integration
 ```
 
-Run one scenario:
+### For tinyFaaS
+
+Run the tinyFaaS workflow functionality suite:
 
 ```bash
-go test ./tests/integration -run TestIntegration_AutoscalerOnly -v
+go test ./tests/integration/tinyfaas -run TestWorkflowIntegrationSuite -v
 ```
 
-Rebuild tinyFaaS with a specific profile manually:
+Run the tinyFaaS platform behavior suite:
 
 ```bash
-make build-tinyfaas-profile PROFILE=autoscaler-only.env
+go test ./tests/integration/tinyfaas -run TestPlatformIntegrationSuite -v
 ```
 
 ## Notes
 
-- Tests rebuild tinyFaaS per scenario, so they are intentionally slower.
-- Tests call `/system/wipe` before and after each scenario to isolate state.
+- Tests rebuild the platform per scenario, so they are intentionally slower.
 - Callgraph assertions use API responses and avoid log-based checks.
