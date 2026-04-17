@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// NewConfigFromEnv loads callgraph configuration from environment variables
-// Supports both FAASD_ and TF_ prefixes for platform compatibility
+// NewConfigFromEnv loads callgraph configuration from environment variables.
+// tinyfaas uses unprefixed names, faasd keeps FAASD_ names.
 func NewConfigFromEnv(platform string) (Config, error) {
 	var enabledKey, methodKey, smaWindowSizeKey, emaAlphaKey string
 	platform = strings.ToLower(platform)
@@ -20,10 +20,10 @@ func NewConfigFromEnv(platform string) (Config, error) {
 		smaWindowSizeKey = "FAASD_CALLGRAPH_SMA_WINDOW_SIZE"
 		emaAlphaKey = "FAASD_CALLGRAPH_EMA_ALPHA"
 	case "tinyfaas":
-		enabledKey = "TF_CALLGRAPH_ENABLED"
-		methodKey = "TF_CALLGRAPH_METHOD"
-		smaWindowSizeKey = "TF_CALLGRAPH_SMA_WINDOW_SIZE"
-		emaAlphaKey = "TF_CALLGRAPH_EMA_ALPHA"
+		enabledKey = "CALLGRAPH_ENABLED"
+		methodKey = "CALLGRAPH_METHOD"
+		smaWindowSizeKey = "CALLGRAPH_SMA_WINDOW_SIZE"
+		emaAlphaKey = "CALLGRAPH_EMA_ALPHA"
 	default:
 		return Config{}, fmt.Errorf("invalid platform: %s", platform)
 	}

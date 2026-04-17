@@ -18,8 +18,8 @@ type Config struct {
 	CheckInterval       time.Duration
 }
 
-// NewConfigFromEnv loads autoscaler configuration from environment variables
-// Supports both FAASD_ and TF_ prefixes for platform compatibility
+// NewConfigFromEnv loads autoscaler configuration from environment variables.
+// tinyfaas uses unprefixed names, faasd keeps FAASD_ names.
 func NewConfigFromEnv(platform string) (Config, error) {
 	var enabledKey, durationKey string
 	platform = strings.ToLower(platform)
@@ -29,8 +29,8 @@ func NewConfigFromEnv(platform string) (Config, error) {
 		enabledKey = "FAASD_AUTOSCALER_ENABLED"
 		durationKey = "FAASD_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION"
 	case "tinyfaas":
-		enabledKey = "TF_AUTOSCALER_ENABLED"
-		durationKey = "TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION"
+		enabledKey = "AUTOSCALER_ENABLED"
+		durationKey = "DEFAULT_SCALE_TO_ZERO_IDLE_DURATION"
 	default:
 		return Config{}, fmt.Errorf("invalid platform: %s", platform)
 	}

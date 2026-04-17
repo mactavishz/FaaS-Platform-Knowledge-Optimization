@@ -97,7 +97,7 @@ func RebuildTinyFaaS(t *testing.T, envProfile string) {
 	t.Helper()
 	t.Logf("[step] rebuilding tinyFaaS with profile=%s", envProfile)
 
-	cmd := fmt.Sprintf("PROJECT_ROOT=/vagrant TF_ENV_FILE=/vagrant/tests/integration/env/%s bash /vagrant/scripts/build-tinyfaas.sh", envProfile)
+	cmd := fmt.Sprintf("PROJECT_ROOT=/vagrant ENV_FILE=/vagrant/tests/integration/env/%s bash /vagrant/scripts/build-tinyfaas.sh", envProfile)
 	MustCommand(t, 35*time.Minute, RepoRoot(t), "vagrant", "ssh", "tinyfaas", "-c", cmd)
 	t.Log("[step] tinyFaaS rebuild complete")
 }

@@ -26,7 +26,7 @@ Deploy tinyFaaS to a remote Ubuntu server.
 Required:
   --host <host>             SSH target — a bare alias (e.g., hetzner), user@host,
                             or user@ip. Bare aliases are resolved via ~/.ssh/config.
-  --env-file <path>         Local path to .tinyfaas.env file to upload
+  --env-file <path>         Local path to .env file to upload
 
 Optional:
   --port <number>           SSH port (default: 22, or as set in ~/.ssh/config)
@@ -40,20 +40,20 @@ Optional:
 
 Examples:
   # Fresh deploy using an SSH config alias
-  $(basename "$0") --host hetzner --env-file .tinyfaas.env
+  $(basename "$0") --host hetzner --env-file .env
 
   # Fresh deploy with explicit user@ip and custom port
-  $(basename "$0") --host ubuntu@192.168.1.100 --port 2222 --env-file .tinyfaas.env
+  $(basename "$0") --host ubuntu@192.168.1.100 --port 2222 --env-file .env
 
   # Deploy a specific branch with explicit token and SSH key
   $(basename "$0") --host ubuntu@myserver.com \\
-    --env-file .tinyfaas.env \\
+    --env-file .env \\
     --branch feature/my-changes \\
     --github-token ghp_xxxx \\
     --ssh-key ~/.ssh/id_ed25519
 
   # Re-deploy (update) skipping dependency installation
-  $(basename "$0") --host hetzner --env-file .tinyfaas.env --skip-deps
+  $(basename "$0") --host hetzner --env-file .env --skip-deps
 EOF
 }
 
@@ -259,8 +259,8 @@ log_step "Repository ready at $DEPLOY_DIR"
 # ---------------------------------------------------------------------------
 log_phase "Phase 3: Uploading environment configuration"
 
-log_step "Uploading $ENV_FILE -> $DEPLOY_DIR/.tinyfaas.env"
-scp_cmd "$ENV_FILE" "$HOST:$DEPLOY_DIR/.tinyfaas.env"
+log_step "Uploading $ENV_FILE -> $DEPLOY_DIR/.env"
+scp_cmd "$ENV_FILE" "$HOST:$DEPLOY_DIR/.env"
 log_step "Environment file uploaded"
 
 # ---------------------------------------------------------------------------
@@ -301,9 +301,9 @@ fi
 _port() {
     grep -E "^${1}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]' || echo "$2"
 }
-TF_GATEWAY_PORT=$(_port TF_GATEWAY_PORT 80)
-TF_MANAGER_PORT=$(_port TF_MANAGER_PORT 8080)
-TF_RPROXY_PORT=$(_port TF_RPROXY_PORT 8000)
+GATEWAY_PORT=$(_port GATEWAY_PORT 80)
+MANAGER_PORT=$(_port MANAGER_PORT 8080)
+RPROXY_PORT=$(_port RPROXY_PORT 8000)
 
 REMOTE_HOST="${HOST##*@}"
 
@@ -311,9 +311,9 @@ echo ""
 echo "=================================================="
 echo "  tinyFaaS deployed successfully to $HOST"
 echo "=================================================="
-echo "  Gateway:  http://$REMOTE_HOST:$TF_GATEWAY_PORT"
-echo "  Manager:  http://$REMOTE_HOST:$TF_MANAGER_PORT  (internal)"
-echo "  RProxy:   http://$REMOTE_HOST:$TF_RPROXY_PORT   (internal)"
+echo "  Gateway:  http://$REMOTE_HOST:$GATEWAY_PORT"
+echo "  Manager:  http://$REMOTE_HOST:$MANAGER_PORT  (internal)"
+echo "  RProxy:   http://$REMOTE_HOST:$RPROXY_PORT   (internal)"
 echo ""
 echo "  View logs:"
 echo "    ssh $HOST 'journalctl -u tf-gateway -f'"

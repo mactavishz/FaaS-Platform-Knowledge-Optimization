@@ -70,7 +70,7 @@ This benchmark drives the `webshop-frontend` function as a shopping session:
 3. add products to cart (`operation=addcart`)
 4. checkout (`operation=checkout`)
 
-It is designed to compare `TF_CALLGRAPH_ENABLED=false|true` while keeping autoscaler enabled.
+It is designed to compare `CALLGRAPH_ENABLED=false|true` while keeping autoscaler enabled.
 
 In the current webshop workflow, frontend `addcart` and `checkout` are synchronous.
 The benchmark therefore measures direct end-to-end step latency for those operations.
@@ -138,8 +138,8 @@ For OpenFaaS/faasd, set:
 
 ### Recommended run protocol
 
-1. Keep autoscaler enabled in both conditions: `TF_AUTOSCALER_ENABLED=true`.
-2. Set idle scale-down to `30s` for both conditions: `TF_DEFAULT_SCALE_TO_ZERO_IDLE_DURATION=30s`.
+1. Keep autoscaler enabled in both conditions: `AUTOSCALER_ENABLED=true`.
+2. Set idle scale-down to `30s` for both conditions: `DEFAULT_SCALE_TO_ZERO_IDLE_DURATION=30s`.
 3. Rebuild tinyFaaS after env changes.
 4. Deploy `tests/workflows/tinyfaas/webshop/stack.yml`.
 5. Run one short training pass for each condition before measured samples.
@@ -181,4 +181,4 @@ MAX_DURATION=60m \
 k6 run tests/benchmark/scripts/webshop_user_journey.js
 ```
 
-Note: callgraph on/off is controlled by tinyFaaS runtime env (`TF_CALLGRAPH_ENABLED`), not by the k6 script.
+Note: callgraph on/off is controlled by tinyFaaS runtime env (`CALLGRAPH_ENABLED`), not by the k6 script.

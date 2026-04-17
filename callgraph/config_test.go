@@ -29,7 +29,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 		{
 			name:        "tinyfaas enabled",
 			platform:    "tinyfaas",
-			envKey:      "TF_CALLGRAPH_ENABLED",
+			envKey:      "CALLGRAPH_ENABLED",
 			envValue:    "true",
 			method:      SimpleMovingAverage,
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
@@ -39,7 +39,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 		{
 			name:        "tinyfaas enabled with 1",
 			platform:    "tinyfaas",
-			envKey:      "TF_CALLGRAPH_ENABLED",
+			envKey:      "CALLGRAPH_ENABLED",
 			envValue:    "1",
 			method:      SimpleMovingAverage,
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
@@ -49,7 +49,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 		{
 			name:        "tinyfaas disabled",
 			platform:    "tinyfaas",
-			envKey:      "TF_CALLGRAPH_ENABLED",
+			envKey:      "CALLGRAPH_ENABLED",
 			envValue:    "false",
 			method:      SimpleMovingAverage,
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
@@ -59,9 +59,9 @@ func TestNewConfigFromEnv(t *testing.T) {
 		{
 			name:        "tinyfaas sma window from env",
 			platform:    "tinyfaas",
-			envKey:      "TF_CALLGRAPH_ENABLED",
+			envKey:      "CALLGRAPH_ENABLED",
 			envValue:    "true",
-			smaKey:      "TF_CALLGRAPH_SMA_WINDOW_SIZE",
+			smaKey:      "CALLGRAPH_SMA_WINDOW_SIZE",
 			smaValue:    "25",
 			method:      SimpleMovingAverage,
 			expSMA:      25,
@@ -71,9 +71,9 @@ func TestNewConfigFromEnv(t *testing.T) {
 		{
 			name:        "tinyfaas invalid sma window falls back",
 			platform:    "tinyfaas",
-			envKey:      "TF_CALLGRAPH_ENABLED",
+			envKey:      "CALLGRAPH_ENABLED",
 			envValue:    "true",
-			smaKey:      "TF_CALLGRAPH_SMA_WINDOW_SIZE",
+			smaKey:      "CALLGRAPH_SMA_WINDOW_SIZE",
 			smaValue:    "invalid",
 			method:      SimpleMovingAverage,
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
@@ -83,9 +83,9 @@ func TestNewConfigFromEnv(t *testing.T) {
 		{
 			name:        "tinyfaas method ema uppercase",
 			platform:    "tinyfaas",
-			envKey:      "TF_CALLGRAPH_ENABLED",
+			envKey:      "CALLGRAPH_ENABLED",
 			envValue:    "true",
-			methodKey:   "TF_CALLGRAPH_METHOD",
+			methodKey:   "CALLGRAPH_METHOD",
 			methodValue: "EMA",
 			method:      ExponentialMovingAverage,
 			expEMA:      DEFAULT_EMA_ALPHA,
@@ -95,11 +95,11 @@ func TestNewConfigFromEnv(t *testing.T) {
 		{
 			name:        "tinyfaas method ema mixed-case",
 			platform:    "tinyfaas",
-			envKey:      "TF_CALLGRAPH_ENABLED",
+			envKey:      "CALLGRAPH_ENABLED",
 			envValue:    "true",
-			methodKey:   "TF_CALLGRAPH_METHOD",
+			methodKey:   "CALLGRAPH_METHOD",
 			methodValue: "eMa",
-			emaKey:      "TF_CALLGRAPH_EMA_ALPHA",
+			emaKey:      "CALLGRAPH_EMA_ALPHA",
 			emaValue:    "0.65",
 			method:      ExponentialMovingAverage,
 			expEMA:      0.65,
@@ -109,11 +109,11 @@ func TestNewConfigFromEnv(t *testing.T) {
 		{
 			name:        "tinyfaas invalid ema alpha falls back",
 			platform:    "tinyfaas",
-			envKey:      "TF_CALLGRAPH_ENABLED",
+			envKey:      "CALLGRAPH_ENABLED",
 			envValue:    "true",
-			methodKey:   "TF_CALLGRAPH_METHOD",
+			methodKey:   "CALLGRAPH_METHOD",
 			methodValue: "EMA",
-			emaKey:      "TF_CALLGRAPH_EMA_ALPHA",
+			emaKey:      "CALLGRAPH_EMA_ALPHA",
 			emaValue:    "1.7",
 			method:      ExponentialMovingAverage,
 			expEMA:      DEFAULT_EMA_ALPHA,
@@ -123,9 +123,9 @@ func TestNewConfigFromEnv(t *testing.T) {
 		{
 			name:        "tinyfaas invalid method falls back to sma",
 			platform:    "tinyfaas",
-			envKey:      "TF_CALLGRAPH_ENABLED",
+			envKey:      "CALLGRAPH_ENABLED",
 			envValue:    "true",
-			methodKey:   "TF_CALLGRAPH_METHOD",
+			methodKey:   "CALLGRAPH_METHOD",
 			methodValue: "WMA",
 			method:      SimpleMovingAverage,
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
@@ -195,13 +195,13 @@ func TestNewConfigFromEnv(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clear any existing env vars
-			os.Unsetenv("TF_CALLGRAPH_ENABLED")
+			os.Unsetenv("CALLGRAPH_ENABLED")
 			os.Unsetenv("FAASD_CALLGRAPH_ENABLED")
-			os.Unsetenv("TF_CALLGRAPH_METHOD")
+			os.Unsetenv("CALLGRAPH_METHOD")
 			os.Unsetenv("FAASD_CALLGRAPH_METHOD")
-			os.Unsetenv("TF_CALLGRAPH_SMA_WINDOW_SIZE")
+			os.Unsetenv("CALLGRAPH_SMA_WINDOW_SIZE")
 			os.Unsetenv("FAASD_CALLGRAPH_SMA_WINDOW_SIZE")
-			os.Unsetenv("TF_CALLGRAPH_EMA_ALPHA")
+			os.Unsetenv("CALLGRAPH_EMA_ALPHA")
 			os.Unsetenv("FAASD_CALLGRAPH_EMA_ALPHA")
 
 			// Set the test env var
@@ -255,10 +255,10 @@ func TestNewConfigFromEnv(t *testing.T) {
 
 func TestNewConfigFromEnvDefaults(t *testing.T) {
 	// Clear any existing env vars
-	os.Unsetenv("TF_CALLGRAPH_ENABLED")
-	os.Unsetenv("TF_CALLGRAPH_METHOD")
-	os.Unsetenv("TF_CALLGRAPH_SMA_WINDOW_SIZE")
-	os.Unsetenv("TF_CALLGRAPH_EMA_ALPHA")
+	os.Unsetenv("CALLGRAPH_ENABLED")
+	os.Unsetenv("CALLGRAPH_METHOD")
+	os.Unsetenv("CALLGRAPH_SMA_WINDOW_SIZE")
+	os.Unsetenv("CALLGRAPH_EMA_ALPHA")
 
 	config, err := NewConfigFromEnv("tinyfaas")
 	require.NoError(t, err)
