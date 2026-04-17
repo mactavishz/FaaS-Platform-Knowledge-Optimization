@@ -57,7 +57,29 @@ func RepoRoot(t *testing.T) string {
 	}
 }
 
-func MustCommand(t *testing.T, timeout time.Duration, dir string, name string, args ...string) string {
+func MustCommand(t *testing.T, timeout time.Duration, dir string, name string, args ...string) error {
+	t.Helper()
+	t.Logf("[cmd:start] %s %s", name, strings.Join(args, " "))
+	start := time.Now()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("command failed: %s %s: %w", name, strings.Join(args, " "), err)
+	}
+	t.Logf("[cmd:done] %s %s (%s)", name, strings.Join(args, " "), time.Since(start).Round(time.Millisecond))
+	return nil
+}
+
+func CommandOutput(t *testing.T, timeout time.Duration, dir string, name string, args ...string) (string, error) {
 	t.Helper()
 	t.Logf("[cmd:start] %s %s", name, strings.Join(args, " "))
 	start := time.Now()
@@ -70,13 +92,15 @@ func MustCommand(t *testing.T, timeout time.Duration, dir string, name string, a
 		cmd.Dir = dir
 	}
 
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("command failed: %s %s\nerr: %v\noutput:\n%s", name, strings.Join(args, " "), err, string(out))
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return stdout.String(), fmt.Errorf("command failed: %s %s: %w", name, strings.Join(args, " "), err)
 	}
 	t.Logf("[cmd:done] %s %s (%s)", name, strings.Join(args, " "), time.Since(start).Round(time.Millisecond))
-
-	return string(out)
+	return stdout.String(), nil
 }
 
 func RequireTinyFaaSVM(t *testing.T) {
@@ -87,7 +111,10 @@ func RequireTinyFaaSVM(t *testing.T) {
 		t.Skip("vagrant not found in PATH")
 	}
 
-	out := MustCommand(t, 30*time.Second, RepoRoot(t), "vagrant", "status", "tinyfaas", "--machine-readable")
+	out, err := CommandOutput(t, 30*time.Second, RepoRoot(t), "vagrant", "status", "tinyfaas", "--machine-readable")
+	if err != nil {
+		t.Fatalf("failed to check tinyfaas VM status: %v", err)
+	}
 	if !strings.Contains(out, ",tinyfaas,state,running") {
 		t.Fatalf("tinyfaas VM is not running. Run: vagrant up tinyfaas")
 	}
@@ -98,7 +125,9 @@ func RebuildTinyFaaS(t *testing.T, envProfile string) {
 	t.Logf("[step] rebuilding tinyFaaS with profile=%s", envProfile)
 
 	cmd := fmt.Sprintf("PROJECT_ROOT=/vagrant ENV_FILE=/vagrant/tests/integration/env/%s bash /vagrant/scripts/build-tinyfaas.sh", envProfile)
-	MustCommand(t, 35*time.Minute, RepoRoot(t), "vagrant", "ssh", "tinyfaas", "-c", cmd)
+	if err := MustCommand(t, 35*time.Minute, RepoRoot(t), "vagrant", "ssh", "tinyfaas", "-c", cmd); err != nil {
+		t.Fatal(err)
+	}
 	t.Log("[step] tinyFaaS rebuild complete")
 }
 
@@ -146,13 +175,15 @@ func DeployWorkflow(t *testing.T, stackPath string) {
 	t.Logf("[step] deploying workflow stack=%s", stackPath)
 
 	stack := filepath.Join(RepoRoot(t), stackPath)
-	MustCommand(t, 10*time.Minute, RepoRoot(t),
+	if err := MustCommand(t, 10*time.Minute, RepoRoot(t),
 		"faas-cli",
 		"deploy",
 		"--platform", "tinyfaas",
 		"--gateway", DefaultGatewayURL,
 		"-f", stack,
-	)
+	); err != nil {
+		t.Fatal(err)
+	}
 	t.Logf("[step] workflow deployed stack=%s", stackPath)
 }
 

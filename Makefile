@@ -53,7 +53,7 @@ test-faasd: registry-up
 
 .PHONY: test-integration
 test-integration: build-faas-cli
-	go test -count=1 -v -timeout 10m ./tests/integration/...
+	go test -count=1 -v -timeout 10m ./tests/integration/tinyfaas/...
 
 .PHONY: unit-test
 unit-test:
