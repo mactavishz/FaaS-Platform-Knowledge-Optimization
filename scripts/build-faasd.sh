@@ -31,6 +31,18 @@ wait_for_gateway() {
 echo "==> Shutting down the old services..."
 make -C $PROJECT_ROOT/faasd down
 
+echo "==> Configuring faasd environment..."
+
+# Load configuration file if present.
+# By default this uses .env, but tests can override via ENV_FILE.
+ENV_FILE=${ENV_FILE:-"$PROJECT_ROOT/.env"}
+if [ -f "$ENV_FILE" ]; then
+	echo "==> Writing configuration from $ENV_FILE to /etc/default/faasd"
+    sudo cat $ENV_FILE | sudo tee /etc/default/faasd
+else
+	echo "==> No env file found at $ENV_FILE"
+fi
+
 # Build and install gateway binary first
 echo "==> Building and installing faasd-gateway..."
 make -C $PROJECT_ROOT/faas-gateway install

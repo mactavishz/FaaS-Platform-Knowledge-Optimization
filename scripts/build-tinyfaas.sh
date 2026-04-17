@@ -19,58 +19,11 @@ echo "==> Configuring tinyFaaS environment..."
 # By default this uses .env, but tests can override via ENV_FILE.
 ENV_FILE=${ENV_FILE:-"$PROJECT_ROOT/.env"}
 if [ -f "$ENV_FILE" ]; then
-	echo "==> Loading configuration from $ENV_FILE"
-	source "$ENV_FILE"
+	echo "==> Writing configuration from $ENV_FILE to /etc/default/tinyfaas"
+    sudo cat $ENV_FILE | sudo tee /etc/default/tinyfaas
 else
-	echo "==> No env file found at $ENV_FILE, using defaults/env vars"
+	echo "==> No env file found at $ENV_FILE"
 fi
-
-# Set default values after loading env file so partially specified profiles still work.
-: "${AUTOSCALER_ENABLED:=true}"
-: "${CALLGRAPH_ENABLED:=true}"
-: "${CALLGRAPH_METHOD:=SMA}"
-: "${CALLGRAPH_SMA_WINDOW_SIZE:=10}"
-: "${CALLGRAPH_EMA_ALPHA:=0.3}"
-: "${DEFAULT_SCALE_TO_ZERO_IDLE_DURATION:=5m}"
-: "${GATEWAY_IP:=0.0.0.0}"
-: "${GATEWAY_PORT:=80}"
-: "${RPROXY_PORT:=8000}"
-: "${MANAGER_PORT:=8080}"
-: "${ENV:=development}"
-
-echo "==> Autoscaler settings: ENABLED=$AUTOSCALER_ENABLED, IDLE_DURATION=$DEFAULT_SCALE_TO_ZERO_IDLE_DURATION"
-echo "==> Callgraph settings: ENABLED=$CALLGRAPH_ENABLED, METHOD=$CALLGRAPH_METHOD, SMA_WINDOW_SIZE=$CALLGRAPH_SMA_WINDOW_SIZE, EMA_ALPHA=$CALLGRAPH_EMA_ALPHA"
-echo "==> Gateway IP: $GATEWAY_IP"
-echo "==> Gateway port: $GATEWAY_PORT"
-echo "==> Manager port: $MANAGER_PORT"
-echo "==> RProxy port: $RPROXY_PORT"
-echo "==> Environment: $ENV"
-
-# Create environment files for autoscaler configuration
-sudo tee /etc/default/tinyfaas > /dev/null <<EOF
-# Autoscaler configuration
-AUTOSCALER_ENABLED=$AUTOSCALER_ENABLED
-DEFAULT_SCALE_TO_ZERO_IDLE_DURATION=$DEFAULT_SCALE_TO_ZERO_IDLE_DURATION
-
-# Callgraph configuration
-CALLGRAPH_ENABLED=$CALLGRAPH_ENABLED
-CALLGRAPH_METHOD=$CALLGRAPH_METHOD
-CALLGRAPH_SMA_WINDOW_SIZE=$CALLGRAPH_SMA_WINDOW_SIZE
-CALLGRAPH_EMA_ALPHA=$CALLGRAPH_EMA_ALPHA
-
-# Gateway configuration
-GATEWAY_IP=$GATEWAY_IP
-GATEWAY_PORT=$GATEWAY_PORT
-
-# RProxy configuration
-RPROXY_PORT=$RPROXY_PORT
-
-# Manager configuration
-MANAGER_PORT=$MANAGER_PORT
-
-# Environment configuration
-ENV=$ENV
-EOF
 
 echo "==> Reloading systemd daemon..."
 sudo systemctl daemon-reload
