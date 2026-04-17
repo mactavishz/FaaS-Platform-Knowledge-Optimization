@@ -46,6 +46,11 @@ test-tinyfaas:
 	make -C tinyFaaS unit-test
 	make -C tinyFaaS integration-test
 
+.PHONY: test-faasd
+test-faasd: registry-up
+	make -C faasd unit-test
+	make -C faasd integration-test
+
 .PHONY: test-integration
 test-integration: build-faas-cli
 	go test -count=1 -v -timeout 10m ./tests/integration/...
