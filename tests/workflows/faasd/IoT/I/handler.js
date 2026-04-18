@@ -1,0 +1,110 @@
+'use strict';
+
+// IoT-I: AnalyzeSensor - Entry function for tinyFaaS
+// Express-style handler (req, res)
+
+const axios = require("axios");
+
+const GATEWAY_BASE = (process.env.FAASD_GATEWAY_URL || "http://127.0.0.1:8080").replace(/\/$/, "");
+
+// Helper to call another function via the gateway
+function callFunction(functionName, data, sync, incomingHeaders) {
+    return (async () => {
+        const suffix = sync ? "function" : "async-function";
+        const url = new URL(`${GATEWAY_BASE}/${suffix}/iot-${functionName}`);
+
+        const headers = Object.assign({}, incomingHeaders || {});
+        delete headers.host;
+        delete headers["content-length"];
+        headers["content-type"] = "application/json";
+
+        try {
+            const res = await axios.post(url.toString(), data, {
+                headers,
+                timeout: 30000,
+                validateStatus: () => true,
+            });
+
+            if (!sync && res.status !== 202) {
+                throw new Error(`Async call failed with status ${res.status}`);
+            }
+
+            if (!sync) {
+                return {};
+            }
+
+            try {
+                if (res.data === undefined || res.data === null || res.data === "") {
+                    return {};
+                }
+                if (typeof res.data === "object") {
+                    return res.data;
+                }
+                return JSON.parse(res.data);
+            } catch {
+                return {};
+            }
+        } catch (err) {
+            console.error(`Error calling ${functionName}:`, err && err.message ? err.message : err);
+            throw err;
+        }
+    })();
+}
+
+function randn_bm() {
+    var u = 0, v = 0;
+    while (u === 0) u = Math.random(); //Converting [0,1) to (0,1)
+    while (v === 0) v = Math.random(); //Converting [0,1) to (0,1)
+    return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+module.exports = async (request, context) => {
+    const body = request.body;
+    console.log("AnalyzeSensor: Event:", body);
+    
+    let sensorID = Math.floor(Math.random() * 101);
+    let event = {
+        Temperature: {
+            sensorID: sensorID,
+            value: (randn_bm() * 50) - 10, // Between -10 and 40
+        },
+        Sound: {
+            sensorID: sensorID,
+            value: (randn_bm() * 50) - 10, // Between -10 and 40
+        },
+        AirQuality: {
+            sensorID: sensorID,
+            value: (randn_bm() * 50) - 10, // Between -10 and 40
+        },
+        EmergencyVehicle: {
+            sensorID: sensorID,
+            value: (randn_bm() * 50) - 10, // Between -10 and 40
+        },
+    };
+    
+    console.log("Got Input Event", event);
+    
+    const headers = request.headers;
+    // Sync call to cw (CheckSensor)
+    const cwResult = await callFunction("cw", { originalEvent: event.Temperature }, true, headers);
+    if (!cwResult.valid) {
+        console.log("AnalyzeSensor: CheckSensor data invalid.");
+    }
+
+    // Sync call to se (StoreEvent)
+    await callFunction("se", event.Temperature, true, headers);
+
+    // Async fan-out to ct, cs, ca
+    let calls = [];
+    calls.push(callFunction("ct", { originalEvent: event.Temperature }, false, headers));
+    calls.push(callFunction("cs", { originalEvent: event.Sound }, false, headers));
+    calls.push(callFunction("ca", { originalEvent: event.AirQuality }, false, headers));
+    
+    console.log("AnalyzeSensor: Waiting for async calls:", calls.length);
+    
+    const results = await Promise.all(calls);
+    
+    console.log("AnalyzeSensor: All Promises done, results:", results);
+    
+    return context.status(200).succeed({ results: results });
+};
