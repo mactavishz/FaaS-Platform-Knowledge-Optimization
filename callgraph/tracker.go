@@ -147,6 +147,11 @@ func (t *CallGraphTracker) Enabled() bool {
 	return t.config.Enabled
 }
 
+// PrewarmEnabled returns whether prewarming is enabled
+func (t *CallGraphTracker) PrewarmEnabled() bool {
+	return t.config.Prewarm != nil && t.config.Prewarm.Enabled
+}
+
 // StartExecution marks the beginning of a function execution for a specific request
 func (t *CallGraphTracker) StartExecution(functionName string, requestID string, executionID string, timestamp time.Time) {
 	if !t.config.Enabled {
@@ -514,6 +519,10 @@ func (t *CallGraphTracker) RecordScaleUp(functionName string, timestamp time.Tim
 		stats.TotalColdStarts++
 		stats.LastColdStartAt = timestamp
 		stats.LastColdStartDuration = duration
+	} else {
+		stats.TotalPrewarms++
+		stats.LastPrewarmAt = timestamp
+		stats.LastPrewarmDuration = duration
 	}
 	stats.TotalScaleUps++
 	stats.avgScaleUpCalculator.Add(duration)
@@ -726,6 +735,7 @@ func (t *CallGraphTracker) ResetFunctionStats(functionName string) {
 	stats.TotalCalls = 0
 	stats.TotalColdStarts = 0
 	stats.TotalScaleUps = 0
+	stats.TotalPrewarms = 0
 	stats.TotalScaleDowns = 0
 	stats.TotalExecutionTime = 0
 	stats.MinExecutionTime = 0
@@ -734,6 +744,8 @@ func (t *CallGraphTracker) ResetFunctionStats(functionName string) {
 	stats.LastCalledAt = time.Time{}
 	stats.LastColdStartAt = time.Time{}
 	stats.LastColdStartDuration = 0
+	stats.LastPrewarmAt = time.Time{}
+	stats.LastPrewarmDuration = 0
 	stats.AvgExecutionTime = 0
 	stats.AvgColdStartDuration = 0
 
@@ -821,7 +833,7 @@ func (t *CallGraphTracker) FunctionCount() int {
 // when the given function starts execution.
 // It analyzes the call graph to find downstream functions that could benefit from prewarming.
 func (t *CallGraphTracker) GetPrewarmTargets(functionName string) []PrewarmTarget {
-	if !t.config.Prewarm.Enabled {
+	if !t.PrewarmEnabled() {
 		return nil
 	}
 

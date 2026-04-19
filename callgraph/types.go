@@ -154,6 +154,9 @@ type FunctionStats struct {
 	// TotalScaleUps is the total number of scale-ups for this function
 	TotalScaleUps int `json:"total_scale_ups"`
 
+	// TotalPrewarms is the total number of proactive prewarms for this function
+	TotalPrewarms int `json:"total_prewarms"`
+
 	// TotalScaleDowns is the total number of scale-downs for this function
 	TotalScaleDowns int `json:"total_scale_downs"`
 
@@ -183,6 +186,12 @@ type FunctionStats struct {
 
 	// LastColdStartDuration is the duration of the last cold start
 	LastColdStartDuration time.Duration `json:"last_cold_start_duration_ns"`
+
+	// LastPrewarmAt is when the function was last proactively prewarmed
+	LastPrewarmAt time.Time `json:"last_prewarm_at"`
+
+	// LastPrewarmDuration is the duration of the last proactive prewarm
+	LastPrewarmDuration time.Duration `json:"last_prewarm_duration_ns"`
 
 	// AvgColdStartDuration is the calculated average cold start duration
 	AvgColdStartDuration time.Duration `json:"avg_cold_start_duration_ns"`
@@ -242,7 +251,7 @@ type PrewarmConfig struct {
 // DefaultPrewarmConfig returns the default prewarming configuration
 func DefaultPrewarmConfig() *PrewarmConfig {
 	return &PrewarmConfig{
-		Enabled: true,
+		Enabled: false,
 	}
 }
 

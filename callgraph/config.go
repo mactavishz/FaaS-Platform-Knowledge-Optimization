@@ -18,10 +18,12 @@ func NewConfigFromEnv(platform string) (Config, error) {
 	}
 
 	enabled := os.Getenv("CALLGRAPH_ENABLED") == "true" || os.Getenv("CALLGRAPH_ENABLED") == "1"
+	prewarmEnabled := os.Getenv("CALLGRAPH_PREWARM_ENABLED") == "true" || os.Getenv("CALLGRAPH_PREWARM_ENABLED") == "1"
 	method := parseAveragingMethod(os.Getenv("CALLGRAPH_METHOD"))
 
 	config := DefaultConfig()
 	config.Enabled = enabled
+	config.Prewarm.Enabled = prewarmEnabled
 	config.Method = method
 
 	if method == ExponentialMovingAverage {

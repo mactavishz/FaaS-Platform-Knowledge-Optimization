@@ -104,6 +104,8 @@ type PathAnalyzer interface {
 
 // Prewarmer defines the interface for prewarming prediction
 type Prewarmer interface {
+	// PrewarmEnabled returns whether the prewarmer is enabled
+	PrewarmEnabled() bool
 	// GetPrewarmTargets returns a list of functions that should be prewarmed
 	// when the given function starts execution
 	GetPrewarmTargets(functionName string) []PrewarmTarget

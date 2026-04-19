@@ -360,9 +360,20 @@ func TestConcurrentAccess(t *testing.T) {
 func TestInterfaceCompliance(t *testing.T) {
 	// Verify that CallGraphTracker implements all interfaces
 	var _ Tracker = (*CallGraphTracker)(nil)
+	var _ Prewarmer = (*CallGraphTracker)(nil)
 	var _ Serializer = (*CallGraphTracker)(nil)
 	var _ PathAnalyzer = (*CallGraphTracker)(nil)
 	var _ FullTracker = (*CallGraphTracker)(nil)
+}
+
+func TestPrewarmEnabledAccessor(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	assert.False(t, tracker.PrewarmEnabled())
+
+	config := DefaultConfig()
+	config.Prewarm.Enabled = true
+	tracker = New(WithConfig(config), WithLogger(zap.NewNop()))
+	assert.True(t, tracker.PrewarmEnabled())
 }
 
 // TestDAGWithBranches tests a DAG topology where one function calls multiple functions
@@ -707,6 +718,18 @@ func TestRecordScaleUp(t *testing.T) {
 	assert.Equal(t, 2, coldStarts)
 	assert.Equal(t, now2, lastColdStartAt)
 	assert.Equal(t, 600*time.Millisecond, lastColdStartDuration)
+
+	// Record a proactive prewarm
+	now3 := now2.Add(1 * time.Minute)
+	tracker.RecordScaleUp("funcA", now3, 450*time.Millisecond, false)
+
+	stats, ok := tracker.GetFunctionStats("funcA")
+	require.True(t, ok)
+	assert.Equal(t, 3, stats.TotalScaleUps)
+	assert.Equal(t, 2, stats.TotalColdStarts)
+	assert.Equal(t, 1, stats.TotalPrewarms)
+	assert.Equal(t, now3, stats.LastPrewarmAt)
+	assert.Equal(t, 450*time.Millisecond, stats.LastPrewarmDuration)
 }
 
 // TestGetColdStartAverage tests cold start average calculation
@@ -840,12 +863,15 @@ func TestResetFunctionStats(t *testing.T) {
 	assert.Equal(t, 0, statsAfter.TotalCalls)
 	assert.Equal(t, 0, statsAfter.TotalColdStarts)
 	assert.Equal(t, 0, statsAfter.TotalScaleUps)
+	assert.Equal(t, 0, statsAfter.TotalPrewarms)
 	assert.Equal(t, 0, statsAfter.TotalScaleDowns)
 	assert.Equal(t, time.Duration(0), statsAfter.TotalExecutionTime)
 	assert.Equal(t, time.Duration(0), statsAfter.MinExecutionTime)
 	assert.Equal(t, time.Duration(0), statsAfter.MaxExecutionTime)
 	assert.Equal(t, time.Duration(0), statsAfter.AvgExecutionTime)
 	assert.Equal(t, time.Duration(0), statsAfter.AvgColdStartDuration)
+	assert.True(t, statsAfter.LastPrewarmAt.IsZero())
+	assert.Equal(t, time.Duration(0), statsAfter.LastPrewarmDuration)
 
 	// Verify reset tracking
 	assert.Equal(t, 1, statsAfter.TotalResets)
@@ -1173,7 +1199,10 @@ func TestClearFunctionDataWithActiveContexts(t *testing.T) {
 
 // TestClearFunctionDataPrewarmNoLongerTargets tests that deleted function is not a prewarm target
 func TestClearFunctionDataPrewarmNoLongerTargets(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	config := DefaultConfig()
+	config.Prewarm.Enabled = true
+
+	tracker := New(WithConfig(config), WithLogger(zap.NewNop()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -1502,7 +1531,10 @@ func TestTrackerStop(t *testing.T) {
 
 // TestGetPrewarmTargets tests getting prewarm targets for a function
 func TestGetPrewarmTargets(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	config := DefaultConfig()
+	config.Prewarm.Enabled = true
+
+	tracker := New(WithConfig(config), WithLogger(zap.NewNop()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -1575,4 +1607,22 @@ func TestPrewarmDisabled(t *testing.T) {
 
 	targets := tracker.GetPrewarmTargets("funcA")
 	assert.Empty(t, targets)
+}
+
+func TestRecordPrewarmInFunctionStats(t *testing.T) {
+	tracker := New(WithLogger(zap.NewNop()))
+	tracker.Start()
+	defer tracker.Stop()
+
+	now := time.Now()
+
+	tracker.RecordScaleUp("funcA", now, 300*time.Millisecond, false)
+
+	stats, ok := tracker.GetFunctionStats("funcA")
+	require.True(t, ok)
+	assert.Equal(t, 1, stats.TotalScaleUps)
+	assert.Equal(t, 0, stats.TotalColdStarts)
+	assert.Equal(t, 1, stats.TotalPrewarms)
+	assert.Equal(t, now, stats.LastPrewarmAt)
+	assert.Equal(t, 300*time.Millisecond, stats.LastPrewarmDuration)
 }

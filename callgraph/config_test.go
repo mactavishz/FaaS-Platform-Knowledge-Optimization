@@ -10,21 +10,24 @@ import (
 
 func TestNewConfigFromEnv(t *testing.T) {
 	tests := []struct {
-		name        string
-		platform    string
-		envKey      string
-		envValue    string
-		methodKey   string
-		methodValue string
-		smaKey      string
-		smaValue    string
-		emaKey      string
-		emaValue    string
-		expectError bool
-		expected    bool
-		method      AveragingMethod
-		expSMA      int
-		expEMA      float64
+		name         string
+		platform     string
+		envKey       string
+		envValue     string
+		prewarmKey   string
+		prewarmValue string
+		methodKey    string
+		methodValue  string
+		smaKey       string
+		smaValue     string
+		emaKey       string
+		emaValue     string
+		expectError  bool
+		expected     bool
+		method       AveragingMethod
+		expSMA       int
+		expEMA       float64
+		expPrewarm   bool
 	}{
 		{
 			name:        "tinyfaas enabled",
@@ -35,6 +38,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
 			expectError: false,
 			expected:    true,
+			expPrewarm:  false,
 		},
 		{
 			name:        "tinyfaas enabled with 1",
@@ -45,6 +49,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
 			expectError: false,
 			expected:    true,
+			expPrewarm:  false,
 		},
 		{
 			name:        "tinyfaas disabled",
@@ -55,6 +60,33 @@ func TestNewConfigFromEnv(t *testing.T) {
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
 			expectError: false,
 			expected:    false,
+			expPrewarm:  false,
+		},
+		{
+			name:         "tinyfaas prewarm enabled",
+			platform:     "tinyfaas",
+			envKey:       "CALLGRAPH_ENABLED",
+			envValue:     "true",
+			prewarmKey:   "CALLGRAPH_PREWARM_ENABLED",
+			prewarmValue: "true",
+			method:       SimpleMovingAverage,
+			expSMA:       DEFAULT_SMA_WINDOW_SIZE,
+			expectError:  false,
+			expected:     true,
+			expPrewarm:   true,
+		},
+		{
+			name:         "tinyfaas prewarm disabled",
+			platform:     "tinyfaas",
+			envKey:       "CALLGRAPH_ENABLED",
+			envValue:     "true",
+			prewarmKey:   "CALLGRAPH_PREWARM_ENABLED",
+			prewarmValue: "false",
+			method:       SimpleMovingAverage,
+			expSMA:       DEFAULT_SMA_WINDOW_SIZE,
+			expectError:  false,
+			expected:     true,
+			expPrewarm:   false,
 		},
 		{
 			name:        "tinyfaas sma window from env",
@@ -67,6 +99,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 			expSMA:      25,
 			expectError: false,
 			expected:    true,
+			expPrewarm:  false,
 		},
 		{
 			name:        "tinyfaas invalid sma window falls back",
@@ -79,6 +112,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
 			expectError: false,
 			expected:    true,
+			expPrewarm:  false,
 		},
 		{
 			name:        "tinyfaas method ema uppercase",
@@ -91,6 +125,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 			expEMA:      DEFAULT_EMA_ALPHA,
 			expectError: false,
 			expected:    true,
+			expPrewarm:  false,
 		},
 		{
 			name:        "tinyfaas method ema mixed-case",
@@ -105,6 +140,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 			expEMA:      0.65,
 			expectError: false,
 			expected:    true,
+			expPrewarm:  false,
 		},
 		{
 			name:        "tinyfaas invalid ema alpha falls back",
@@ -119,6 +155,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 			expEMA:      DEFAULT_EMA_ALPHA,
 			expectError: false,
 			expected:    true,
+			expPrewarm:  false,
 		},
 		{
 			name:        "tinyfaas invalid method falls back to sma",
@@ -131,6 +168,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
 			expectError: false,
 			expected:    true,
+			expPrewarm:  false,
 		},
 		{
 			name:        "faasd enabled",
@@ -141,6 +179,33 @@ func TestNewConfigFromEnv(t *testing.T) {
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
 			expectError: false,
 			expected:    true,
+			expPrewarm:  false,
+		},
+		{
+			name:         "faasd prewarm enabled",
+			platform:     "faasd",
+			envKey:       "CALLGRAPH_ENABLED",
+			envValue:     "true",
+			prewarmKey:   "CALLGRAPH_PREWARM_ENABLED",
+			prewarmValue: "1",
+			method:       SimpleMovingAverage,
+			expSMA:       DEFAULT_SMA_WINDOW_SIZE,
+			expectError:  false,
+			expected:     true,
+			expPrewarm:   true,
+		},
+		{
+			name:         "faasd prewarm disabled",
+			platform:     "faasd",
+			envKey:       "CALLGRAPH_ENABLED",
+			envValue:     "true",
+			prewarmKey:   "CALLGRAPH_PREWARM_ENABLED",
+			prewarmValue: "0",
+			method:       SimpleMovingAverage,
+			expSMA:       DEFAULT_SMA_WINDOW_SIZE,
+			expectError:  false,
+			expected:     true,
+			expPrewarm:   false,
 		},
 		{
 			name:        "faasd sma window from env",
@@ -153,6 +218,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 			expSMA:      30,
 			expectError: false,
 			expected:    true,
+			expPrewarm:  false,
 		},
 		{
 			name:        "faasd method sma lower-case",
@@ -165,6 +231,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
 			expectError: false,
 			expected:    true,
+			expPrewarm:  false,
 		},
 		{
 			name:        "faasd method ema",
@@ -179,6 +246,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 			expEMA:      0.2,
 			expectError: false,
 			expected:    true,
+			expPrewarm:  false,
 		},
 		{
 			name:        "invalid platform",
@@ -189,6 +257,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
 			expectError: true,
 			expected:    false,
+			expPrewarm:  false,
 		},
 	}
 
@@ -199,6 +268,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 			os.Unsetenv("CALLGRAPH_METHOD")
 			os.Unsetenv("CALLGRAPH_SMA_WINDOW_SIZE")
 			os.Unsetenv("CALLGRAPH_EMA_ALPHA")
+			os.Unsetenv("CALLGRAPH_PREWARM_ENABLED")
 
 			// Set the test env var
 			if tt.envKey != "" {
@@ -209,6 +279,11 @@ func TestNewConfigFromEnv(t *testing.T) {
 			if tt.methodKey != "" {
 				os.Setenv(tt.methodKey, tt.methodValue)
 				defer os.Unsetenv(tt.methodKey)
+			}
+
+			if tt.prewarmKey != "" {
+				os.Setenv(tt.prewarmKey, tt.prewarmValue)
+				defer os.Unsetenv(tt.prewarmKey)
 			}
 
 			if tt.smaKey != "" {
@@ -244,7 +319,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 
 			assert.Equal(t, DefaultContextTTL, config.ContextTTL)
 			assert.Equal(t, DefaultContextCleanupInterval, config.ContextCleanupInterval)
-			assert.True(t, config.Prewarm.Enabled)
+			assert.Equal(t, tt.expPrewarm, config.Prewarm.Enabled)
 		})
 	}
 }
@@ -255,6 +330,7 @@ func TestNewConfigFromEnvDefaults(t *testing.T) {
 	os.Unsetenv("CALLGRAPH_METHOD")
 	os.Unsetenv("CALLGRAPH_SMA_WINDOW_SIZE")
 	os.Unsetenv("CALLGRAPH_EMA_ALPHA")
+	os.Unsetenv("CALLGRAPH_PREWARM_ENABLED")
 
 	config, err := NewConfigFromEnv("tinyfaas")
 	require.NoError(t, err)
@@ -266,6 +342,6 @@ func TestNewConfigFromEnvDefaults(t *testing.T) {
 	assert.Equal(t, DEFAULT_SMA_WINDOW_SIZE, config.SMAConfig.WindowSize)
 	assert.Nil(t, config.EMAConfig)
 
-	// But prewarm config should still have defaults
-	assert.True(t, config.Prewarm.Enabled)
+	// Prewarm config should follow defaults
+	assert.False(t, config.Prewarm.Enabled)
 }
