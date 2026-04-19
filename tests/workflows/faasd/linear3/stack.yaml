@@ -6,7 +6,7 @@ functions:
   linear3-a:
     lang: python3-http-debian
     handler: ./a
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/linear3-a:latest
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}linear3-a:latest
     build_args:
       TEST_ENABLED: false
     limits:
@@ -15,7 +15,7 @@ functions:
   linear3-b:
     lang: python3-http-debian
     handler: ./b
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/linear3-b:latest
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}linear3-b:latest
     build_args:
       TEST_ENABLED: false
     limits:
@@ -24,7 +24,7 @@ functions:
   linear3-c:
     lang: python3-http-debian
     handler: ./c
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/linear3-c:latest
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}linear3-c:latest
     build_args:
       TEST_ENABLED: false
     limits:
