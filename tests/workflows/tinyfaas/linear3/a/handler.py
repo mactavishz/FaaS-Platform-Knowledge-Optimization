@@ -1,8 +1,10 @@
 import os
 import logging
+import time
 import requests
 
 GATEWAY_BASE = os.environ.get("TINYFAAS_GATEWAY_URL", "http://tinyfaas.com")
+FUNCTION_DELAY_SEC = float(os.environ.get("FUNCTION_DELAY_SEC", "0"))
 logging.basicConfig(
     level=logging.INFO,
     format="{asctime} {levelname} {message}",
@@ -21,6 +23,8 @@ def _build_forward_headers(request) -> dict[str, str]:
 
 def handle(request):
     logging.info("Function linear3-a is called")
+    if FUNCTION_DELAY_SEC > 0:
+        time.sleep(FUNCTION_DELAY_SEC)
     logging.info("Function linear3-a is calling linear3-b")
     res = requests.post(
         f"{GATEWAY_BASE}/fn/linear3-b",

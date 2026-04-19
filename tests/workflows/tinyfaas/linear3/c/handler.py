@@ -1,5 +1,8 @@
 import os
 import logging
+import time
+
+FUNCTION_DELAY_SEC = float(os.environ.get("FUNCTION_DELAY_SEC", "0"))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -12,6 +15,8 @@ logging.getLogger().setLevel(logging.INFO)
 
 def handle(request):
     logging.info("Function linear3-c is called")
+    if FUNCTION_DELAY_SEC > 0:
+        time.sleep(FUNCTION_DELAY_SEC)
     return {
         "body": {
             "msg": "Function linear3-c is finished",
