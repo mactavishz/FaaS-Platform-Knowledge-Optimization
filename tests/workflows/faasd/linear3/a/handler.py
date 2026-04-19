@@ -5,6 +5,7 @@ import requests
 
 
 GATEWAY_BASE = os.environ.get("FAASD_GATEWAY_URL", "http://faasd.com").rstrip("/")
+FUNCTION_DELAY_SEC = float(os.environ.get("FUNCTION_DELAY_SEC", "0"))
 logging.basicConfig(
     level=logging.INFO,
     format="{asctime} {levelname} {message}",
@@ -23,7 +24,8 @@ def _build_forward_headers(headers: dict) -> dict[str, str]:
 
 def handle(event, context):
     logging.info("Function linear3-a is called")
-    sleep(0.5)
+    if FUNCTION_DELAY_SEC > 0:
+        sleep(FUNCTION_DELAY_SEC)
     logging.info("Function linear3-a is calling linear3-b")
     res = requests.post(
         f"{GATEWAY_BASE}/function/linear3-b",
