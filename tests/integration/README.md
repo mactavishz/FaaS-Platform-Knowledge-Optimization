@@ -17,9 +17,11 @@ The platform behavior suite rebuilds tinyFaaS with one of these profiles in `tes
 
 - `no-autoscaler-no-callgraph.env`
 - `autoscaler-only.env`
-- `autoscaler-and-callgraph.env`
+- `autoscaler-and-callgraph-no-prewarm.env`
+- `autoscaler-and-callgraph-and-prewarm.env`
 
-These tests currently deploy `tests/workflows/tinyfaas/linear3/stack.yaml`.
+These tests deploy `tests/workflows/tinyfaas/linear3/stack.yaml`.
+For prewarm-specific scenarios, they deploy with `-e FUNCTION_DELAY_SEC=5` to create deterministic downstream delay windows.
 
 ## Workflow Functionality Scenarios
 
