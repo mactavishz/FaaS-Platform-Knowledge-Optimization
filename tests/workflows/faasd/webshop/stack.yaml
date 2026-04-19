@@ -1,0 +1,126 @@
+version: 1.0
+provider:
+  name: openfaas
+  gateway: ${FAASD_GATEWAY_URL:-http://127.0.0.1:8080}
+functions:
+  webshop-frontend:
+    lang: node22
+    handler: ./frontend
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-frontend:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-checkout:
+    lang: node22
+    handler: ./checkout
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-checkout:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-addcartitem:
+    lang: node22
+    handler: ./addcartitem
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-addcartitem:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-emptycart:
+    lang: node22
+    handler: ./emptycart
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-emptycart:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-getcart:
+    lang: node22
+    handler: ./getcart
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-getcart:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-cartstorage:
+    lang: node22
+    handler: ./cartstorage
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-cartstorage:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+    environment_file:
+      - .env.yaml
+  webshop-listproducts:
+    lang: node22
+    handler: ./listproducts
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-listproducts:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-getproduct:
+    lang: node22
+    handler: ./getproduct
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-getproduct:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-searchproducts:
+    lang: node22
+    handler: ./searchproducts
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-searchproducts:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-listrecommendations:
+    lang: node22
+    handler: ./listrecommendations
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-listrecommendations:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-currency:
+    lang: node22
+    handler: ./currency
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-currency:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-supportedcurrencies:
+    lang: node22
+    handler: ./supportedcurrencies
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-supportedcurrencies:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-getads:
+    lang: node22
+    handler: ./getads
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-getads:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-shipmentquote:
+    lang: node22
+    handler: ./shipmentquote
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-shipmentquote:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-shiporder:
+    lang: node22
+    handler: ./shiporder
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-shiporder:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-payment:
+    lang: node22
+    handler: ./payment
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-payment:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi
+  webshop-email:
+    lang: node22
+    handler: ./email
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/webshop-email:latest
+    limits:
+      cpu: 0.25
+      memory: 256Mi

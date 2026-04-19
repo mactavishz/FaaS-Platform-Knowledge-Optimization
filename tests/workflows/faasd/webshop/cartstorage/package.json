@@ -1,0 +1,12 @@
+{
+  "name": "handler",
+  "version": "1.0.0",
+  "description": "webshop cartstorage (faasd)",
+  "main": "handler.js",
+  "scripts": {
+    "test": "echo \"No tests\""
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.49.1"
+  }
+}

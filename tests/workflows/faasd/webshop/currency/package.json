@@ -1,0 +1,9 @@
+{
+  "name": "handler",
+  "version": "1.0.0",
+  "description": "webshop currency (faasd)",
+  "main": "handler.js",
+  "scripts": {
+    "test": "echo \"No tests\""
+  }
+}

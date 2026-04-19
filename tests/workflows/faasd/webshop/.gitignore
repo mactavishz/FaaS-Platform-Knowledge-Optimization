@@ -1,0 +1,11 @@
+template
+build
+.secrets
+
+# node_modules
+node_modules/
+package-lock.json
+
+# environment variable files
+.env.yaml
+.env.yml
