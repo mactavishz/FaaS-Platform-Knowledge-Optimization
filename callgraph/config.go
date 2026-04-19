@@ -8,38 +8,27 @@ import (
 )
 
 // NewConfigFromEnv loads callgraph configuration from environment variables.
-// tinyfaas uses unprefixed names, faasd keeps FAASD_ names.
 func NewConfigFromEnv(platform string) (Config, error) {
-	var enabledKey, methodKey, smaWindowSizeKey, emaAlphaKey string
 	platform = strings.ToLower(platform)
 
 	switch platform {
-	case "faasd":
-		enabledKey = "FAASD_CALLGRAPH_ENABLED"
-		methodKey = "FAASD_CALLGRAPH_METHOD"
-		smaWindowSizeKey = "FAASD_CALLGRAPH_SMA_WINDOW_SIZE"
-		emaAlphaKey = "FAASD_CALLGRAPH_EMA_ALPHA"
-	case "tinyfaas":
-		enabledKey = "CALLGRAPH_ENABLED"
-		methodKey = "CALLGRAPH_METHOD"
-		smaWindowSizeKey = "CALLGRAPH_SMA_WINDOW_SIZE"
-		emaAlphaKey = "CALLGRAPH_EMA_ALPHA"
+	case "faasd", "tinyfaas":
 	default:
 		return Config{}, fmt.Errorf("invalid platform: %s", platform)
 	}
 
-	enabled := os.Getenv(enabledKey) == "true" || os.Getenv(enabledKey) == "1"
-	method := parseAveragingMethod(os.Getenv(methodKey))
+	enabled := os.Getenv("CALLGRAPH_ENABLED") == "true" || os.Getenv("CALLGRAPH_ENABLED") == "1"
+	method := parseAveragingMethod(os.Getenv("CALLGRAPH_METHOD"))
 
 	config := DefaultConfig()
 	config.Enabled = enabled
 	config.Method = method
 
 	if method == ExponentialMovingAverage {
-		config.EMAConfig = &EMAConfig{Alpha: parseEMAAlpha(os.Getenv(emaAlphaKey))}
+		config.EMAConfig = &EMAConfig{Alpha: parseEMAAlpha(os.Getenv("CALLGRAPH_EMA_ALPHA"))}
 		config.SMAConfig = nil
 	} else {
-		config.SMAConfig = &SMAConfig{WindowSize: parseSMAWindowSize(os.Getenv(smaWindowSizeKey))}
+		config.SMAConfig = &SMAConfig{WindowSize: parseSMAWindowSize(os.Getenv("CALLGRAPH_SMA_WINDOW_SIZE"))}
 		config.EMAConfig = nil
 	}
 

@@ -135,7 +135,7 @@ func TestNewConfigFromEnv(t *testing.T) {
 		{
 			name:        "faasd enabled",
 			platform:    "faasd",
-			envKey:      "FAASD_CALLGRAPH_ENABLED",
+			envKey:      "CALLGRAPH_ENABLED",
 			envValue:    "true",
 			method:      SimpleMovingAverage,
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
@@ -145,9 +145,9 @@ func TestNewConfigFromEnv(t *testing.T) {
 		{
 			name:        "faasd sma window from env",
 			platform:    "faasd",
-			envKey:      "FAASD_CALLGRAPH_ENABLED",
+			envKey:      "CALLGRAPH_ENABLED",
 			envValue:    "true",
-			smaKey:      "FAASD_CALLGRAPH_SMA_WINDOW_SIZE",
+			smaKey:      "CALLGRAPH_SMA_WINDOW_SIZE",
 			smaValue:    "30",
 			method:      SimpleMovingAverage,
 			expSMA:      30,
@@ -157,9 +157,9 @@ func TestNewConfigFromEnv(t *testing.T) {
 		{
 			name:        "faasd method sma lower-case",
 			platform:    "faasd",
-			envKey:      "FAASD_CALLGRAPH_ENABLED",
+			envKey:      "CALLGRAPH_ENABLED",
 			envValue:    "true",
-			methodKey:   "FAASD_CALLGRAPH_METHOD",
+			methodKey:   "CALLGRAPH_METHOD",
 			methodValue: "sma",
 			method:      SimpleMovingAverage,
 			expSMA:      DEFAULT_SMA_WINDOW_SIZE,
@@ -169,11 +169,11 @@ func TestNewConfigFromEnv(t *testing.T) {
 		{
 			name:        "faasd method ema",
 			platform:    "faasd",
-			envKey:      "FAASD_CALLGRAPH_ENABLED",
+			envKey:      "CALLGRAPH_ENABLED",
 			envValue:    "true",
-			methodKey:   "FAASD_CALLGRAPH_METHOD",
+			methodKey:   "CALLGRAPH_METHOD",
 			methodValue: "EMA",
-			emaKey:      "FAASD_CALLGRAPH_EMA_ALPHA",
+			emaKey:      "CALLGRAPH_EMA_ALPHA",
 			emaValue:    "0.2",
 			method:      ExponentialMovingAverage,
 			expEMA:      0.2,
@@ -196,13 +196,9 @@ func TestNewConfigFromEnv(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clear any existing env vars
 			os.Unsetenv("CALLGRAPH_ENABLED")
-			os.Unsetenv("FAASD_CALLGRAPH_ENABLED")
 			os.Unsetenv("CALLGRAPH_METHOD")
-			os.Unsetenv("FAASD_CALLGRAPH_METHOD")
 			os.Unsetenv("CALLGRAPH_SMA_WINDOW_SIZE")
-			os.Unsetenv("FAASD_CALLGRAPH_SMA_WINDOW_SIZE")
 			os.Unsetenv("CALLGRAPH_EMA_ALPHA")
-			os.Unsetenv("FAASD_CALLGRAPH_EMA_ALPHA")
 
 			// Set the test env var
 			if tt.envKey != "" {
