@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,19 @@ type EdgeStats struct {
 type CallGraph struct {
 	Edges     []EdgeStats    `json:"edges"`
 	Functions map[string]any `json:"functions"`
+}
+
+type FunctionCallGraphStats struct {
+	Name                string `json:"name"`
+	TotalCalls          int    `json:"total_calls"`
+	TotalColdStarts     int    `json:"total_cold_starts"`
+	TotalScaleUps       int    `json:"total_scale_ups"`
+	TotalPrewarms       int    `json:"total_prewarms"`
+	TotalScaleDowns     int    `json:"total_scale_downs"`
+	TotalResets         int    `json:"total_resets"`
+	LastColdStartAt     string `json:"last_cold_start_at"`
+	LastPrewarmAt       string `json:"last_prewarm_at"`
+	LastPrewarmDuration int64  `json:"last_prewarm_duration_ns"`
 }
 
 func RepoRoot(t *testing.T) string {
@@ -171,16 +185,35 @@ func WipeFunctions(t *testing.T) {
 }
 
 func DeployWorkflow(t *testing.T, stackPath string) {
+	DeployWorkflowWithEnvs(t, stackPath, nil)
+}
+
+func DeployWorkflowWithEnvs(t *testing.T, stackPath string, envs map[string]string) {
 	t.Helper()
 	t.Logf("[step] deploying workflow stack=%s", stackPath)
 
 	stack := filepath.Join(RepoRoot(t), stackPath)
-	if err := MustCommand(t, 10*time.Minute, RepoRoot(t),
-		"faas-cli",
+	args := []string{
 		"deploy",
 		"--platform", "tinyfaas",
 		"--gateway", DefaultGatewayURL,
 		"-f", stack,
+	}
+
+	if len(envs) > 0 {
+		keys := make([]string, 0, len(envs))
+		for k := range envs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			args = append(args, "-e", fmt.Sprintf("%s=%s", k, envs[k]))
+		}
+	}
+
+	if err := MustCommand(t, 10*time.Minute, RepoRoot(t),
+		"faas-cli",
+		args...,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -381,6 +414,41 @@ func WaitForFunctionsReady(t *testing.T, names []string, running bool, timeout t
 	t.Fatalf("timed out waiting for running=%t for functions %v", running, names)
 }
 
+func WaitForFunctionsPresent(t *testing.T, names []string, timeout time.Duration) {
+	t.Helper()
+	t.Logf("[step] waiting for functions present names=%v timeout=%s", names, timeout)
+
+	deadline := time.Now().Add(timeout)
+	attempt := 0
+	for time.Now().Before(deadline) {
+		attempt++
+		functions := ListFunctions(t)
+		present := true
+		index := make(map[string]struct{}, len(functions))
+		for _, fn := range functions {
+			index[fn.Name] = struct{}{}
+		}
+		for _, name := range names {
+			if _, ok := index[name]; !ok {
+				present = false
+				break
+			}
+		}
+
+		if present {
+			t.Logf("[step] functions present names=%v reached after checks=%d", names, attempt)
+			return
+		}
+
+		if attempt%5 == 0 {
+			t.Logf("[step] still waiting for functions present names=%v", names)
+		}
+		time.Sleep(2 * time.Second)
+	}
+
+	t.Fatalf("timed out waiting for functions present %v", names)
+}
+
 func HasRunningState(functions []FunctionStatus, names []string, running bool) bool {
 	index := make(map[string]bool, len(functions))
 	for _, fn := range functions {
@@ -417,6 +485,29 @@ func GetCallGraph(t *testing.T) CallGraph {
 		t.Fatalf("failed to decode callgraph response: %v", err)
 	}
 	return cg
+}
+
+func GetFunctionCallGraphStats(t *testing.T, functionName string) FunctionCallGraphStats {
+	t.Helper()
+	t.Logf("[step] fetching callgraph function stats function=%s", functionName)
+
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Get(DefaultGatewayURL + "/system/callgraph/function/" + functionName)
+	if err != nil {
+		t.Fatalf("failed to get callgraph function stats for %s: %v", functionName, err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("callgraph function stats request failed for %s: status=%d body=%s", functionName, resp.StatusCode, string(body))
+	}
+
+	var stats FunctionCallGraphStats
+	if err := json.Unmarshal(body, &stats); err != nil {
+		t.Fatalf("failed to decode callgraph function stats for %s: %v", functionName, err)
+	}
+
+	return stats
 }
 
 func EdgeCount(cg CallGraph, caller string, callee string) int {
