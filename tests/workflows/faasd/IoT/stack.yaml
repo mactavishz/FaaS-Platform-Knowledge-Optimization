@@ -6,14 +6,14 @@ functions:
   iot-i:
     lang: node22
     handler: ./I
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/iot-i:latest
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-i:latest
     limits:
       cpu: 0.25
       memory: 256Mi
   iot-as:
     lang: node22
     handler: ./AS
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/iot-as:latest
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-as:latest
     limits:
       cpu: 0.25
       memory: 256Mi
@@ -22,21 +22,21 @@ functions:
   iot-ca:
     lang: node22
     handler: ./CA
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/iot-ca:latest
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-ca:latest
     limits:
       cpu: 0.25
       memory: 256Mi
   iot-cs:
     lang: node22
     handler: ./CS
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/iot-cs:latest
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-cs:latest
     limits:
       cpu: 0.25
       memory: 256Mi
   iot-csa:
     lang: node22
     handler: ./CSA
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/iot-csa:latest
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-csa:latest
     limits:
       cpu: 0.25
       memory: 256Mi
@@ -45,7 +45,7 @@ functions:
   iot-csl:
     lang: node22
     handler: ./CSL
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/iot-csl:latest
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-csl:latest
     limits:
       cpu: 0.25
       memory: 256Mi
@@ -54,21 +54,21 @@ functions:
   iot-ct:
     lang: node22
     handler: ./CT
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/iot-ct:latest
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-ct:latest
     limits:
       cpu: 0.25
       memory: 256Mi
   iot-cw:
     lang: node22
     handler: ./CW
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/iot-cw:latest
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-cw:latest
     limits:
       cpu: 0.25
       memory: 256Mi
   iot-dj:
     lang: node22
     handler: ./DJ
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/iot-dj:latest
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-dj:latest
     limits:
       cpu: 0.25
       memory: 256Mi
@@ -77,7 +77,7 @@ functions:
   iot-se:
     lang: node22
     handler: ./SE
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd}/iot-se:latest
+    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-se:latest
     limits:
       cpu: 0.25
       memory: 256Mi
