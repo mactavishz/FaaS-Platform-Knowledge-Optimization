@@ -7,7 +7,7 @@ This directory contains integration tests in two categories:
 
 ## Prerequisites
 
-- Vagrant VM is running: `vagrant up tinyfaas` or `vagrant ssh faasd`
+- Vagrant VM is running: `vagrant up tinyfaas` and/or `vagrant up faasd`
 - Go toolchain installed
 - Docker available in the tinyfaas VM (handled by provisioning)
 
@@ -47,7 +47,7 @@ Missing/unconfigured env files are treated as test failures.
 
 ## Run Integration Tests for tinyFaaS
 
-Run all integration tests for both faad and tinyFaaS:
+Run all integration tests for both faasd and tinyFaaS:
 
 ```bash
 make test-integration
@@ -67,7 +67,18 @@ Run the tinyFaaS platform behavior suite:
 go test ./tests/integration/tinyfaas -run TestPlatformIntegrationSuite -v
 ```
 
-## Notes
+### For faasd
 
-- Tests rebuild the platform per scenario, so they are intentionally slower.
-- Callgraph assertions use API responses and avoid log-based checks.
+Run the faasd workflow functionality suite:
+
+```bash
+go test ./tests/integration/faasd -run TestWorkflowIntegrationSuite -v
+```
+
+The faasd workflow suite uses remote images for the deployment of the workflow functions, so it does not require a local build step.
+
+Additional prerequisites for faasd workflow tests:
+
+- Configured env files when required:
+  - `tests/workflows/faasd/IoT/.env.yaml`
+  - `tests/workflows/faasd/webshop/.env.yaml`
