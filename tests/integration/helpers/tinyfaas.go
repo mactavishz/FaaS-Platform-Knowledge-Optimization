@@ -2,13 +2,10 @@ package helpers
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -52,86 +49,10 @@ type FunctionCallGraphStats struct {
 	LastPrewarmDuration int64  `json:"last_prewarm_duration_ns"`
 }
 
-func RepoRoot(t *testing.T) string {
-	t.Helper()
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get current working directory: %v", err)
-	}
-
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "Vagrantfile")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatalf("failed to locate repository root from %s", dir)
-		}
-		dir = parent
-	}
-}
-
-func MustCommand(t *testing.T, timeout time.Duration, dir string, name string, args ...string) error {
-	t.Helper()
-	t.Logf("[cmd:start] %s %s", name, strings.Join(args, " "))
-	start := time.Now()
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, name, args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("command failed: %s %s: %w", name, strings.Join(args, " "), err)
-	}
-	t.Logf("[cmd:done] %s %s (%s)", name, strings.Join(args, " "), time.Since(start).Round(time.Millisecond))
-	return nil
-}
-
-func CommandOutput(t *testing.T, timeout time.Duration, dir string, name string, args ...string) (string, error) {
-	t.Helper()
-	t.Logf("[cmd:start] %s %s", name, strings.Join(args, " "))
-	start := time.Now()
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, name, args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return stdout.String(), fmt.Errorf("command failed: %s %s: %w", name, strings.Join(args, " "), err)
-	}
-	t.Logf("[cmd:done] %s %s (%s)", name, strings.Join(args, " "), time.Since(start).Round(time.Millisecond))
-	return stdout.String(), nil
-}
-
 func RequireTinyFaaSVM(t *testing.T) {
 	t.Helper()
 	t.Log("[step] verifying tinyfaas VM is running")
-
-	if _, err := exec.LookPath("vagrant"); err != nil {
-		t.Skip("vagrant not found in PATH")
-	}
-
-	out, err := CommandOutput(t, 30*time.Second, RepoRoot(t), "vagrant", "status", "tinyfaas", "--machine-readable")
-	if err != nil {
-		t.Fatalf("failed to check tinyfaas VM status: %v", err)
-	}
-	if !strings.Contains(out, ",tinyfaas,state,running") {
-		t.Fatalf("tinyfaas VM is not running. Run: vagrant up tinyfaas")
-	}
+	EnsureVagrantVMExclusive(t, "tinyfaas", "faasd")
 }
 
 func RebuildTinyFaaS(t *testing.T, envProfile string) {
@@ -139,9 +60,7 @@ func RebuildTinyFaaS(t *testing.T, envProfile string) {
 	t.Logf("[step] rebuilding tinyFaaS with profile=%s", envProfile)
 
 	cmd := fmt.Sprintf("PROJECT_ROOT=/vagrant ENV_FILE=/vagrant/tests/integration/env/%s bash /vagrant/scripts/build-tinyfaas.sh", envProfile)
-	if err := MustCommand(t, 35*time.Minute, RepoRoot(t), "vagrant", "ssh", "tinyfaas", "-c", cmd); err != nil {
-		t.Fatal(err)
-	}
+	MustRunCommand(t, CommandOptions{Timeout: 35 * time.Minute, Dir: RepoRoot(t)}, "vagrant", "ssh", "tinyfaas", "-c", cmd)
 	t.Log("[step] tinyFaaS rebuild complete")
 }
 
@@ -211,12 +130,10 @@ func DeployWorkflowWithEnvs(t *testing.T, stackPath string, envs map[string]stri
 		}
 	}
 
-	if err := MustCommand(t, 10*time.Minute, RepoRoot(t),
+	MustRunCommand(t, CommandOptions{Timeout: 10 * time.Minute, Dir: RepoRoot(t)},
 		"faas-cli",
 		args...,
-	); err != nil {
-		t.Fatal(err)
-	}
+	)
 	t.Logf("[step] workflow deployed stack=%s", stackPath)
 }
 
@@ -328,48 +245,6 @@ func InvokeJSONEventually(t *testing.T, functionName string, payload any, timeou
 
 	t.Fatalf("invoke %s did not succeed within %s", functionName, timeout)
 	return nil
-}
-
-func DecodeJSON[T any](t *testing.T, body []byte, out *T) {
-	t.Helper()
-	if err := json.Unmarshal(body, out); err != nil {
-		t.Fatalf("failed to decode JSON response: %v body=%s", err, string(body))
-	}
-}
-
-func RequireWorkflowEnvFile(t *testing.T, relPath string) {
-	t.Helper()
-	absPath := filepath.Join(RepoRoot(t), relPath)
-
-	content, err := os.ReadFile(absPath)
-	if err != nil {
-		t.Fatalf("required workflow env file missing or unreadable: %s err=%v", absPath, err)
-	}
-
-	text := string(content)
-	if strings.TrimSpace(text) == "" {
-		t.Fatalf("required workflow env file is empty: %s", absPath)
-	}
-
-	if !strings.Contains(text, "SUPABASE_URL") || !strings.Contains(text, "SUPABASE_KEY") {
-		t.Fatalf("required workflow env file must define SUPABASE_URL and SUPABASE_KEY: %s", absPath)
-	}
-
-	if strings.Contains(text, "your_supabase_project_url") || strings.Contains(text, "your_supabase_publishable_key") {
-		t.Fatalf("required workflow env file still contains placeholder values: %s", absPath)
-	}
-}
-
-func Eventually(t *testing.T, timeout time.Duration, interval time.Duration, fn func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if fn() {
-			return
-		}
-		time.Sleep(interval)
-	}
-	t.Fatalf("condition not met within %s", timeout)
 }
 
 func ListFunctions(t *testing.T) []FunctionStatus {
