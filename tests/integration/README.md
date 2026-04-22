@@ -5,11 +5,22 @@ This directory contains integration tests in two categories:
 - Platform behavior scenarios (autoscaler/callgraph)
 - Workflow functionality scenarios (no autoscaler, no callgraph)
 
-## Prerequisites
+## Logging
 
-- Vagrant VM is running: `vagrant up tinyfaas` and/or `vagrant up faasd`
-- Go toolchain installed
-- Docker available in the tinyfaas VM (handled by provisioning)
+- Integration command logs are captured and only printed on test failure to keep test output clean.
+- To stream verbose command output live, set `INTEGRATION_DEBUG=1`.
+
+Example:
+
+```bash
+INTEGRATION_DEBUG=1 go test ./tests/integration/tinyfaas -run TestPlatformIntegrationSuite -v
+```
+
+## VM Exclusivity
+
+- The integration helpers enforce a single active VM when switching platforms.
+- tinyFaaS test setup suspends `faasd` if running, then ensures `tinyfaas` is running.
+- faasd test setup suspends `tinyfaas` if running, then ensures `faasd` is running.
 
 ## Platform Behavior Scenarios
 
