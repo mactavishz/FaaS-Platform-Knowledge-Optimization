@@ -3,6 +3,7 @@ package helpers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,11 +11,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	sdkstack "github.com/openfaas/go-sdk/stack"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 const (
@@ -23,16 +27,43 @@ const (
 )
 
 type FaasdGatewayAuth struct {
-	User string
-	Pass string
+	User     string
+	Pass     string
+	Password string
 }
 
-type faasdFunctionStatus struct {
-	Name string `json:"name"`
+type FunctionResources struct {
+	Memory string `json:"memory" yaml:"memory"`
+	CPU    string `json:"cpu" yaml:"cpu"`
 }
 
-type faasdStackFile struct {
-	Functions map[string]any `yaml:"functions"`
+type FaasdFunctionStatus struct {
+	Name   string             `json:"name"`
+	Image  string             `json:"image"`
+	Limits *FunctionResources `json:"limits,omitempty"`
+}
+
+type DeployOptions struct {
+	Image       string
+	CPULimit    string
+	MemoryLimit string
+}
+
+type ContainerInfo struct {
+	ID   string `json:"ID"`
+	Spec struct {
+		Linux struct {
+			Resources struct {
+				Memory struct {
+					Limit *int64 `json:"limit"`
+				} `json:"memory"`
+				CPU struct {
+					Quota  *int64  `json:"quota"`
+					Period *uint64 `json:"period"`
+				} `json:"cpu"`
+			} `json:"resources"`
+		} `json:"linux"`
+	} `json:"Spec"`
 }
 
 func FaasdGatewayURL() string {
@@ -40,6 +71,13 @@ func FaasdGatewayURL() string {
 		return strings.TrimRight(v, "/")
 	}
 	return DefaultFaasdGatewayURL
+}
+
+func authSecret(auth FaasdGatewayAuth) string {
+	if strings.TrimSpace(auth.Pass) != "" {
+		return auth.Pass
+	}
+	return auth.Password
 }
 
 func RequireFaasd(t *testing.T) (string, FaasdGatewayAuth) {
@@ -102,7 +140,7 @@ func readFaasdGatewayAuth(t *testing.T) FaasdGatewayAuth {
 		t.Fatal("faasd basic auth password is empty")
 	}
 
-	return FaasdGatewayAuth{User: user, Pass: pass}
+	return FaasdGatewayAuth{User: user, Pass: pass, Password: pass}
 }
 
 func loginFaasCLI(t *testing.T, baseURL string) {
@@ -134,19 +172,14 @@ func RequireLocalRegistryReachable(t *testing.T) {
 	}
 }
 
-func parseFaasdStack(t *testing.T, stackPath string) faasdStackFile {
+func parseFaasdStack(t *testing.T, stackPath string, envsubst bool) *sdkstack.Services {
 	t.Helper()
 
-	data, err := os.ReadFile(stackPath)
+	stack, err := sdkstack.ParseYAMLFile(stackPath, "", "", envsubst)
 	if err != nil {
-		t.Fatalf("read stack file %s: %v", stackPath, err)
+		t.Fatalf("parse stack file %s: %v", stackPath, err)
 	}
-
-	var stack faasdStackFile
-	if err := yaml.Unmarshal(data, &stack); err != nil {
-		t.Fatalf("decode stack file %s: %v", stackPath, err)
-	}
-	if len(stack.Functions) == 0 {
+	if stack == nil || len(stack.Functions) == 0 {
 		t.Fatalf("stack contains no functions: %s", stackPath)
 	}
 	return stack
@@ -154,7 +187,7 @@ func parseFaasdStack(t *testing.T, stackPath string) faasdStackFile {
 
 func FaasdStackFunctionNames(t *testing.T, stackPath string) []string {
 	t.Helper()
-	stack := parseFaasdStack(t, stackPath)
+	stack := parseFaasdStack(t, stackPath, true)
 	names := make([]string, 0, len(stack.Functions))
 	for name := range stack.Functions {
 		names = append(names, name)
@@ -165,7 +198,24 @@ func FaasdStackFunctionNames(t *testing.T, stackPath string) []string {
 
 func FaasdStackFunctionCount(t *testing.T, stackPath string) int {
 	t.Helper()
-	return len(parseFaasdStack(t, stackPath).Functions)
+	return len(parseFaasdStack(t, stackPath, true).Functions)
+}
+
+func ParseFixtureStack(t *testing.T, fixtureDir string) *sdkstack.Services {
+	t.Helper()
+	stackPath := filepath.Join(fixtureDir, "stack.yaml")
+	return parseFaasdStack(t, stackPath, false)
+}
+
+func FixtureFunction(t *testing.T, fixtureDir string, sourceName string) sdkstack.Function {
+	t.Helper()
+	services := ParseFixtureStack(t, fixtureDir)
+	fn, ok := services.Functions[sourceName]
+	if !ok {
+		t.Fatalf("source function %q not found in stack", sourceName)
+	}
+	fn.Name = sourceName
+	return fn
 }
 
 func RemoveFaasdWorkflowStack(t *testing.T, baseURL string, stackPath string) {
@@ -178,25 +228,20 @@ func BuildFaasdWorkflowStack(t *testing.T, stackPath string) {
 	MustRunCommand(t, CommandOptions{Timeout: 20 * time.Minute, Dir: filepath.Dir(stackPath)}, "faas-cli", "build", "-f", stackPath)
 }
 
-func PushFaasdWorkflowStack(t *testing.T, stackPath string, parallelism int) {
+func pushImageWithRetries(t *testing.T, workdir string, image string) error {
 	t.Helper()
-	if parallelism <= 0 {
-		t.Fatalf("parallelism must be > 0, got %d", parallelism)
-	}
 
-	args := []string{"push", "--parallel", fmt.Sprintf("%d", parallelism), "-f", stackPath}
 	var lastErr error
 	var output string
-
 	for attempt := 1; attempt <= 3; attempt++ {
-		output, lastErr = tryRunCommand(t, 30*time.Minute, filepath.Dir(stackPath), "faas-cli", args...)
+		output, lastErr = tryRunCommand(t, 30*time.Minute, workdir, "docker", "push", image)
 		if lastErr == nil {
-			return
+			return nil
 		}
 
-		t.Logf("faas-cli push attempt %d/3 failed for %s: %v", attempt, stackPath, lastErr)
+		t.Logf("docker push attempt %d/3 failed for %s: %v", attempt, image, lastErr)
 		if strings.TrimSpace(output) != "" {
-			t.Logf("faas-cli push output (attempt %d):\n%s", attempt, output)
+			t.Logf("docker push output (attempt %d):\n%s", attempt, output)
 		}
 
 		if attempt < 3 {
@@ -204,7 +249,93 @@ func PushFaasdWorkflowStack(t *testing.T, stackPath string, parallelism int) {
 		}
 	}
 
-	t.Fatalf("faas-cli push failed after 3 attempts for %s: %v\noutput:\n%s", stackPath, lastErr, output)
+	return fmt.Errorf("docker push failed after 3 attempts for %s: %w\noutput:\n%s", image, lastErr, output)
+}
+
+func PushFaasdWorkflowStack(t *testing.T, stackPath string, parallelism int) {
+	t.Helper()
+	if parallelism <= 0 {
+		t.Fatalf("parallelism must be > 0, got %d", parallelism)
+	}
+
+	services := parseFaasdStack(t, stackPath, true)
+	imagesByName := make(map[string]struct{})
+	for _, fn := range services.Functions {
+		if fn.SkipBuild {
+			continue
+		}
+		img := strings.TrimSpace(fn.Image)
+		if img == "" {
+			continue
+		}
+		imagesByName[img] = struct{}{}
+	}
+
+	images := make([]string, 0, len(imagesByName))
+	for img := range imagesByName {
+		images = append(images, img)
+	}
+	sort.Strings(images)
+
+	if len(images) == 0 {
+		t.Fatalf("no pushable function images found in stack: %s", stackPath)
+	}
+
+	workdir := filepath.Dir(stackPath)
+	jobs := make(chan string)
+	errCh := make(chan error, len(images))
+
+	workers := parallelism
+	if workers > len(images) {
+		workers = len(images)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for image := range jobs {
+				if err := pushImageWithRetries(t, workdir, image); err != nil {
+					errCh <- err
+				}
+			}
+		}()
+	}
+
+	for _, image := range images {
+		jobs <- image
+	}
+	close(jobs)
+	wg.Wait()
+	close(errCh)
+
+	if len(errCh) > 0 {
+		var errs []error
+		for err := range errCh {
+			errs = append(errs, err)
+		}
+		t.Fatal(errors.Join(errs...))
+	}
+}
+
+func BuildStack(t *testing.T, stackPath string) {
+	t.Helper()
+	BuildFaasdWorkflowStack(t, stackPath)
+}
+
+func PushStack(t *testing.T, stackPath string) {
+	t.Helper()
+	parallelism := FaasdStackFunctionCount(t, stackPath)
+	if parallelism <= 0 {
+		parallelism = 1
+	}
+	PushFaasdWorkflowStack(t, stackPath, parallelism)
+}
+
+func DeployStack(t *testing.T, stackPath string, gateway string) {
+	t.Helper()
+	DeployFaasdWorkflowStack(t, gateway, stackPath)
 }
 
 func DeployFaasdWorkflowStack(t *testing.T, baseURL string, stackPath string) {
@@ -212,12 +343,119 @@ func DeployFaasdWorkflowStack(t *testing.T, baseURL string, stackPath string) {
 	MustRunCommand(t, CommandOptions{Timeout: 10 * time.Minute, Dir: filepath.Dir(stackPath)}, "faas-cli", "deploy", "--read-template=false", "--gateway", baseURL, "-f", stackPath)
 }
 
+func UniqueFunctionName(prefix string) string {
+	p := strings.ToLower(strings.TrimSpace(prefix))
+	p = strings.ReplaceAll(p, "_", "-")
+	p = strings.ReplaceAll(p, " ", "-")
+	if p == "" {
+		p = "fn"
+	}
+	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+	name := p + "-" + suffix[len(suffix)-8:]
+	if len(name) > 63 {
+		name = name[:63]
+		name = strings.TrimRight(name, "-")
+	}
+	return name
+}
+
+func RemoveFunction(t *testing.T, functionName string, gateway string) {
+	t.Helper()
+	_, _ = TryRunCommand(t, CommandOptions{Timeout: 60 * time.Second}, "faas-cli", "remove", functionName, "--gateway", gateway)
+}
+
+func DeployFunction(t *testing.T, gateway string, functionName string, fn sdkstack.Function, opts DeployOptions) {
+	t.Helper()
+
+	image := strings.TrimSpace(opts.Image)
+	if image == "" {
+		image = strings.TrimSpace(fn.Image)
+	}
+	if image == "" {
+		t.Fatal("function image is required for deploy")
+	}
+
+	cpu := strings.TrimSpace(opts.CPULimit)
+	memory := strings.TrimSpace(opts.MemoryLimit)
+
+	if fn.Limits != nil {
+		if cpu == "" {
+			cpu = strings.TrimSpace(fn.Limits.CPU)
+		}
+		if memory == "" {
+			memory = strings.TrimSpace(fn.Limits.Memory)
+		}
+	}
+
+	args := []string{
+		"deploy",
+		"--gateway", gateway,
+		"--name", functionName,
+		"--image", image,
+	}
+
+	if cpu != "" {
+		args = append(args, "--cpu-limit", cpu)
+	}
+	if memory != "" {
+		args = append(args, "--memory-limit", memory)
+	}
+
+	MustRunCommand(t, CommandOptions{Timeout: 10 * time.Minute, Dir: RepoRoot(t)}, "faas-cli", args...)
+}
+
+func InvokeFaasdFunction(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string, payload io.Reader) (int, []byte) {
+	t.Helper()
+
+	url := strings.TrimRight(baseURL, "/") + "/function/" + functionName
+	req, err := http.NewRequest(http.MethodPost, url, payload)
+	if err != nil {
+		t.Fatalf("failed to create invoke request: %v", err)
+	}
+	req.SetBasicAuth(auth.User, authSecret(auth))
+	req.Header.Set("Content-Type", "text/plain")
+
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("invoke request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("failed to read invoke response: %v", err)
+	}
+
+	return resp.StatusCode, body
+}
+
+func InvokeFaasdFunctionEventually(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string, payload []byte, expectedStatus int, timeout time.Duration) (int, []byte) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var lastStatus int
+	var lastBody []byte
+
+	for time.Now().Before(deadline) {
+		status, body := InvokeFaasdFunction(t, baseURL, auth, functionName, bytes.NewReader(payload))
+		lastStatus = status
+		lastBody = body
+		if status == expectedStatus {
+			return status, body
+		}
+		time.Sleep(700 * time.Millisecond)
+	}
+
+	t.Fatalf("invoke %q did not reach status %d within %s, last status=%d, body=%s", functionName, expectedStatus, timeout, lastStatus, string(lastBody))
+	return 0, nil
+}
+
 func WaitForFaasdFunctionsPresent(t *testing.T, baseURL string, auth FaasdGatewayAuth, names []string, timeout time.Duration) {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		functions := listFaasdFunctions(t, baseURL, auth)
+		functions := ListFaasdFunctions(t, baseURL, auth)
 		index := make(map[string]struct{}, len(functions))
 		for _, fn := range functions {
 			index[fn.Name] = struct{}{}
@@ -240,14 +478,6 @@ func WaitForFaasdFunctionsPresent(t *testing.T, baseURL string, auth FaasdGatewa
 	t.Fatalf("functions %v not present within %s", names, timeout)
 }
 
-func WarmFaasdFunctions(t *testing.T, baseURL string, auth FaasdGatewayAuth, names []string, timeout time.Duration) {
-	t.Helper()
-
-	for _, name := range names {
-		warmFaasdFunctionEventually(t, baseURL, auth, name, timeout)
-	}
-}
-
 func InvokeFaasdJSONOnce(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string, payload any) (int, []byte, error) {
 	t.Helper()
 
@@ -261,7 +491,7 @@ func InvokeFaasdJSONOnce(t *testing.T, baseURL string, auth FaasdGatewayAuth, fu
 	if err != nil {
 		return 0, nil, err
 	}
-	req.SetBasicAuth(auth.User, auth.Pass)
+	req.SetBasicAuth(auth.User, authSecret(auth))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
@@ -305,7 +535,7 @@ func tryRunCommand(t *testing.T, timeout time.Duration, workdir string, name str
 	return TryRunCommand(t, CommandOptions{Timeout: timeout, Dir: workdir}, name, args...)
 }
 
-func listFaasdFunctions(t *testing.T, baseURL string, auth FaasdGatewayAuth) []faasdFunctionStatus {
+func ListFaasdFunctions(t *testing.T, baseURL string, auth FaasdGatewayAuth) []FaasdFunctionStatus {
 	t.Helper()
 
 	url := strings.TrimRight(baseURL, "/") + "/system/functions"
@@ -313,7 +543,7 @@ func listFaasdFunctions(t *testing.T, baseURL string, auth FaasdGatewayAuth) []f
 	if err != nil {
 		t.Fatalf("create list request: %v", err)
 	}
-	req.SetBasicAuth(auth.User, auth.Pass)
+	req.SetBasicAuth(auth.User, authSecret(auth))
 
 	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
 	if err != nil {
@@ -329,24 +559,88 @@ func listFaasdFunctions(t *testing.T, baseURL string, auth FaasdGatewayAuth) []f
 		t.Fatalf("list functions failed: %s", string(body))
 	}
 
-	out := make([]faasdFunctionStatus, 0)
+	out := make([]FaasdFunctionStatus, 0)
 	if err := json.Unmarshal(body, &out); err != nil {
 		t.Fatalf("invalid /system/functions payload: %s err=%v", string(body), err)
 	}
 	return out
 }
 
-func warmFaasdFunctionEventually(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string, timeout time.Duration) {
+func GetFaasdFunction(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string) FaasdFunctionStatus {
+	t.Helper()
+	for _, fn := range ListFaasdFunctions(t, baseURL, auth) {
+		if fn.Name == functionName {
+			return fn
+		}
+	}
+	t.Fatalf("function %q not found in /system/functions", functionName)
+	return FaasdFunctionStatus{}
+}
+
+func WaitForFaasdFunction(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string, timeout time.Duration) FaasdFunctionStatus {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		status, _, err := InvokeFaasdJSONOnce(t, baseURL, auth, functionName, map[string]any{"warmup": true})
-		if err == nil && status > 0 {
-			return
+		for _, fn := range ListFaasdFunctions(t, baseURL, auth) {
+			if fn.Name == functionName {
+				return fn
+			}
 		}
-		time.Sleep(700 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 	}
 
-	t.Fatalf("warmup invoke for %s failed within %s", functionName, timeout)
+	t.Fatalf("function %q not found in /system/functions within %s", functionName, timeout)
+	return FaasdFunctionStatus{}
+}
+
+func WaitForContainerInfo(t *testing.T, functionName string, timeout time.Duration) ContainerInfo {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		out := vagrantSSH(t, faasdVMName, "sudo ctr -n openfaas-fn c info "+functionName+" 2>/dev/null || true")
+		trimmed := strings.TrimSpace(out)
+		if trimmed == "" {
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		var info ContainerInfo
+		if err := json.Unmarshal([]byte(trimmed), &info); err == nil && info.ID == functionName {
+			return info
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	t.Fatalf("container info for %q not found in openfaas-fn namespace within %s", functionName, timeout)
+	return ContainerInfo{}
+}
+
+func MemoryBytes(t *testing.T, memory string) int64 {
+	t.Helper()
+	q, err := resource.ParseQuantity(memory)
+	if err != nil {
+		t.Fatalf("invalid memory quantity %q: %v", memory, err)
+	}
+	return q.Value()
+}
+
+func CPUNano(t *testing.T, cpu string) int64 {
+	t.Helper()
+	q, err := resource.ParseQuantity(cpu)
+	if err != nil {
+		t.Fatalf("invalid cpu quantity %q: %v", cpu, err)
+	}
+	return q.MilliValue() * 1_000_000
+}
+
+func CPUQuotaFromNano(nano int64, period uint64) int64 {
+	periodInt64 := int64(period)
+	quota := (nano/1_000_000_000)*periodInt64 + ((nano%1_000_000_000)*periodInt64)/1_000_000_000
+	if quota < 1 {
+		return 1
+	}
+	return quota
 }

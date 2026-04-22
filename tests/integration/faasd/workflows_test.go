@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
+const faasdDeployInvokeTimeout = 20 * time.Second
+
 type WorkflowIntegrationSuite struct {
 	suite.Suite
 	baseURL string
@@ -67,10 +69,8 @@ func (s *WorkflowIntegrationSuite) deployFaasdWorkflow(t *testing.T, stackRelPat
 
 func (s *WorkflowIntegrationSuite) runLinear3Batch() {
 	t := s.T()
-	names := s.deployFaasdWorkflow(t, "tests/workflows/faasd/linear3/stack.yaml")
-	integrationhelpers.WarmFaasdFunctions(t, s.baseURL, s.auth, excludeFunction(names, "linear3-a"), 90*time.Second)
-
-	body := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, 120*time.Second)
+	s.deployFaasdWorkflow(t, "tests/workflows/faasd/linear3/stack.yaml")
+	body := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, faasdDeployInvokeTimeout)
 
 	type linear3Payload struct {
 		Msg            string         `json:"msg"`
@@ -106,10 +106,8 @@ func (s *WorkflowIntegrationSuite) runLinear3Batch() {
 
 func (s *WorkflowIntegrationSuite) runTreeBatch() {
 	t := s.T()
-	names := s.deployFaasdWorkflow(t, "tests/workflows/faasd/tree/stack.yaml")
-	integrationhelpers.WarmFaasdFunctions(t, s.baseURL, s.auth, excludeFunction(names, "tree-a"), 90*time.Second)
-
-	body := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "tree-a", map[string]any{"traceId": "tree-it"}, 120*time.Second)
+	s.deployFaasdWorkflow(t, "tests/workflows/faasd/tree/stack.yaml")
+	body := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "tree-a", map[string]any{"traceId": "tree-it"}, faasdDeployInvokeTimeout)
 
 	var payload struct {
 		From    string           `json:"from"`
@@ -144,10 +142,8 @@ func (s *WorkflowIntegrationSuite) runTreeBatch() {
 func (s *WorkflowIntegrationSuite) runIoTBatch() {
 	t := s.T()
 	integrationhelpers.RequireWorkflowEnvFile(t, "tests/workflows/faasd/IoT/.env.yaml")
-	names := s.deployFaasdWorkflow(t, "tests/workflows/faasd/IoT/stack.yaml")
-	integrationhelpers.WarmFaasdFunctions(t, s.baseURL, s.auth, excludeFunction(names, "iot-i"), 90*time.Second)
-
-	entryBody := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "iot-i", map[string]any{}, 120*time.Second)
+	s.deployFaasdWorkflow(t, "tests/workflows/faasd/IoT/stack.yaml")
+	entryBody := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "iot-i", map[string]any{}, faasdDeployInvokeTimeout)
 	var entry struct {
 		Results []map[string]any `json:"results"`
 	}
@@ -207,15 +203,13 @@ func (s *WorkflowIntegrationSuite) runIoTBatch() {
 func (s *WorkflowIntegrationSuite) runWebshopBatch() {
 	t := s.T()
 	integrationhelpers.RequireWorkflowEnvFile(t, "tests/workflows/faasd/webshop/.env.yaml")
-	names := s.deployFaasdWorkflow(t, "tests/workflows/faasd/webshop/stack.yaml")
-	integrationhelpers.WarmFaasdFunctions(t, s.baseURL, s.auth, excludeFunction(names, "webshop-frontend"), 90*time.Second)
-
+	s.deployFaasdWorkflow(t, "tests/workflows/faasd/webshop/stack.yaml")
 	t.Run("get", func(t *testing.T) {
 		body := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "webshop-frontend", map[string]any{
 			"operation": "get",
 			"userId":    "it-webshop-get",
 			"currency":  "USD",
-		}, 120*time.Second)
+		}, faasdDeployInvokeTimeout)
 
 		var payload struct {
 			SupportedCurrencies struct {
@@ -355,15 +349,4 @@ func emptyWebshopCart(t *testing.T, baseURL string, auth integrationhelpers.Faas
 		integrationhelpers.DecodeJSON(t, body, &cartResp)
 		return len(cartResp.Cart) == 0
 	})
-}
-
-func excludeFunction(names []string, excluded string) []string {
-	out := make([]string, 0, len(names))
-	for _, name := range names {
-		if name == excluded {
-			continue
-		}
-		out = append(out, name)
-	}
-	return out
 }
