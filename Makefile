@@ -47,7 +47,7 @@ test-tinyfaas:
 	make -C tinyFaaS integration-test
 
 .PHONY: test-faasd
-test-faasd: registry-up
+test-faasd: build-faasd
 	make -C faasd unit-test
 	make -C faasd integration-test
 
