@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-const faasdDeployInvokeTimeout = 20 * time.Second
-
 type WorkflowIntegrationSuite struct {
 	suite.Suite
 	baseURL string
@@ -70,7 +68,7 @@ func (s *WorkflowIntegrationSuite) deployFaasdWorkflow(t *testing.T, stackRelPat
 func (s *WorkflowIntegrationSuite) runLinear3Batch() {
 	t := s.T()
 	s.deployFaasdWorkflow(t, "tests/workflows/faasd/linear3/stack.yaml")
-	body := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, faasdDeployInvokeTimeout)
+	body := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
 
 	type linear3Payload struct {
 		Msg            string         `json:"msg"`
@@ -107,7 +105,7 @@ func (s *WorkflowIntegrationSuite) runLinear3Batch() {
 func (s *WorkflowIntegrationSuite) runTreeBatch() {
 	t := s.T()
 	s.deployFaasdWorkflow(t, "tests/workflows/faasd/tree/stack.yaml")
-	body := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "tree-a", map[string]any{"traceId": "tree-it"}, faasdDeployInvokeTimeout)
+	body := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "tree-a", map[string]any{"traceId": "tree-it"})
 
 	var payload struct {
 		From    string           `json:"from"`
@@ -143,7 +141,7 @@ func (s *WorkflowIntegrationSuite) runIoTBatch() {
 	t := s.T()
 	integrationhelpers.RequireWorkflowEnvFile(t, "tests/workflows/faasd/IoT/.env.yaml")
 	s.deployFaasdWorkflow(t, "tests/workflows/faasd/IoT/stack.yaml")
-	entryBody := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "iot-i", map[string]any{}, faasdDeployInvokeTimeout)
+	entryBody := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "iot-i", map[string]any{})
 	var entry struct {
 		Results []map[string]any `json:"results"`
 	}
@@ -153,7 +151,7 @@ func (s *WorkflowIntegrationSuite) runIoTBatch() {
 		require.Empty(t, item)
 	}
 
-	cwBody := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "iot-cw", map[string]any{"sieve": 1000}, 60*time.Second)
+	cwBody := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "iot-cw", map[string]any{"sieve": 1000})
 	var cw struct {
 		Valid        bool  `json:"valid"`
 		TimeMs       int64 `json:"time"`
@@ -164,9 +162,9 @@ func (s *WorkflowIntegrationSuite) runIoTBatch() {
 	require.GreaterOrEqual(t, cw.TimeMs, int64(0))
 	require.NotEmpty(t, cw.Eratosthenes)
 
-	csBody := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "iot-cs", map[string]any{
+	csBody := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "iot-cs", map[string]any{
 		"originalEvent": map[string]any{"sensorID": 42, "value": 10},
-	}, 90*time.Second)
+	})
 	var cs struct {
 		From  string `json:"from"`
 		Calls []struct {
@@ -190,9 +188,9 @@ func (s *WorkflowIntegrationSuite) runIoTBatch() {
 	require.True(t, foundLoud)
 	require.True(t, foundAccident)
 
-	caBody := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "iot-ca", map[string]any{
+	caBody := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "iot-ca", map[string]any{
 		"originalEvent": map[string]any{"sensorID": 42, "value": 10},
-	}, 90*time.Second)
+	})
 	var ca struct {
 		From string `json:"from"`
 	}
@@ -205,11 +203,11 @@ func (s *WorkflowIntegrationSuite) runWebshopBatch() {
 	integrationhelpers.RequireWorkflowEnvFile(t, "tests/workflows/faasd/webshop/.env.yaml")
 	s.deployFaasdWorkflow(t, "tests/workflows/faasd/webshop/stack.yaml")
 	t.Run("get", func(t *testing.T) {
-		body := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "webshop-frontend", map[string]any{
+		body := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "webshop-frontend", map[string]any{
 			"operation": "get",
 			"userId":    "it-webshop-get",
 			"currency":  "USD",
-		}, faasdDeployInvokeTimeout)
+		})
 
 		var payload struct {
 			SupportedCurrencies struct {
@@ -245,12 +243,12 @@ func (s *WorkflowIntegrationSuite) runWebshopBatch() {
 		userID := "it-webshop-cart"
 		emptyWebshopCart(t, s.baseURL, s.auth, userID)
 
-		addBody := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "webshop-frontend", map[string]any{
+		addBody := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "webshop-frontend", map[string]any{
 			"operation": "addcart",
 			"userId":    userID,
 			"productId": "3",
 			"quantity":  2,
-		}, 120*time.Second)
+		})
 
 		var addResp struct {
 			Cart []struct {
@@ -265,10 +263,10 @@ func (s *WorkflowIntegrationSuite) runWebshopBatch() {
 		require.Equal(t, userID, addResp.Cart[0].UserID)
 		require.Equal(t, 2, addResp.Cart[0].Quantity)
 
-		cartBody := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "webshop-frontend", map[string]any{
+		cartBody := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "webshop-frontend", map[string]any{
 			"operation": "cart",
 			"userId":    userID,
-		}, 120*time.Second)
+		})
 
 		var cartResp struct {
 			Cart []struct {
@@ -295,21 +293,21 @@ func (s *WorkflowIntegrationSuite) runWebshopBatch() {
 		userID := "it-webshop-checkout"
 		emptyWebshopCart(t, s.baseURL, s.auth, userID)
 
-		_ = integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "webshop-frontend", map[string]any{
+		_ = integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "webshop-frontend", map[string]any{
 			"operation": "addcart",
 			"userId":    userID,
 			"productId": "3",
 			"quantity":  1,
-		}, 120*time.Second)
+		})
 
-		checkoutBody := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "webshop-frontend", map[string]any{
+		checkoutBody := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "webshop-frontend", map[string]any{
 			"operation": "checkout",
 			"userId":    userID,
 			"currency":  "EUR",
 			"address": map[string]any{
 				"street": "123 Main St",
 			},
-		}, 150*time.Second)
+		})
 
 		var checkoutResp struct {
 			UserID string `json:"userId"`
@@ -318,10 +316,13 @@ func (s *WorkflowIntegrationSuite) runWebshopBatch() {
 		require.Equal(t, userID, checkoutResp.UserID)
 
 		integrationhelpers.Eventually(t, 120*time.Second, 3*time.Second, func() bool {
-			body := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "webshop-frontend", map[string]any{
+			status, body, err := integrationhelpers.InvokeFaasdJSONOnce(t, s.baseURL, s.auth, "webshop-frontend", map[string]any{
 				"operation": "cart",
 				"userId":    userID,
-			}, 30*time.Second)
+			})
+			if err != nil || status != 200 {
+				return false
+			}
 			var cartResp struct {
 				Cart []map[string]any `json:"cart"`
 			}
@@ -333,16 +334,19 @@ func (s *WorkflowIntegrationSuite) runWebshopBatch() {
 
 func emptyWebshopCart(t *testing.T, baseURL string, auth integrationhelpers.FaasdGatewayAuth, userID string) {
 	t.Helper()
-	_ = integrationhelpers.InvokeFaasdJSONEventually(t, baseURL, auth, "webshop-frontend", map[string]any{
+	_ = integrationhelpers.InvokeFaasdJSON(t, baseURL, auth, "webshop-frontend", map[string]any{
 		"operation": "emptycart",
 		"userId":    userID,
-	}, 90*time.Second)
+	})
 
 	integrationhelpers.Eventually(t, 120*time.Second, 3*time.Second, func() bool {
-		body := integrationhelpers.InvokeFaasdJSONEventually(t, baseURL, auth, "webshop-frontend", map[string]any{
+		status, body, err := integrationhelpers.InvokeFaasdJSONOnce(t, baseURL, auth, "webshop-frontend", map[string]any{
 			"operation": "cart",
 			"userId":    userID,
-		}, 30*time.Second)
+		})
+		if err != nil || status != 200 {
+			return false
+		}
 		var cartResp struct {
 			Cart []map[string]any `json:"cart"`
 		}

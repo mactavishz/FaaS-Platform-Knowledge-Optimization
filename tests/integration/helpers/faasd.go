@@ -530,6 +530,21 @@ func InvokeFaasdJSONEventually(t *testing.T, baseURL string, auth FaasdGatewayAu
 	return nil
 }
 
+func InvokeFaasdJSON(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string, payload any) []byte {
+	t.Helper()
+
+	status, body, err := InvokeFaasdJSONOnce(t, baseURL, auth, functionName, payload)
+	if err != nil {
+		t.Fatalf("invoke %s failed: %v", functionName, err)
+	}
+
+	if status != http.StatusOK {
+		t.Fatalf("invoke %s failed, expected status=%d got status=%d body=%s", functionName, http.StatusOK, status, string(body))
+	}
+
+	return body
+}
+
 func tryRunCommand(t *testing.T, timeout time.Duration, workdir string, name string, args ...string) (string, error) {
 	t.Helper()
 	return TryRunCommand(t, CommandOptions{Timeout: timeout, Dir: workdir}, name, args...)
