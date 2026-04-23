@@ -13,3 +13,6 @@
 [submodule "faas-gateway"]
 	path = faas-gateway
 	url = https://github.com/mactavishz/faas-gateway.git
+[submodule "faas-templates"]
+	path = faas-templates
+	url = https://github.com/mactavishz/faas-templates.git
