@@ -26,7 +26,6 @@ func (s *WorkflowIntegrationSuite) SetupSuite() {
 	t := s.T()
 	s.repo = integrationhelpers.RepoRoot(t)
 	s.baseURL, s.auth = integrationhelpers.RequireFaasd(t)
-	integrationhelpers.RequireLocalRegistryReachable(t)
 }
 
 func (s *WorkflowIntegrationSuite) TestWorkflows() {

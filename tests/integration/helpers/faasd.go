@@ -38,9 +38,11 @@ type FunctionResources struct {
 }
 
 type FaasdFunctionStatus struct {
-	Name   string             `json:"name"`
-	Image  string             `json:"image"`
-	Limits *FunctionResources `json:"limits,omitempty"`
+	Name              string             `json:"name"`
+	Image             string             `json:"image"`
+	Replicas          uint64             `json:"replicas,omitempty"`
+	AvailableReplicas uint64             `json:"availableReplicas,omitempty"`
+	Limits            *FunctionResources `json:"limits,omitempty"`
 }
 
 type DeployOptions struct {
@@ -102,6 +104,15 @@ func RequireFaasd(t *testing.T) (string, FaasdGatewayAuth) {
 	auth := readFaasdGatewayAuth(t)
 
 	return baseURL, auth
+}
+
+func RebuildFaasd(t *testing.T, envProfile string) {
+	t.Helper()
+	t.Logf("[step] rebuilding faasd with profile=%s", envProfile)
+
+	cmd := fmt.Sprintf("PROJECT_ROOT=/vagrant ENV_FILE=/vagrant/tests/integration/env/%s bash /vagrant/scripts/build-faasd.sh", envProfile)
+	MustRunCommand(t, CommandOptions{Timeout: 35 * time.Minute, Dir: RepoRoot(t)}, "vagrant", "ssh", faasdVMName, "-c", cmd)
+	t.Log("[step] faasd rebuild complete")
 }
 
 func waitForFaasdGateway(t *testing.T, baseURL string, timeout time.Duration) {
@@ -631,6 +642,15 @@ func WaitForContainerInfo(t *testing.T, functionName string, timeout time.Durati
 
 	t.Fatalf("container info for %q not found in openfaas-fn namespace within %s", functionName, timeout)
 	return ContainerInfo{}
+}
+
+func ExistsFaasdContainer(t *testing.T, functionName string) bool {
+	out := vagrantSSH(t, faasdVMName, fmt.Sprintf("sudo ctr -n openfaas-fn c list -q 'id==%s'", functionName))
+	out = strings.TrimSpace(out)
+	if out == functionName {
+		return true
+	}
+	return false
 }
 
 func MemoryBytes(t *testing.T, memory string) int64 {
