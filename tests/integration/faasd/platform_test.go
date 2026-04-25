@@ -47,7 +47,7 @@ func (s *PlatformIntegrationSuite) TestNoAutoscalerNoCallgraph() {
 	t := s.T()
 	s.setupScenario("no-autoscaler-no-callgraph.env")
 
-	body := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, 120*time.Second)
+	body := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
 	require.NotEmpty(t, body)
 
 	time.Sleep(15 * time.Second)
@@ -63,7 +63,7 @@ func (s *PlatformIntegrationSuite) TestAutoscalerOnly() {
 	t := s.T()
 	s.setupScenario("autoscaler-only.env")
 
-	body := integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, 120*time.Second)
+	body := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
 	require.NotEmpty(t, body)
 
 	// wait 2x the scale-to-zero idle duration to ensure functions have time to scale down
@@ -75,7 +75,7 @@ func (s *PlatformIntegrationSuite) TestAutoscalerOnly() {
 		require.False(t, integrationhelpers.ExistsFaasdContainer(t, fn), "Expected container for function %s to not exist", fn)
 	}
 
-	body = integrationhelpers.InvokeFaasdJSONEventually(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, 180*time.Second)
+	body = integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
 	require.NotEmpty(t, body)
 
 	for _, fn := range []string{"linear3-a", "linear3-b", "linear3-c"} {

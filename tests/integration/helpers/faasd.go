@@ -515,32 +515,6 @@ func InvokeFaasdJSONOnce(t *testing.T, baseURL string, auth FaasdGatewayAuth, fu
 	return resp.StatusCode, respBody, nil
 }
 
-func InvokeFaasdJSONEventually(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string, payload any, timeout time.Duration) []byte {
-	t.Helper()
-
-	deadline := time.Now().Add(timeout)
-	var lastStatus int
-	var lastBody []byte
-	var lastErr error
-
-	for time.Now().Before(deadline) {
-		status, body, err := InvokeFaasdJSONOnce(t, baseURL, auth, functionName, payload)
-		if err == nil && status == http.StatusOK && len(body) > 0 {
-			return body
-		}
-		lastStatus = status
-		lastBody = body
-		lastErr = err
-		time.Sleep(700 * time.Millisecond)
-	}
-
-	if lastErr != nil {
-		t.Fatalf("invoke %s failed within %s: %v", functionName, timeout, lastErr)
-	}
-	t.Fatalf("invoke %s failed within %s, last status=%d body=%s", functionName, timeout, lastStatus, string(lastBody))
-	return nil
-}
-
 func InvokeFaasdJSON(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string, payload any) []byte {
 	t.Helper()
 
