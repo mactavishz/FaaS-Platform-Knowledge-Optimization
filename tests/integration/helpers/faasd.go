@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -351,7 +352,20 @@ func DeployStack(t *testing.T, stackPath string, gateway string) {
 
 func DeployFaasdWorkflowStack(t *testing.T, baseURL string, stackPath string) {
 	t.Helper()
-	MustRunCommand(t, CommandOptions{Timeout: 10 * time.Minute, Dir: filepath.Dir(stackPath)}, "faas-cli", "deploy", "--read-template=false", "--gateway", baseURL, "-f", stackPath)
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		_, err := TryRunCommand(t, CommandOptions{Timeout: 10 * time.Minute, Dir: filepath.Dir(stackPath)}, "faas-cli", "deploy", "--read-template=false", "--gateway", baseURL, "-f", stackPath)
+		if err == nil {
+			return
+		}
+
+		lastErr = err
+		t.Logf("faas-cli deploy attempt %d/3 failed for stack=%s: %v", attempt, stackPath, err)
+		RemoveFaasdWorkflowStack(t, baseURL, stackPath)
+		time.Sleep(2 * time.Second)
+	}
+
+	t.Fatalf("failed to deploy stack after retries stack=%s err=%v", stackPath, lastErr)
 }
 
 func UniqueFunctionName(prefix string) string {
@@ -528,6 +542,119 @@ func InvokeFaasdJSON(t *testing.T, baseURL string, auth FaasdGatewayAuth, functi
 	}
 
 	return body
+}
+
+func InvokeFaasdAsyncJSON(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string, payload any, callbackURL string) (int, []byte) {
+	t.Helper()
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	invokeURL := strings.TrimRight(baseURL, "/") + "/async-function/" + functionName
+	req, err := http.NewRequest(http.MethodPost, invokeURL, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("create async invoke request: %v", err)
+	}
+	req.SetBasicAuth(auth.User, authSecret(auth))
+	req.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(callbackURL) != "" {
+		req.Header.Set("X-Callback-Url", callbackURL)
+	}
+
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("async invoke request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, respBody
+}
+
+func FaasdServiceLogs(t *testing.T, serviceName string, since string) string {
+	t.Helper()
+
+	query := fmt.Sprintf("sudo journalctl -o cat -t openfaas:%s", serviceName)
+	if strings.TrimSpace(since) != "" {
+		query = query + fmt.Sprintf(" --since '%s'", since)
+	}
+
+	return vagrantSSH(t, faasdVMName, query)
+}
+
+func WaitForFaasdServiceLogMatch(t *testing.T, serviceName string, needle string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	since := "10 minutes ago"
+
+	for time.Now().Before(deadline) {
+		logs := FaasdServiceLogs(t, serviceName, since)
+		if strings.Contains(logs, needle) {
+			return
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	t.Fatalf("service logs for %s did not contain %q within %s", serviceName, needle, timeout)
+}
+
+func FaasdFunctionJournalLogs(t *testing.T, functionName string, since string) string {
+	t.Helper()
+
+	query := fmt.Sprintf("sudo journalctl -o cat -t openfaas-fn:%s", functionName)
+	if strings.TrimSpace(since) != "" {
+		query = query + fmt.Sprintf(" --since '%s'", since)
+	}
+
+	return vagrantSSH(t, faasdVMName, query)
+}
+
+func WaitForFaasdFunctionJournalLogMatch(t *testing.T, functionName string, needle string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	since := "10 minutes ago"
+
+	for time.Now().Before(deadline) {
+		logs := FaasdFunctionJournalLogs(t, functionName, since)
+		if strings.Contains(logs, needle) {
+			return
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	t.Fatalf("function logs for %s did not contain %q within %s", functionName, needle, timeout)
+}
+
+func FaasdFunctionLogs(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string) string {
+	t.Helper()
+
+	endpoint := strings.TrimRight(baseURL, "/") + "/system/logs?name=" + url.QueryEscape(functionName)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		t.Fatalf("create logs request: %v", err)
+	}
+	req.SetBasicAuth(auth.User, authSecret(auth))
+
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("logs request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read logs response: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("logs request for %s failed status=%d body=%s", functionName, resp.StatusCode, string(body))
+	}
+
+	return string(body)
 }
 
 func tryRunCommand(t *testing.T, timeout time.Duration, workdir string, name string, args ...string) (string, error) {

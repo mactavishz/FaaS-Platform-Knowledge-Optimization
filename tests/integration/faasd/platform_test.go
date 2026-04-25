@@ -6,6 +6,7 @@ import (
 	"time"
 
 	integrationhelpers "github.com/mactavishz/FaaS-Platform-Knowledge-Optimization/tests/integration/helpers"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -41,6 +42,18 @@ func (s *PlatformIntegrationSuite) setupScenario(envProfile string) {
 	})
 
 	integrationhelpers.DeployFaasdWorkflowStack(t, s.baseURL, stackPath)
+}
+
+func (s *PlatformIntegrationSuite) setupAsyncCallbackScenario(envProfile string) {
+	t := s.T()
+	s.setupScenario(envProfile)
+
+	echoStackPath := s.repo + "/faasd/test/fns/echo-js-remote/stack.yaml"
+	integrationhelpers.RemoveFaasdWorkflowStack(t, s.baseURL, echoStackPath)
+	t.Cleanup(func() {
+		integrationhelpers.RemoveFaasdWorkflowStack(t, s.baseURL, echoStackPath)
+	})
+	integrationhelpers.DeployFaasdWorkflowStack(t, s.baseURL, echoStackPath)
 }
 
 func (s *PlatformIntegrationSuite) TestNoAutoscalerNoCallgraph() {
@@ -84,4 +97,37 @@ func (s *PlatformIntegrationSuite) TestAutoscalerOnly() {
 		require.Equal(t, uint64(1), status.AvailableReplicas)
 		require.True(t, integrationhelpers.ExistsFaasdContainer(t, fn), "Expected container for function %s to exist", fn)
 	}
+}
+
+func (s *PlatformIntegrationSuite) TestAutoscalerAsyncWithCallback() {
+	t := s.T()
+	s.setupAsyncCallbackScenario("autoscaler-only.env")
+
+	// Warm up once so that autoscaler has registered activity and can scale down all fns.
+	body := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
+	require.NotEmpty(t, body)
+
+	time.Sleep(25 * time.Second)
+	for _, fn := range []string{"linear3-a", "linear3-b", "linear3-c", "echo-js-remote"} {
+		status := integrationhelpers.GetFaasdFunction(t, s.baseURL, s.auth, fn)
+		require.Equal(t, uint64(1), status.Replicas)
+		require.Equal(t, uint64(0), status.AvailableReplicas, "expected %s to be scaled down", fn)
+	}
+
+	callbackURL := "http://gateway:8080/function/echo-js-remote"
+	statusCode, asyncBody := integrationhelpers.InvokeFaasdAsyncJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, callbackURL)
+	assert.Equal(t, 202, statusCode, "expected async enqueue accepted, body=%s", string(asyncBody))
+
+	integrationhelpers.WaitForFaasdServiceLogMatch(t, "queue-worker", "Posted result for linear3-a to callback-url", 120*time.Second)
+	integrationhelpers.Eventually(t, 120*time.Second, 1*time.Second, func() bool {
+		callbackStatus := integrationhelpers.GetFaasdFunction(t, s.baseURL, s.auth, "echo-js-remote")
+		return callbackStatus.AvailableReplicas == 1
+	})
+	integrationhelpers.WaitForFaasdFunctionJournalLogMatch(t, "echo-js-remote", "Function linear3-a is finished", 120*time.Second)
+	integrationhelpers.WaitForFaasdFunctionJournalLogMatch(t, "echo-js-remote", "Function linear3-b is finished", 120*time.Second)
+	integrationhelpers.WaitForFaasdFunctionJournalLogMatch(t, "echo-js-remote", "Function linear3-c is finished", 120*time.Second)
+
+	callbackStatus := integrationhelpers.GetFaasdFunction(t, s.baseURL, s.auth, "echo-js-remote")
+	assert.Equal(t, uint64(1), callbackStatus.Replicas)
+	assert.Equal(t, uint64(1), callbackStatus.AvailableReplicas)
 }
