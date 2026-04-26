@@ -118,7 +118,7 @@ func TestEnsureActiveFromScaledDown(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
-	err := as.EnsureActive(context.TODO(), "fn")
+	err := as.ScaleUpWhenReady(context.TODO(), "fn")
 	assert.NoError(t, err)
 	assert.Equal(t, 1, m.UpCalls())
 	state, _ := as.GetState("fn")
@@ -132,8 +132,8 @@ func TestEnsureActiveConcurrentCollapsesScaleUp(t *testing.T) {
 
 	err1 := make(chan error, 1)
 	err2 := make(chan error, 1)
-	go func() { err1 <- as.EnsureActive(context.TODO(), "fn") }()
-	go func() { err2 <- as.EnsureActive(context.TODO(), "fn") }()
+	go func() { err1 <- as.ScaleUpWhenReady(context.TODO(), "fn") }()
+	go func() { err2 <- as.ScaleUpWhenReady(context.TODO(), "fn") }()
 
 	assert.NoError(t, <-err1)
 	assert.NoError(t, <-err2)
@@ -156,10 +156,81 @@ func TestScaleUpFailureReturnsScaledDown(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
-	err := as.EnsureActive(context.TODO(), "fn")
+	err := as.ScaleUpWhenReady(context.TODO(), "fn")
 	assert.Error(t, err)
 	state, _ := as.GetState("fn")
 	assert.Equal(t, StateScaledDown, state)
+}
+
+func TestScaleUpWhenReadyBlockedReturnsImmediately(t *testing.T) {
+	m := &mockScaleOperation{}
+	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
+	as.RegisterFunction("fn", nil)
+
+	assert.NoError(t, as.StartInvocation("fn"))
+	err := as.ScaleUpWhenReady(context.TODO(), "fn")
+	assert.NoError(t, err)
+	assert.Equal(t, 0, m.UpCalls())
+
+	as.EndInvocation("fn")
+}
+
+func TestConcurrentInvocationAccounting(t *testing.T) {
+	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, zap.NewNop())
+	as.RegisterFunction("fn", nil)
+
+	assert.NoError(t, as.StartInvocation("fn"))
+	assert.NoError(t, as.StartInvocation("fn"))
+	assert.NoError(t, as.StartInvocation("fn"))
+
+	status := as.GetFunctionStatus()["fn"]
+	assert.Equal(t, StateBlocked, status.State)
+	assert.Equal(t, 3, status.InFlight)
+
+	as.EndInvocation("fn")
+	as.EndInvocation("fn")
+	status = as.GetFunctionStatus()["fn"]
+	assert.Equal(t, StateBlocked, status.State)
+	assert.Equal(t, 1, status.InFlight)
+
+	as.EndInvocation("fn")
+	status = as.GetFunctionStatus()["fn"]
+	assert.Equal(t, StateActive, status.State)
+	assert.Equal(t, 0, status.InFlight)
+}
+
+func TestScaleUpWhenReadyWaitsForScalingDown(t *testing.T) {
+	downStarted := make(chan struct{})
+	downRelease := make(chan struct{})
+	m := &mockScaleOperation{downCh: downStarted, downReleaseCh: downRelease}
+	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
+	as.RegisterFunction("fn", nil)
+
+	downDone := make(chan error, 1)
+	go func() {
+		downDone <- as.ScaleDownWhenIdle(context.TODO(), "fn")
+	}()
+
+	<-downStarted
+
+	upDone := make(chan error, 1)
+	go func() {
+		upDone <- as.ScaleUpWhenReady(context.TODO(), "fn")
+	}()
+
+	select {
+	case err := <-upDone:
+		t.Fatalf("scale-up should wait for scale-down to complete, got %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(downRelease)
+	assert.NoError(t, <-downDone)
+	assert.NoError(t, <-upDone)
+	assert.Equal(t, 1, m.DownCalls())
+	assert.Equal(t, 1, m.UpCalls())
+	state, _ := as.GetState("fn")
+	assert.Equal(t, StateActive, state)
 }
 
 func TestBeginInvocationDone(t *testing.T) {

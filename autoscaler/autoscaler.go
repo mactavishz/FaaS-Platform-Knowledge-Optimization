@@ -257,8 +257,9 @@ func (as *AutoScaler) EndInvocation(name string) {
 	entry.cond.Broadcast()
 }
 
-// EnsureActive ensures a function is active by performing scale-up if needed.
-func (as *AutoScaler) EnsureActive(ctx context.Context, name string) error {
+// ScaleUpWhenReady ensures function runtime is available.
+// StateBlocked is treated as ready because runtime is present and handling in-flight requests
+func (as *AutoScaler) ScaleUpWhenReady(ctx context.Context, name string) error {
 	if !as.config.Enabled {
 		return nil
 	}
@@ -389,7 +390,7 @@ func (as *AutoScaler) ScaleDown(functionName string) error {
 }
 
 func (as *AutoScaler) ScaleUp(functionName string) error {
-	return as.EnsureActive(context.Background(), functionName)
+	return as.ScaleUpWhenReady(context.Background(), functionName)
 }
 
 // RecordActivity keeps compatibility and refreshes activity timestamps.
