@@ -37,8 +37,8 @@ Vagrant.configure("2") do |config|
   end
 
   config.vm.define "tinyfaas" do |tinyfaas|
-    # Forward ports for faasd gateway
-    tinyfaas.vm.network "forwarded_port", guest: 80, host: 8888, host_ip: "127.0.0.1"
+    # Forward ports for tinyfaas gateway
+    tinyfaas.vm.network "forwarded_port", guest: 8080, host: 8080, host_ip: "127.0.0.1"
     # Use private network to get a consistent IP
     tinyfaas.vm.network "private_network", type: "dhcp"
 
