@@ -11,6 +11,7 @@ faasd-passwd:
 
 .PHONY: build-faasd
 build-faasd: registry-up
+	vagrant suspend tinyfaas && vagrant up faasd
 	vagrant provision faasd --provision-with build
 	make faasd-login
 
@@ -29,6 +30,7 @@ registry-clean: registry-down
 
 .PHONY: build-tinyfaas
 build-tinyfaas:
+	vagrant suspend faasd && vagrant up tinyfaas
 	vagrant provision tinyfaas --provision-with build
 
 .PHONY: build-tinyfaas-profile
