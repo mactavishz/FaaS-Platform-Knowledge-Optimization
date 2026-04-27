@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	DefaultFaasdGatewayURL = "http://127.0.0.1:8080"
-	faasdVMName            = "faasd"
+	DEFAULT_FAASD_GATEWAY_URL = "http://127.0.0.1:8080"
+	FAASD_VM_NAME             = "faasd"
 )
 
 type FaasdGatewayAuth struct {
@@ -73,7 +73,7 @@ func FaasdGatewayURL() string {
 	if v := strings.TrimSpace(os.Getenv("FAASD_TEST_GATEWAY_URL")); v != "" {
 		return strings.TrimRight(v, "/")
 	}
-	return DefaultFaasdGatewayURL
+	return DEFAULT_FAASD_GATEWAY_URL
 }
 
 func authSecret(auth FaasdGatewayAuth) string {
@@ -97,7 +97,7 @@ func RequireFaasd(t *testing.T) (string, FaasdGatewayAuth) {
 		t.Skip("faas-cli not found in PATH")
 	}
 
-	EnsureVagrantVMExclusive(t, faasdVMName, "tinyfaas")
+	EnsureVagrantVMExclusive(t, FAASD_VM_NAME, "tinyfaas")
 
 	baseURL := FaasdGatewayURL()
 	waitForFaasdGateway(t, baseURL, 90*time.Second)
@@ -112,7 +112,7 @@ func RebuildFaasd(t *testing.T, envProfile string) {
 	t.Logf("[step] rebuilding faasd with profile=%s", envProfile)
 
 	cmd := fmt.Sprintf("PROJECT_ROOT=/vagrant ENV_FILE=/vagrant/tests/integration/env/%s bash /vagrant/scripts/build-faasd.sh", envProfile)
-	MustRunCommand(t, CommandOptions{Timeout: 35 * time.Minute, Dir: RepoRoot(t)}, "vagrant", "ssh", faasdVMName, "-c", cmd)
+	MustRunCommand(t, CommandOptions{Timeout: 35 * time.Minute, Dir: RepoRoot(t)}, "vagrant", "ssh", FAASD_VM_NAME, "-c", cmd)
 	t.Log("[step] faasd rebuild complete")
 }
 
@@ -143,8 +143,8 @@ func waitForFaasdGateway(t *testing.T, baseURL string, timeout time.Duration) {
 func readFaasdGatewayAuth(t *testing.T) FaasdGatewayAuth {
 	t.Helper()
 
-	user := strings.TrimSpace(vagrantSSH(t, faasdVMName, "sudo cat /var/lib/faasd/secrets/basic-auth-user"))
-	pass := strings.TrimSpace(vagrantSSH(t, faasdVMName, "sudo cat /var/lib/faasd/secrets/basic-auth-password"))
+	user := strings.TrimSpace(vagrantSSH(t, FAASD_VM_NAME, "sudo cat /var/lib/faasd/secrets/basic-auth-user"))
+	pass := strings.TrimSpace(vagrantSSH(t, FAASD_VM_NAME, "sudo cat /var/lib/faasd/secrets/basic-auth-password"))
 	if user == "" {
 		t.Fatal("faasd basic auth user is empty")
 	}
@@ -157,7 +157,7 @@ func readFaasdGatewayAuth(t *testing.T) FaasdGatewayAuth {
 
 func loginFaasCLI(t *testing.T, baseURL string) {
 	t.Helper()
-	cmd := fmt.Sprintf("vagrant ssh %s -c \"sudo cat /var/lib/faasd/secrets/basic-auth-password\" | faas-cli login --password-stdin --gateway %s", faasdVMName, baseURL)
+	cmd := fmt.Sprintf("vagrant ssh %s -c \"sudo cat /var/lib/faasd/secrets/basic-auth-password\" | faas-cli login --password-stdin --gateway %s", FAASD_VM_NAME, baseURL)
 	MustRunCommand(t, CommandOptions{Timeout: 60 * time.Second, Dir: RepoRoot(t)}, "sh", "-c", cmd)
 }
 
@@ -581,7 +581,7 @@ func FaasdServiceLogs(t *testing.T, serviceName string, since string) string {
 		query = query + fmt.Sprintf(" --since '%s'", since)
 	}
 
-	return vagrantSSH(t, faasdVMName, query)
+	return vagrantSSH(t, FAASD_VM_NAME, query)
 }
 
 func WaitForFaasdServiceLogMatch(t *testing.T, serviceName string, needle string, timeout time.Duration) {
@@ -609,7 +609,7 @@ func FaasdFunctionJournalLogs(t *testing.T, functionName string, since string) s
 		query = query + fmt.Sprintf(" --since '%s'", since)
 	}
 
-	return vagrantSSH(t, faasdVMName, query)
+	return vagrantSSH(t, FAASD_VM_NAME, query)
 }
 
 func WaitForFaasdFunctionJournalLogMatch(t *testing.T, functionName string, needle string, timeout time.Duration) {
@@ -726,7 +726,7 @@ func WaitForContainerInfo(t *testing.T, functionName string, timeout time.Durati
 
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		out := vagrantSSH(t, faasdVMName, "sudo ctr -n openfaas-fn c info "+functionName+" 2>/dev/null || true")
+		out := vagrantSSH(t, FAASD_VM_NAME, "sudo ctr -n openfaas-fn c info "+functionName+" 2>/dev/null || true")
 		trimmed := strings.TrimSpace(out)
 		if trimmed == "" {
 			time.Sleep(500 * time.Millisecond)
@@ -746,7 +746,7 @@ func WaitForContainerInfo(t *testing.T, functionName string, timeout time.Durati
 }
 
 func ExistsFaasdContainer(t *testing.T, functionName string) bool {
-	out := vagrantSSH(t, faasdVMName, fmt.Sprintf("sudo ctr -n openfaas-fn c list -q 'id==%s'", functionName))
+	out := vagrantSSH(t, FAASD_VM_NAME, fmt.Sprintf("sudo ctr -n openfaas-fn c list -q 'id==%s'", functionName))
 	out = strings.TrimSpace(out)
 	if out == functionName {
 		return true

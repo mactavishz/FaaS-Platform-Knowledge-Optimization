@@ -13,11 +13,10 @@ import (
 	"time"
 )
 
-const DefaultGatewayURL = "http://127.0.0.1:8888"
-
 const (
-	Linear3StackPath    = "tests/workflows/tinyfaas/linear3/stack.yaml"
-	NoAutoscalerProfile = "no-autoscaler-no-callgraph.env"
+	DEFAULT_TINYFAAS_GATEWAY_URL     = "http://127.0.0.1:8080"
+	TINYFAAS_LINEAR3_STACK_FILE_PATH = "tests/workflows/tinyfaas/linear3/stack.yaml"
+	NO_AUTOSCALER_PROFILE            = "no-autoscaler-no-callgraph.env"
 )
 
 type FunctionStatus struct {
@@ -90,7 +89,7 @@ func WipeFunctions(t *testing.T) {
 	t.Helper()
 	t.Log("[step] wiping all functions via /system/wipe")
 
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Post(DefaultGatewayURL+"/system/wipe", "application/json", nil)
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Post(DEFAULT_TINYFAAS_GATEWAY_URL+"/system/wipe", "application/json", nil)
 	if err != nil {
 		t.Fatalf("failed to wipe functions: %v", err)
 	}
@@ -115,7 +114,7 @@ func DeployWorkflowWithEnvs(t *testing.T, stackPath string, envs map[string]stri
 	args := []string{
 		"deploy",
 		"--platform", "tinyfaas",
-		"--gateway", DefaultGatewayURL,
+		"--gateway", DEFAULT_TINYFAAS_GATEWAY_URL,
 		"-f", stack,
 	}
 
@@ -139,11 +138,11 @@ func DeployWorkflowWithEnvs(t *testing.T, stackPath string, envs map[string]stri
 
 func SetupFunctionalityScenario(t *testing.T, stackPath string, functionNames []string) {
 	t.Helper()
-	t.Logf("[setup] functionality stack=%s profile=%s", stackPath, NoAutoscalerProfile)
+	t.Logf("[setup] functionality stack=%s profile=%s", stackPath, NO_AUTOSCALER_PROFILE)
 
 	RequireTinyFaaSVM(t)
-	RebuildTinyFaaS(t, NoAutoscalerProfile)
-	WaitForGateway(t, DefaultGatewayURL, 90*time.Second)
+	RebuildTinyFaaS(t, NO_AUTOSCALER_PROFILE)
+	WaitForGateway(t, DEFAULT_TINYFAAS_GATEWAY_URL, 90*time.Second)
 	WipeFunctions(t)
 	t.Cleanup(func() { WipeFunctions(t) })
 	DeployWorkflow(t, stackPath)
@@ -182,7 +181,7 @@ func InvokeFunctionEventuallyWithPayload(t *testing.T, functionName string, payl
 }
 
 func InvokeFunctionOnce(functionName string, payload string, timeout time.Duration) (int, []byte, error) {
-	url := DefaultGatewayURL + "/fn/" + functionName
+	url := DEFAULT_TINYFAAS_GATEWAY_URL + "/fn/" + functionName
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBufferString(payload))
 	if err != nil {
 		return 0, nil, err
@@ -204,7 +203,7 @@ func InvokeJSONOnce(functionName string, payload any, timeout time.Duration) (in
 		return 0, nil, fmt.Errorf("marshal payload: %w", err)
 	}
 
-	url := DefaultGatewayURL + "/fn/" + functionName
+	url := DEFAULT_TINYFAAS_GATEWAY_URL + "/fn/" + functionName
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, err
@@ -250,7 +249,7 @@ func InvokeJSONEventually(t *testing.T, functionName string, payload any, timeou
 func ListFunctions(t *testing.T) []FunctionStatus {
 	t.Helper()
 
-	resp, err := (&http.Client{Timeout: 10 * time.Second}).Get(DefaultGatewayURL + "/system/list")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Get(DEFAULT_TINYFAAS_GATEWAY_URL + "/system/list")
 	if err != nil {
 		t.Fatalf("failed to list functions: %v", err)
 	}
@@ -344,7 +343,7 @@ func GetCallGraph(t *testing.T) CallGraph {
 	t.Helper()
 	t.Log("[step] fetching callgraph")
 
-	resp, err := (&http.Client{Timeout: 10 * time.Second}).Get(DefaultGatewayURL + "/system/callgraph")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Get(DEFAULT_TINYFAAS_GATEWAY_URL + "/system/callgraph")
 	if err != nil {
 		t.Fatalf("failed to get callgraph: %v", err)
 	}
@@ -366,7 +365,7 @@ func GetFunctionCallGraphStats(t *testing.T, functionName string) FunctionCallGr
 	t.Helper()
 	t.Logf("[step] fetching callgraph function stats function=%s", functionName)
 
-	resp, err := (&http.Client{Timeout: 10 * time.Second}).Get(DefaultGatewayURL + "/system/callgraph/function/" + functionName)
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Get(DEFAULT_TINYFAAS_GATEWAY_URL + "/system/callgraph/function/" + functionName)
 	if err != nil {
 		t.Fatalf("failed to get callgraph function stats for %s: %v", functionName, err)
 	}

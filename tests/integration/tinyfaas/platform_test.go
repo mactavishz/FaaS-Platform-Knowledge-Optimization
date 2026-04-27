@@ -24,7 +24,7 @@ func (s *PlatformIntegrationSuite) setupScenario(envProfile string, stackPath st
 	t.Logf("[setup] profile=%s stack=%s", envProfile, stackPath)
 	integrationhelpers.RequireTinyFaaSVM(t)
 	integrationhelpers.RebuildTinyFaaS(t, envProfile)
-	integrationhelpers.WaitForGateway(t, integrationhelpers.DefaultGatewayURL, 90*time.Second)
+	integrationhelpers.WaitForGateway(t, integrationhelpers.DEFAULT_TINYFAAS_GATEWAY_URL, 90*time.Second)
 	integrationhelpers.WipeFunctions(t)
 	t.Cleanup(func() { integrationhelpers.WipeFunctions(t) })
 	integrationhelpers.DeployWorkflowWithEnvs(t, stackPath, deployEnvs)
@@ -34,7 +34,7 @@ func (s *PlatformIntegrationSuite) setupScenario(envProfile string, stackPath st
 func (s *PlatformIntegrationSuite) TestNoAutoscalerNoCallgraph() {
 	t := s.T()
 	t.Log("[scenario] no autoscaler + no callgraph")
-	s.setupScenario("no-autoscaler-no-callgraph.env", integrationhelpers.Linear3StackPath, nil)
+	s.setupScenario("no-autoscaler-no-callgraph.env", integrationhelpers.TINYFAAS_LINEAR3_STACK_FILE_PATH, nil)
 
 	body := integrationhelpers.InvokeFunctionEventually(t, "linear3-a", 90*time.Second)
 	s.assertWorkflowResponse(body)
@@ -50,7 +50,7 @@ func (s *PlatformIntegrationSuite) TestNoAutoscalerNoCallgraph() {
 func (s *PlatformIntegrationSuite) TestAutoscalerOnly() {
 	t := s.T()
 	t.Log("[scenario] autoscaler only")
-	s.setupScenario("autoscaler-only.env", integrationhelpers.Linear3StackPath, nil)
+	s.setupScenario("autoscaler-only.env", integrationhelpers.TINYFAAS_LINEAR3_STACK_FILE_PATH, nil)
 
 	body := integrationhelpers.InvokeFunctionEventually(t, "linear3-a", 90*time.Second)
 	s.assertWorkflowResponse(body)
@@ -69,7 +69,7 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarm() {
 	t.Log("[scenario] autoscaler + callgraph + prewarm disabled")
 	s.setupScenario(
 		"autoscaler-and-callgraph-no-prewarm.env",
-		integrationhelpers.Linear3StackPath,
+		integrationhelpers.TINYFAAS_LINEAR3_STACK_FILE_PATH,
 		map[string]string{"FUNCTION_DELAY_SEC": "5"},
 	)
 
@@ -116,7 +116,7 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphAndPrewarm() {
 	t.Log("[scenario] autoscaler + callgraph + prewarm enabled")
 	s.setupScenario(
 		"autoscaler-and-callgraph-and-prewarm.env",
-		integrationhelpers.Linear3StackPath,
+		integrationhelpers.TINYFAAS_LINEAR3_STACK_FILE_PATH,
 		map[string]string{"FUNCTION_DELAY_SEC": "5"},
 	)
 

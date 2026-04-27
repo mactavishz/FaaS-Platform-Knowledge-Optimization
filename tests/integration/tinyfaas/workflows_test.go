@@ -20,8 +20,8 @@ func TestWorkflowIntegrationSuite(t *testing.T) {
 func (s *WorkflowIntegrationSuite) SetupSuite() {
 	t := s.T()
 	integrationhelpers.RequireTinyFaaSVM(t)
-	integrationhelpers.RebuildTinyFaaS(t, integrationhelpers.NoAutoscalerProfile)
-	integrationhelpers.WaitForGateway(t, integrationhelpers.DefaultGatewayURL, 90*time.Second)
+	integrationhelpers.RebuildTinyFaaS(t, integrationhelpers.NO_AUTOSCALER_PROFILE)
+	integrationhelpers.WaitForGateway(t, integrationhelpers.DEFAULT_TINYFAAS_GATEWAY_URL, 90*time.Second)
 	integrationhelpers.WipeFunctions(t)
 	t.Cleanup(func() { integrationhelpers.WipeFunctions(t) })
 }
@@ -79,7 +79,7 @@ func (s *WorkflowIntegrationSuite) runLinear3Batch() {
 func (s *WorkflowIntegrationSuite) runTreeBatch() {
 	t := s.T()
 	integrationhelpers.WipeFunctions(t)
-	integrationhelpers.DeployWorkflow(t, "tests/workflows/tinyfaas/tree/stack.yml")
+	integrationhelpers.DeployWorkflow(t, "tests/workflows/tinyfaas/tree/stack.yaml")
 	integrationhelpers.WaitForFunctionsReady(t, []string{"tree-a", "tree-b", "tree-c", "tree-d", "tree-e", "tree-f", "tree-g"}, true, 90*time.Second)
 
 	body := integrationhelpers.InvokeJSONEventually(t, "tree-a", map[string]any{"traceId": "tree-it"}, 120*time.Second)
@@ -120,7 +120,7 @@ func (s *WorkflowIntegrationSuite) runIoTBatch() {
 	t := s.T()
 	integrationhelpers.RequireWorkflowEnvFile(t, "tests/workflows/tinyfaas/IoT/.env.yaml")
 	integrationhelpers.WipeFunctions(t)
-	integrationhelpers.DeployWorkflow(t, "tests/workflows/tinyfaas/IoT/stack.yml")
+	integrationhelpers.DeployWorkflow(t, "tests/workflows/tinyfaas/IoT/stack.yaml")
 	integrationhelpers.WaitForFunctionsReady(t, []string{"iot-i", "iot-as", "iot-ca", "iot-cs", "iot-csa", "iot-csl", "iot-ct", "iot-cw", "iot-dj", "iot-se"}, true, 90*time.Second)
 
 	entryBody := integrationhelpers.InvokeJSONEventually(t, "iot-i", map[string]any{}, 120*time.Second)
@@ -186,7 +186,7 @@ func (s *WorkflowIntegrationSuite) runWebshopBatch() {
 	t := s.T()
 	integrationhelpers.RequireWorkflowEnvFile(t, "tests/workflows/tinyfaas/webshop/.env.yaml")
 	integrationhelpers.WipeFunctions(t)
-	integrationhelpers.DeployWorkflow(t, "tests/workflows/tinyfaas/webshop/stack.yml")
+	integrationhelpers.DeployWorkflow(t, "tests/workflows/tinyfaas/webshop/stack.yaml")
 	integrationhelpers.WaitForFunctionsReady(t, []string{
 		"webshop-frontend", "webshop-checkout", "webshop-addcartitem", "webshop-emptycart", "webshop-getcart",
 		"webshop-cartstorage", "webshop-listproducts", "webshop-getproduct", "webshop-searchproducts",
