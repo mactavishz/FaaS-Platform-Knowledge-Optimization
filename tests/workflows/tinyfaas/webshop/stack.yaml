@@ -1,5 +1,6 @@
 provider:
   name: tinyfaas
+  gateway: ${TINYFAAS_GATEWAY_URL:-http://127.0.0.1:8080}
 functions:
   webshop-frontend:
     lang: nodejs
