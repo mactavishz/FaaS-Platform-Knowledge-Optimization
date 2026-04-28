@@ -19,6 +19,7 @@ import (
 	"time"
 
 	sdkstack "github.com/openfaas/go-sdk/stack"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -264,10 +265,13 @@ func PrepareFaasdWorkflowStack(t *testing.T, stackPath string) {
 	t.Helper()
 
 	if registryType(t) != registryTypeLocal {
-		t.Logf("Skipping local registry setup for remote registry, remote registry prefix=%s", os.Getenv("REGISTRY_PREFIX"))
+		prefix := os.Getenv("REGISTRY_PREFIX")
+		require.NotEmpty(t, prefix, "REGISTRY_PREFIX must be set for remote registry")
+		t.Logf("Using remote registry, remote registry prefix=%s", prefix)
 		return
 	}
 
+	t.Log("Using local registry, ensuring local registry is reachable")
 	RequireLocalRegistryReachable(t)
 	BuildFaasdWorkflowStack(t, stackPath)
 
