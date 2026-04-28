@@ -26,8 +26,7 @@ func debugCommandOutputEnabled() bool {
 
 func runCommand(t *testing.T, opts CommandOptions, name string, args ...string) (string, string, error) {
 	t.Helper()
-	t.Logf("[cmd:start] %s %s", name, strings.Join(args, " "))
-	start := time.Now()
+	t.Logf("[cmd] %s %s", name, strings.Join(args, " "))
 
 	timeout := opts.Timeout
 	if timeout <= 0 {
@@ -70,7 +69,6 @@ func runCommand(t *testing.T, opts CommandOptions, name string, args ...string) 
 		return stdout.String(), stderr.String(), fmt.Errorf("command failed: %s %s: %w", name, strings.Join(args, " "), err)
 	}
 
-	t.Logf("[cmd:done] %s %s (%s)", name, strings.Join(args, " "), time.Since(start).Round(time.Millisecond))
 	return stdout.String(), stderr.String(), nil
 }
 
