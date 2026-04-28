@@ -12,14 +12,15 @@ We suggest setting up your Go environment with [mise](https://github.com/jdx/mis
 
 ## Environment Setup
 
-Testing faasd requires a local registry to be running and accessible. You need to ensure that:
+If you run faasd tests in local-registry mode, a local registry must be running and accessible. You need to ensure that:
 
 - Ensure `registry.local` resolves to the local registry IP (e.g., via `/etc/hosts` or DNS).
 - Ensure Docker proxies and insecure registries are configured in your Docker daemon configuration (e.g., `$HOME/.docker/daemonjson` or `/etc/docker/daemon.json`) to allow pushing to `registry.local:5050` without TLS and bypassing proxies:
 
 ```json
 "insecure-registries": [
-  "registry.local:5050"
+  "registry.local:5050",
+  "127.0.0.1:5050"
 ],
 "proxies": {
   "no-proxy": "registry.local,localhost,127.0.0.0/8"
@@ -27,6 +28,31 @@ Testing faasd requires a local registry to be running and accessible. You need t
 ```
 
 > Note: Proxy configurations specified in the daemon.json are ignored by Docker Desktop. If you use Docker Desktop, you can configure proxies using the Docker Desktop UI under Settings > Resources > Proxies.
+
+## Integration Test Image Source (faasd)
+
+The faasd integration helpers support two image source modes:
+
+- `REGISTRY_TYPE=remote` (default): tests use pre-published images.
+- `REGISTRY_TYPE=local`: tests build/push images to a local registry (for example `registry.local:5050`).
+
+The stack files use a prefix template like `${REGISTRY_PREFIX:-registry.local:5050/faasd/}`. To override image prefixes for remote images, set `REGISTRY_PREFIX`.
+
+You can use the following prefixes for public remote images for free:
+
+```bash
+export REGISTRY_PREFIX="ghcr.io/mactavishz/faasd-"
+# or
+export REGISTRY_PREFIX="macsalvation/faasd-"
+```
+
+By default, remote mode uses `macsalvation/faasd-`. Set `REGISTRY_PREFIX` if you want a different registry/namespace.
+
+You can also publish your own multi-arch images and point tests to them:
+
+```bash
+REGISTRY_PREFIX="<prefix>" faas-cli publish --platforms linux/amd64,linux/arm64 -f ./<path-to-function>/stack.yaml
+```
 
 ## Building the Project
 
@@ -57,7 +83,7 @@ The built `faas-cli` binary will be placed in `$GOBIN` (typically `~/go/bin` or 
 
 ### Start faasd (OpenFaaS)
 
-Faasd needs a local registry to be configured and running before it can start. The `faasd-up` target will handle this for you.
+Faasd needs a local registry to be configured and running before it can start.
 
 ```bash
 # Start the faasd VM
@@ -67,7 +93,7 @@ vagrant up faasd
 make build-faasd
 ```
 
-The OpenFaaS gateway will be available at `http://127.0.0.1:8080` by default.
+The faasd gateway will be available at `http://127.0.0.1:8080` by default.
 
 ### Start tinyFaaS
 
@@ -79,10 +105,7 @@ vagrant up tinyfaas
 make tinyfaas-up
 ```
 
-The tinyFaaS gateway will be available at:
-
-- API: `http://127.0.0.1:9090`
-- Management: `http://127.0.0.1:9091`
+The tinyFaaS gateway will be available at: `http://127.0.0.1:8080`
 
 ## Using the Local faas-cli
 
@@ -90,7 +113,17 @@ Once you've built `faas-cli` with `make build-faas-cli`, you can use it to deplo
 
 ### Deploy a Function to OpenFaaS (faasd)
 
-TBD
+You can deploy functions using the provided stack file or specify handler and language directly.
+
+```bash
+# Deploy using the faasd stack file
+faas-cli deploy -f faasd-stack.yml
+
+# Deploy a single function specifying handler and language
+faas-cli deploy --image=my_image --name=my_fn --handler=/path/to/fn/ \
+  --gateway=http://remote-site.com:8080 --lang=python \
+  --env=MYVAR=myval
+```
 
 ### Deploy a Function to tinyFaaS
 
@@ -103,7 +136,7 @@ You should always use the `--platform tinyfaas` flag and specify the tinyFaaS ga
 faas-cli deploy -f tinyfaas-stack.yml --platform tinyfaas
 
 # Deploy a single function specifying handler and language
-faas-cli deploy --platform tinyfaas --gateway http://localhost:9091 \
+faas-cli deploy --platform tinyfaas --gateway http://localhost:8080 \
   --name echo --handler ./tinyFaaS/test/fns/echo --lang python3
 ```
 
@@ -114,7 +147,7 @@ faas-cli deploy --platform tinyfaas --gateway http://localhost:9091 \
 echo "Hello World" | faas-cli invoke <function-name>
 
 # Invoke a function on tinyFaaS
-echo "Hello World" | faas-cli invoke hellopy --platform tinyfaas -g http://localhost:9090
+echo "Hello World" | faas-cli invoke hellopy --platform tinyfaas -g http://localhost:8080
 ```
 
 ### List Functions
@@ -124,7 +157,7 @@ echo "Hello World" | faas-cli invoke hellopy --platform tinyfaas -g http://local
 faas-cli list
 
 # List functions on tinyFaaS
-faas-cli list --gateway http://127.0.0.1:9091 --platform tinyfaas
+faas-cli list --gateway http://127.0.0.1:8080 --platform tinyfaas
 ```
 
 ### Remove a Function
@@ -134,7 +167,7 @@ faas-cli list --gateway http://127.0.0.1:9091 --platform tinyfaas
 faas-cli remove <function-name>
 
 # Remove from tinyFaaS
-faas-cli remove hellopy --platform tinyfaas --gateway http://localhost:9091
+faas-cli remove hellopy --platform tinyfaas --gateway http://localhost:8080
 ```
 
 ## Example Stack Files
@@ -172,7 +205,7 @@ For tinyFaaS, you don't have to specify the image. Instead, you provide the hand
 # tinyfaas-stack.yml
 provider:
   name: tinyfaas
-  gateway: http://127.0.0.1:9091
+  gateway: http://127.0.0.1:8080
 functions:
   hellopy:
     lang: python3
