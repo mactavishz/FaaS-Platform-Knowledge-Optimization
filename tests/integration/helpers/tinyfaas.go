@@ -54,6 +54,13 @@ func RequireTinyFaaSVM(t *testing.T) {
 	EnsureVagrantVMExclusive(t, "tinyfaas", "faasd")
 }
 
+func RequireTinyFaaS(t *testing.T) string {
+	t.Helper()
+	RequireTinyFaaSVM(t)
+	WaitForGateway(t, DEFAULT_TINYFAAS_GATEWAY_URL, 90*time.Second)
+	return DEFAULT_TINYFAAS_GATEWAY_URL
+}
+
 func RebuildTinyFaaS(t *testing.T, envProfile string) {
 	t.Helper()
 	t.Logf("[step] rebuilding tinyFaaS with profile=%s", envProfile)
@@ -136,6 +143,38 @@ func DeployWorkflowWithEnvs(t *testing.T, stackPath string, envs map[string]stri
 	t.Logf("[step] workflow deployed stack=%s", stackPath)
 }
 
+func DeployTinyFaaSStackFilterWithEnvs(t *testing.T, gateway string, stackPath string, filter string, envs map[string]string) {
+	t.Helper()
+	args := []string{
+		"deploy",
+		"--platform", "tinyfaas",
+		"--gateway", gateway,
+		"-f", stackPath,
+		"--filter", filter,
+	}
+
+	MustRunCommand(t, CommandOptions{Timeout: 10 * time.Minute, Dir: RepoRoot(t), Env: envs}, "faas-cli", args...)
+}
+
+func DeployTinyFaaSStackFilter(t *testing.T, gateway string, stackPath string, filter string) {
+	t.Helper()
+	DeployTinyFaaSStackFilterWithEnvs(t, gateway, stackPath, filter, nil)
+}
+
+func RemoveTinyFaaSStackFilter(t *testing.T, gateway string, stackPath string, filter string) {
+	t.Helper()
+	_, _ = TryRunCommand(
+		t,
+		CommandOptions{Timeout: 2 * time.Minute, Dir: RepoRoot(t)},
+		"faas-cli",
+		"remove",
+		"--platform", "tinyfaas",
+		"--gateway", gateway,
+		"-f", stackPath,
+		"--filter", filter,
+	)
+}
+
 func SetupFunctionalityScenario(t *testing.T, stackPath string, functionNames []string) {
 	t.Helper()
 	t.Logf("[setup] functionality stack=%s profile=%s", stackPath, NO_AUTOSCALER_PROFILE)
@@ -195,6 +234,57 @@ func InvokeFunctionOnce(functionName string, payload string, timeout time.Durati
 
 	body, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, body, nil
+}
+
+func InvokeTinyFaaS(t *testing.T, baseURL string, functionName string, method string, body []byte, headers map[string]string) (int, []byte) {
+	t.Helper()
+
+	url := strings.TrimRight(baseURL, "/") + "/fn/" + functionName
+	req, err := http.NewRequest(method, url, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("failed to create invoke request: %v", err)
+	}
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	if req.Header.Get("Content-Type") == "" && len(body) > 0 {
+		req.Header.Set("Content-Type", "text/plain")
+	}
+
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("invoke request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("failed to read invoke response: %v", err)
+	}
+
+	return resp.StatusCode, respBody
+}
+
+func TinyFaaSSystemList(t *testing.T, baseURL string) []byte {
+	t.Helper()
+
+	url := strings.TrimRight(baseURL, "/") + "/system/list"
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Get(url)
+	if err != nil {
+		t.Fatalf("failed to list functions: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("failed to read list response: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list functions failed: status=%d body=%s", resp.StatusCode, string(body))
+	}
+
+	return body
 }
 
 func InvokeJSONOnce(functionName string, payload any, timeout time.Duration) (int, []byte, error) {

@@ -163,7 +163,7 @@ func loginFaasCLI(t *testing.T, baseURL string) {
 
 func vagrantSSH(t *testing.T, vmName string, command string) string {
 	t.Helper()
-	return MustRunCommand(t, CommandOptions{Timeout: 2 * time.Minute, Dir: RepoRoot(t)}, "vagrant", "ssh", vmName, "-c", command)
+	return VagrantSSH(t, vmName, command)
 }
 
 func RequireLocalRegistryReachable(t *testing.T) {

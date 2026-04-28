@@ -54,3 +54,8 @@ func EnsureVagrantVMExclusive(t *testing.T, targetVM string, otherVM string) {
 func VagrantSSHCommand(vmName string, command string) string {
 	return fmt.Sprintf("vagrant ssh %s -c %q", vmName, command)
 }
+
+func VagrantSSH(t *testing.T, vmName string, command string) string {
+	t.Helper()
+	return MustRunCommand(t, CommandOptions{Timeout: 2 * time.Minute, Dir: RepoRoot(t)}, "vagrant", "ssh", vmName, "-c", command)
+}

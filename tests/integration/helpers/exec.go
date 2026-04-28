@@ -17,6 +17,7 @@ type CommandOptions struct {
 	Timeout time.Duration
 	Dir     string
 	Stdin   []byte
+	Env     map[string]string
 }
 
 func debugCommandOutputEnabled() bool {
@@ -39,6 +40,13 @@ func runCommand(t *testing.T, opts CommandOptions, name string, args ...string) 
 	cmd := exec.CommandContext(ctx, name, args...)
 	if opts.Dir != "" {
 		cmd.Dir = opts.Dir
+	}
+	if len(opts.Env) > 0 {
+		env := os.Environ()
+		for k, v := range opts.Env {
+			env = append(env, k+"="+v)
+		}
+		cmd.Env = env
 	}
 	if opts.Stdin != nil {
 		cmd.Stdin = bytes.NewReader(opts.Stdin)
