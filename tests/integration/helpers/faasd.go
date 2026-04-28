@@ -28,7 +28,6 @@ const (
 	registryTypeEnvVar        = "REGISTRY_TYPE"
 	registryTypeLocal         = "local"
 	registryTypeRemote        = "remote"
-	remoteRegistryPrefix      = "macsalvation/faasd-"
 )
 
 type FaasdGatewayAuth struct {
@@ -205,16 +204,6 @@ func registryType(t *testing.T) string {
 	}
 }
 
-func registryCommandEnv(t *testing.T) map[string]string {
-	t.Helper()
-
-	if registryType(t) == registryTypeRemote {
-		return map[string]string{"REGISTRY_PREFIX": remoteRegistryPrefix}
-	}
-
-	return nil
-}
-
 func parseFaasdStack(t *testing.T, stackPath string, envsubst bool) *sdkstack.Services {
 	t.Helper()
 
@@ -263,18 +252,19 @@ func FixtureFunction(t *testing.T, fixtureDir string, sourceName string) sdkstac
 
 func RemoveFaasdWorkflowStack(t *testing.T, baseURL string, stackPath string) {
 	t.Helper()
-	_, _ = TryRunCommand(t, CommandOptions{Timeout: 2 * time.Minute, Dir: filepath.Dir(stackPath), Env: registryCommandEnv(t)}, "faas-cli", "remove", "--gateway", baseURL, "-f", stackPath)
+	_, _ = TryRunCommand(t, CommandOptions{Timeout: 2 * time.Minute, Dir: filepath.Dir(stackPath)}, "faas-cli", "remove", "--gateway", baseURL, "-f", stackPath)
 }
 
 func BuildFaasdWorkflowStack(t *testing.T, stackPath string) {
 	t.Helper()
-	MustRunCommand(t, CommandOptions{Timeout: 20 * time.Minute, Dir: filepath.Dir(stackPath), Env: registryCommandEnv(t)}, "faas-cli", "build", "-f", stackPath)
+	MustRunCommand(t, CommandOptions{Timeout: 20 * time.Minute, Dir: filepath.Dir(stackPath)}, "faas-cli", "build", "-f", stackPath)
 }
 
 func PrepareFaasdWorkflowStack(t *testing.T, stackPath string) {
 	t.Helper()
 
 	if registryType(t) != registryTypeLocal {
+		t.Logf("Skipping local registry setup for remote registry, remote registry prefix=%s", os.Getenv("REGISTRY_PREFIX"))
 		return
 	}
 
@@ -402,7 +392,7 @@ func DeployFaasdWorkflowStack(t *testing.T, baseURL string, stackPath string) {
 	t.Helper()
 	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
-		_, err := TryRunCommand(t, CommandOptions{Timeout: 10 * time.Minute, Dir: filepath.Dir(stackPath), Env: registryCommandEnv(t)}, "faas-cli", "deploy", "--read-template=false", "--gateway", baseURL, "-f", stackPath)
+		_, err := TryRunCommand(t, CommandOptions{Timeout: 10 * time.Minute, Dir: filepath.Dir(stackPath)}, "faas-cli", "deploy", "--read-template=false", "--gateway", baseURL, "-f", stackPath)
 		if err == nil {
 			return
 		}
