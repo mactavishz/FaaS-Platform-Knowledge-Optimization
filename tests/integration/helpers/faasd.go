@@ -25,6 +25,10 @@ import (
 const (
 	DEFAULT_FAASD_GATEWAY_URL = "http://127.0.0.1:8080"
 	FAASD_VM_NAME             = "faasd"
+	registryTypeEnvVar        = "REGISTRY_TYPE"
+	registryTypeLocal         = "local"
+	registryTypeRemote        = "remote"
+	remoteRegistryPrefix      = "macsalvation/faasd-"
 )
 
 type FaasdGatewayAuth struct {
@@ -184,6 +188,33 @@ func RequireLocalRegistryReachable(t *testing.T) {
 	}
 }
 
+func registryType(t *testing.T) string {
+	t.Helper()
+
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(registryTypeEnvVar)))
+	if v == "" {
+		return registryTypeRemote
+	}
+
+	switch v {
+	case registryTypeLocal, registryTypeRemote:
+		return v
+	default:
+		t.Fatalf("invalid %s=%q, expected %q or %q", registryTypeEnvVar, v, registryTypeLocal, registryTypeRemote)
+		return ""
+	}
+}
+
+func registryCommandEnv(t *testing.T) map[string]string {
+	t.Helper()
+
+	if registryType(t) == registryTypeRemote {
+		return map[string]string{"REGISTRY_PREFIX": remoteRegistryPrefix}
+	}
+
+	return nil
+}
+
 func parseFaasdStack(t *testing.T, stackPath string, envsubst bool) *sdkstack.Services {
 	t.Helper()
 
@@ -232,12 +263,29 @@ func FixtureFunction(t *testing.T, fixtureDir string, sourceName string) sdkstac
 
 func RemoveFaasdWorkflowStack(t *testing.T, baseURL string, stackPath string) {
 	t.Helper()
-	_, _ = tryRunCommand(t, 2*time.Minute, filepath.Dir(stackPath), "faas-cli", "remove", "--gateway", baseURL, "-f", stackPath)
+	_, _ = TryRunCommand(t, CommandOptions{Timeout: 2 * time.Minute, Dir: filepath.Dir(stackPath), Env: registryCommandEnv(t)}, "faas-cli", "remove", "--gateway", baseURL, "-f", stackPath)
 }
 
 func BuildFaasdWorkflowStack(t *testing.T, stackPath string) {
 	t.Helper()
-	MustRunCommand(t, CommandOptions{Timeout: 20 * time.Minute, Dir: filepath.Dir(stackPath)}, "faas-cli", "build", "-f", stackPath)
+	MustRunCommand(t, CommandOptions{Timeout: 20 * time.Minute, Dir: filepath.Dir(stackPath), Env: registryCommandEnv(t)}, "faas-cli", "build", "-f", stackPath)
+}
+
+func PrepareFaasdWorkflowStack(t *testing.T, stackPath string) {
+	t.Helper()
+
+	if registryType(t) != registryTypeLocal {
+		return
+	}
+
+	RequireLocalRegistryReachable(t)
+	BuildFaasdWorkflowStack(t, stackPath)
+
+	parallelism := FaasdStackFunctionCount(t, stackPath)
+	if parallelism <= 0 {
+		parallelism = 1
+	}
+	PushFaasdWorkflowStack(t, stackPath, parallelism)
 }
 
 func pushImageWithRetries(t *testing.T, workdir string, image string) error {
@@ -246,7 +294,7 @@ func pushImageWithRetries(t *testing.T, workdir string, image string) error {
 	var lastErr error
 	var output string
 	for attempt := 1; attempt <= 3; attempt++ {
-		output, lastErr = tryRunCommand(t, 30*time.Minute, workdir, "docker", "push", image)
+		output, lastErr = tryRunCommand(t, 30*time.Minute, workdir, "docker", "push", "-q", image)
 		if lastErr == nil {
 			return nil
 		}
@@ -354,7 +402,7 @@ func DeployFaasdWorkflowStack(t *testing.T, baseURL string, stackPath string) {
 	t.Helper()
 	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
-		_, err := TryRunCommand(t, CommandOptions{Timeout: 10 * time.Minute, Dir: filepath.Dir(stackPath)}, "faas-cli", "deploy", "--read-template=false", "--gateway", baseURL, "-f", stackPath)
+		_, err := TryRunCommand(t, CommandOptions{Timeout: 10 * time.Minute, Dir: filepath.Dir(stackPath), Env: registryCommandEnv(t)}, "faas-cli", "deploy", "--read-template=false", "--gateway", baseURL, "-f", stackPath)
 		if err == nil {
 			return
 		}

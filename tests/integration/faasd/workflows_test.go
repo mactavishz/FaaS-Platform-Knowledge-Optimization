@@ -1,7 +1,6 @@
 package faasd
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -25,6 +24,7 @@ func TestWorkflowIntegrationSuite(t *testing.T) {
 func (s *WorkflowIntegrationSuite) SetupSuite() {
 	t := s.T()
 	s.repo = integrationhelpers.RepoRoot(t)
+	t.Setenv("REGISTRY_TYPE", "local")
 	s.baseURL, s.auth = integrationhelpers.RequireFaasd(t)
 }
 
@@ -51,13 +51,12 @@ func (s *WorkflowIntegrationSuite) deployFaasdWorkflow(t *testing.T, stackRelPat
 	names := integrationhelpers.FaasdStackFunctionNames(t, stackPath)
 	// parallel := integrationhelpers.FaasdStackFunctionCount(t, stackPath)
 
-	os.Setenv("REGISTRY_PREFIX", "macsalvation/faasd-")
 	integrationhelpers.RemoveFaasdWorkflowStack(t, s.baseURL, stackPath)
 	t.Cleanup(func() {
 		integrationhelpers.RemoveFaasdWorkflowStack(t, s.baseURL, stackPath)
-		os.Unsetenv("REGISTRY_PREFIX")
 	})
 
+	integrationhelpers.PrepareFaasdWorkflowStack(t, stackPath)
 	integrationhelpers.DeployFaasdWorkflowStack(t, s.baseURL, stackPath)
 	integrationhelpers.WaitForFaasdFunctionsPresent(t, s.baseURL, s.auth, names, 120*time.Second)
 

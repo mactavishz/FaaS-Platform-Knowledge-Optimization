@@ -1,7 +1,6 @@
 package faasd
 
 import (
-	"os"
 	"testing"
 	"time"
 
@@ -25,6 +24,7 @@ func TestPlatformIntegrationSuite(t *testing.T) {
 func (s *PlatformIntegrationSuite) SetupSuite() {
 	t := s.T()
 	s.repo = integrationhelpers.RepoRoot(t)
+	t.Setenv("REGISTRY_TYPE", "local")
 	s.baseURL, s.auth = integrationhelpers.RequireFaasd(t)
 }
 
@@ -33,14 +33,13 @@ func (s *PlatformIntegrationSuite) setupScenario(envProfile string) {
 	integrationhelpers.RebuildFaasd(t, envProfile)
 	s.baseURL, s.auth = integrationhelpers.RequireFaasd(t)
 
-	os.Setenv("REGISTRY_PREFIX", "macsalvation/faasd-")
 	stackPath := s.repo + "/tests/workflows/faasd/linear3/stack.yaml"
 	integrationhelpers.RemoveFaasdWorkflowStack(t, s.baseURL, stackPath)
 	t.Cleanup(func() {
 		integrationhelpers.RemoveFaasdWorkflowStack(t, s.baseURL, stackPath)
-		os.Unsetenv("REGISTRY_PREFIX")
 	})
 
+	integrationhelpers.PrepareFaasdWorkflowStack(t, stackPath)
 	integrationhelpers.DeployFaasdWorkflowStack(t, s.baseURL, stackPath)
 }
 
@@ -48,11 +47,12 @@ func (s *PlatformIntegrationSuite) setupAsyncCallbackScenario(envProfile string)
 	t := s.T()
 	s.setupScenario(envProfile)
 
-	echoStackPath := s.repo + "/faasd/test/fns/echo-js-remote/stack.yaml"
+	echoStackPath := s.repo + "/faasd/test/fns/echo-js/stack.yaml"
 	integrationhelpers.RemoveFaasdWorkflowStack(t, s.baseURL, echoStackPath)
 	t.Cleanup(func() {
 		integrationhelpers.RemoveFaasdWorkflowStack(t, s.baseURL, echoStackPath)
 	})
+	integrationhelpers.PrepareFaasdWorkflowStack(t, echoStackPath)
 	integrationhelpers.DeployFaasdWorkflowStack(t, s.baseURL, echoStackPath)
 }
 
@@ -108,26 +108,26 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAsyncWithCallback() {
 	require.NotEmpty(t, body)
 
 	time.Sleep(25 * time.Second)
-	for _, fn := range []string{"linear3-a", "linear3-b", "linear3-c", "echo-js-remote"} {
+	for _, fn := range []string{"linear3-a", "linear3-b", "linear3-c", "echo-js"} {
 		status := integrationhelpers.GetFaasdFunction(t, s.baseURL, s.auth, fn)
 		require.Equal(t, uint64(1), status.Replicas)
 		require.Equal(t, uint64(0), status.AvailableReplicas, "expected %s to be scaled down", fn)
 	}
 
-	callbackURL := "http://gateway:8080/function/echo-js-remote"
+	callbackURL := "http://gateway:8080/function/echo-js"
 	statusCode, asyncBody := integrationhelpers.InvokeFaasdAsyncJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, callbackURL)
 	assert.Equal(t, 202, statusCode, "expected async enqueue accepted, body=%s", string(asyncBody))
 
 	integrationhelpers.WaitForFaasdServiceLogMatch(t, "queue-worker", "Posted result for linear3-a to callback-url", 120*time.Second)
 	integrationhelpers.Eventually(t, 120*time.Second, 1*time.Second, func() bool {
-		callbackStatus := integrationhelpers.GetFaasdFunction(t, s.baseURL, s.auth, "echo-js-remote")
+		callbackStatus := integrationhelpers.GetFaasdFunction(t, s.baseURL, s.auth, "echo-js")
 		return callbackStatus.AvailableReplicas == 1
 	})
-	integrationhelpers.WaitForFaasdFunctionJournalLogMatch(t, "echo-js-remote", "Function linear3-a is finished", 120*time.Second)
-	integrationhelpers.WaitForFaasdFunctionJournalLogMatch(t, "echo-js-remote", "Function linear3-b is finished", 120*time.Second)
-	integrationhelpers.WaitForFaasdFunctionJournalLogMatch(t, "echo-js-remote", "Function linear3-c is finished", 120*time.Second)
+	integrationhelpers.WaitForFaasdFunctionJournalLogMatch(t, "echo-js", "Function linear3-a is finished", 120*time.Second)
+	integrationhelpers.WaitForFaasdFunctionJournalLogMatch(t, "echo-js", "Function linear3-b is finished", 120*time.Second)
+	integrationhelpers.WaitForFaasdFunctionJournalLogMatch(t, "echo-js", "Function linear3-c is finished", 120*time.Second)
 
-	callbackStatus := integrationhelpers.GetFaasdFunction(t, s.baseURL, s.auth, "echo-js-remote")
+	callbackStatus := integrationhelpers.GetFaasdFunction(t, s.baseURL, s.auth, "echo-js")
 	assert.Equal(t, uint64(1), callbackStatus.Replicas)
 	assert.Equal(t, uint64(1), callbackStatus.AvailableReplicas)
 }
