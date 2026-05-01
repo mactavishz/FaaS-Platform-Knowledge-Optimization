@@ -1,6 +1,7 @@
 package faasd
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -28,6 +29,10 @@ func (s *PlatformIntegrationSuite) SetupSuite() {
 }
 
 func (s *PlatformIntegrationSuite) setupScenario(envProfile string) {
+	s.setupScenarioWithEnvs(envProfile, nil)
+}
+
+func (s *PlatformIntegrationSuite) setupScenarioWithEnvs(envProfile string, deployEnvs map[string]string) {
 	t := s.T()
 	integrationhelpers.RebuildFaasd(t, envProfile)
 	s.baseURL, s.auth = integrationhelpers.RequireFaasd(t)
@@ -39,7 +44,7 @@ func (s *PlatformIntegrationSuite) setupScenario(envProfile string) {
 	})
 
 	integrationhelpers.PrepareFaasdWorkflowStack(t, stackPath)
-	integrationhelpers.DeployFaasdWorkflowStack(t, s.baseURL, stackPath)
+	integrationhelpers.DeployFaasdWorkflowStackWithEnvs(t, s.baseURL, stackPath, deployEnvs)
 }
 
 func (s *PlatformIntegrationSuite) setupAsyncCallbackScenario(envProfile string) {
@@ -61,6 +66,7 @@ func (s *PlatformIntegrationSuite) TestNoAutoscalerNoCallgraph() {
 
 	body := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
 	require.NotEmpty(t, body)
+	s.assertWorkflowResponse(body)
 
 	time.Sleep(15 * time.Second)
 	for _, fn := range []string{"linear3-a", "linear3-b", "linear3-c"} {
@@ -69,6 +75,8 @@ func (s *PlatformIntegrationSuite) TestNoAutoscalerNoCallgraph() {
 		require.Equal(t, uint64(1), status.Replicas)
 		require.Equal(t, uint64(1), status.AvailableReplicas)
 	}
+
+	s.assertCallgraphEmpty()
 }
 
 func (s *PlatformIntegrationSuite) TestAutoscalerOnly() {
@@ -77,6 +85,7 @@ func (s *PlatformIntegrationSuite) TestAutoscalerOnly() {
 
 	body := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
 	require.NotEmpty(t, body)
+	s.assertWorkflowResponse(body)
 
 	// wait 2x the scale-to-zero idle duration to ensure functions have time to scale down
 	time.Sleep(25 * time.Second)
@@ -89,6 +98,7 @@ func (s *PlatformIntegrationSuite) TestAutoscalerOnly() {
 
 	body = integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
 	require.NotEmpty(t, body)
+	s.assertWorkflowResponse(body)
 
 	for _, fn := range []string{"linear3-a", "linear3-b", "linear3-c"} {
 		status := integrationhelpers.GetFaasdFunction(t, s.baseURL, s.auth, fn)
@@ -96,6 +106,103 @@ func (s *PlatformIntegrationSuite) TestAutoscalerOnly() {
 		require.Equal(t, uint64(1), status.AvailableReplicas)
 		require.True(t, integrationhelpers.ExistsFaasdContainer(t, fn), "Expected container for function %s to exist", fn)
 	}
+
+	s.assertCallgraphEmpty()
+}
+
+func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarm() {
+	t := s.T()
+	s.setupScenarioWithEnvs("autoscaler-and-callgraph-no-prewarm.env", map[string]string{"FUNCTION_DELAY_SEC": "5"})
+
+	body := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
+	s.assertWorkflowResponse(body)
+
+	cg := integrationhelpers.GetFaasdCallGraph(t, s.baseURL, s.auth)
+	count := integrationhelpers.EdgeCount(cg, "", "linear3-a")
+	assert.GreaterOrEqual(t, count, 1)
+	countAB := integrationhelpers.EdgeCount(cg, "linear3-a", "linear3-b")
+	countBC := integrationhelpers.EdgeCount(cg, "linear3-b", "linear3-c")
+	assert.GreaterOrEqual(t, countAB, 1)
+	assert.GreaterOrEqual(t, countBC, 1)
+
+	statsBBefore := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-b")
+	statsCBefore := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-c")
+
+	time.Sleep(25 * time.Second)
+	body = integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
+	s.assertWorkflowResponse(body)
+
+	cg = integrationhelpers.GetFaasdCallGraph(t, s.baseURL, s.auth)
+	updatedCount := integrationhelpers.EdgeCount(cg, "", "linear3-a")
+	updatedCountAB := integrationhelpers.EdgeCount(cg, "linear3-a", "linear3-b")
+	updatedCountBC := integrationhelpers.EdgeCount(cg, "linear3-b", "linear3-c")
+	assert.GreaterOrEqual(t, updatedCount, count+1)
+	assert.GreaterOrEqual(t, updatedCountAB, countAB+1)
+	assert.GreaterOrEqual(t, updatedCountBC, countBC+1)
+
+	statsBAfter := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-b")
+	statsCAfter := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-c")
+
+	assert.Equal(t, statsBBefore.TotalPrewarms, statsBAfter.TotalPrewarms)
+	assert.Equal(t, statsCBefore.TotalPrewarms, statsCAfter.TotalPrewarms)
+	assert.GreaterOrEqual(t, statsBAfter.TotalColdStarts, statsBBefore.TotalColdStarts+1)
+	assert.GreaterOrEqual(t, statsCAfter.TotalColdStarts, statsCBefore.TotalColdStarts+1)
+}
+
+func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphAndPrewarm() {
+	t := s.T()
+	s.setupScenarioWithEnvs("autoscaler-and-callgraph-and-prewarm.env", map[string]string{"FUNCTION_DELAY_SEC": "5"})
+
+	body := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
+	s.assertWorkflowResponse(body)
+
+	cg := integrationhelpers.GetFaasdCallGraph(t, s.baseURL, s.auth)
+	count := integrationhelpers.EdgeCount(cg, "", "linear3-a")
+	assert.GreaterOrEqual(t, count, 1)
+	countAB := integrationhelpers.EdgeCount(cg, "linear3-a", "linear3-b")
+	countBC := integrationhelpers.EdgeCount(cg, "linear3-b", "linear3-c")
+	assert.GreaterOrEqual(t, countAB, 1)
+	assert.GreaterOrEqual(t, countBC, 1)
+
+	statsBBefore := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-b")
+	statsCBefore := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-c")
+
+	time.Sleep(25 * time.Second)
+	body = integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
+	s.assertWorkflowResponse(body)
+
+	cg = integrationhelpers.GetFaasdCallGraph(t, s.baseURL, s.auth)
+	updatedCount := integrationhelpers.EdgeCount(cg, "", "linear3-a")
+	updatedCountAB := integrationhelpers.EdgeCount(cg, "linear3-a", "linear3-b")
+	updatedCountBC := integrationhelpers.EdgeCount(cg, "linear3-b", "linear3-c")
+	assert.GreaterOrEqual(t, updatedCount, count+1)
+	assert.GreaterOrEqual(t, updatedCountAB, countAB+1)
+	assert.GreaterOrEqual(t, updatedCountBC, countBC+1)
+
+	statsBAfter := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-b")
+	statsCAfter := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-c")
+
+	assert.GreaterOrEqual(t, statsBAfter.TotalPrewarms, statsBBefore.TotalPrewarms+1)
+	assert.GreaterOrEqual(t, statsCAfter.TotalPrewarms, statsCBefore.TotalPrewarms)
+}
+
+func (s *PlatformIntegrationSuite) assertCallgraphEmpty() {
+	t := s.T()
+	t.Helper()
+
+	cg := integrationhelpers.GetFaasdCallGraph(t, s.baseURL, s.auth)
+	assert.Empty(t, cg.Edges)
+	assert.Empty(t, cg.Functions)
+}
+
+func (s *PlatformIntegrationSuite) assertWorkflowResponse(body []byte) {
+	t := s.T()
+	t.Helper()
+
+	var payload map[string]any
+	err := json.Unmarshal(body, &payload)
+	require.NoError(t, err, "expected JSON response from workflow, got: %s", string(body))
+	assert.NotNil(t, payload["msg"], "expected workflow response to contain msg, got: %s", string(body))
 }
 
 func (s *PlatformIntegrationSuite) TestAutoscalerAsyncWithCallback() {

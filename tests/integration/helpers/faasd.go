@@ -393,10 +393,26 @@ func DeployStack(t *testing.T, stackPath string, gateway string) {
 }
 
 func DeployFaasdWorkflowStack(t *testing.T, baseURL string, stackPath string) {
+	DeployFaasdWorkflowStackWithEnvs(t, baseURL, stackPath, nil)
+}
+
+func DeployFaasdWorkflowStackWithEnvs(t *testing.T, baseURL string, stackPath string, envs map[string]string) {
 	t.Helper()
 	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
-		_, err := TryRunCommand(t, CommandOptions{Timeout: 10 * time.Minute, Dir: filepath.Dir(stackPath)}, "faas-cli", "deploy", "--read-template=false", "--gateway", baseURL, "-f", stackPath)
+		args := []string{"deploy", "--read-template=false", "--gateway", baseURL, "-f", stackPath}
+		if len(envs) > 0 {
+			keys := make([]string, 0, len(envs))
+			for k := range envs {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				args = append(args, "-e", fmt.Sprintf("%s=%s", k, envs[k]))
+			}
+		}
+
+		_, err := TryRunCommand(t, CommandOptions{Timeout: 10 * time.Minute, Dir: filepath.Dir(stackPath)}, "faas-cli", args...)
 		if err == nil {
 			return
 		}
@@ -408,6 +424,70 @@ func DeployFaasdWorkflowStack(t *testing.T, baseURL string, stackPath string) {
 	}
 
 	t.Fatalf("failed to deploy stack after retries stack=%s err=%v", stackPath, lastErr)
+}
+
+func GetFaasdCallGraph(t *testing.T, baseURL string, auth FaasdGatewayAuth) CallGraph {
+	t.Helper()
+
+	endpoint := strings.TrimRight(baseURL, "/") + "/system/callgraph"
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		t.Fatalf("create callgraph request: %v", err)
+	}
+	req.SetBasicAuth(auth.User, authSecret(auth))
+
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("callgraph request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read callgraph response: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("callgraph request failed status=%d body=%s", resp.StatusCode, string(body))
+	}
+
+	var cg CallGraph
+	if err := json.Unmarshal(body, &cg); err != nil {
+		t.Fatalf("decode callgraph response: %v", err)
+	}
+
+	return cg
+}
+
+func GetFaasdFunctionCallGraphStats(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string) FunctionCallGraphStats {
+	t.Helper()
+
+	endpoint := strings.TrimRight(baseURL, "/") + "/system/callgraph/function/" + functionName
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		t.Fatalf("create callgraph function request: %v", err)
+	}
+	req.SetBasicAuth(auth.User, authSecret(auth))
+
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("callgraph function request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read callgraph function response: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("callgraph function request failed status=%d body=%s", resp.StatusCode, string(body))
+	}
+
+	var stats FunctionCallGraphStats
+	if err := json.Unmarshal(body, &stats); err != nil {
+		t.Fatalf("decode callgraph function response: %v", err)
+	}
+
+	return stats
 }
 
 func UniqueFunctionName(prefix string) string {
