@@ -1355,7 +1355,7 @@ func TestConcurrentRequestsWithRequestID(t *testing.T) {
 	assert.Equal(t, 150*time.Millisecond, statsAC.AvgExecutionTime)
 }
 
-// TestEndExecution tests cleanup of execution contexts and function stats recording
+// TestEndExecution tests completion tracking and function stats recording
 func TestEndExecution(t *testing.T) {
 	tracker := New(WithLogger(zap.NewNop()))
 	tracker.Start()
@@ -1376,10 +1376,12 @@ func TestEndExecution(t *testing.T) {
 	endTime := now.Add(100 * time.Millisecond)
 	tracker.EndExecution("funcA", requestID, "exec-1", endTime)
 
-	// Verify context is cleaned up
+	// Verify context is retained for async descendant attribution until TTL cleanup.
 	tracker.mutex.RLock()
-	assert.Nil(t, tracker.executionContexts[requestID])
+	ctx, ok := tracker.executionContexts[requestID]["exec-1"]
 	tracker.mutex.RUnlock()
+	require.True(t, ok, "execution context should be retained after completion")
+	assert.Equal(t, endTime, ctx.endTime)
 
 	// Verify function stats were recorded
 	stats, ok := tracker.GetFunctionStats("funcA")
@@ -1424,9 +1426,15 @@ func TestConcurrentSameFunctionExecutionIDIsolation(t *testing.T) {
 	assert.Equal(t, 2, stats.TotalCalls)
 
 	tracker.mutex.RLock()
-	_, exists := tracker.executionContexts[requestID]
+	ctx1, exists1 := tracker.executionContexts[requestID]["exec-1"]
+	ctx2, exists2 := tracker.executionContexts[requestID]["exec-2"]
 	tracker.mutex.RUnlock()
-	assert.False(t, exists, "execution context should be cleaned up after both invocations")
+	assert.True(t, exists1, "first execution context should remain until TTL cleanup")
+	assert.True(t, exists2, "second execution context should remain until TTL cleanup")
+	assert.False(t, ctx1.endTime.IsZero(), "first execution should be marked complete")
+	assert.False(t, ctx2.endTime.IsZero(), "second execution should be marked complete")
+	assert.Equal(t, now.Add(100*time.Millisecond), ctx1.endTime)
+	assert.Equal(t, now.Add(120*time.Millisecond), ctx2.endTime)
 }
 
 // TestMultipleFunctionsInSameRequest tests complex workflow

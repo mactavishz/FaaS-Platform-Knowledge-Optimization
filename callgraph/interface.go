@@ -48,6 +48,9 @@ type Tracker interface {
 	// GetEdgeStats returns the aggregated stats for a specific caller->callee edge
 	GetEdgeStats(caller, callee string) (AggregatedEdge, bool)
 
+	// GetExecutionContextFunction resolves a function name from a request-scoped execution ID.
+	GetExecutionContextFunction(requestID string, executionID string) (string, bool)
+
 	// Clear clears all recorded data
 	Clear()
 

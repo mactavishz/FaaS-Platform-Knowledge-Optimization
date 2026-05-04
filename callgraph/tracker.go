@@ -178,6 +178,7 @@ func (t *CallGraphTracker) StartExecution(functionName string, requestID string,
 	t.executionContexts[requestID][executionID] = executionContext{
 		functionName: functionName,
 		startTime:    timestamp,
+		endTime:      time.Time{},
 	}
 
 	// Update last access time for TTL tracking
@@ -306,6 +307,28 @@ func (t *CallGraphTracker) RecordEdge(caller, callee string, requestID string, c
 		zap.Duration("edgeExecutionTime", executionTime))
 }
 
+// GetExecutionContextFunction resolves the function name for a request-scoped execution ID.
+func (t *CallGraphTracker) GetExecutionContextFunction(requestID string, executionID string) (string, bool) {
+	if !t.config.Enabled || requestID == "" || executionID == "" {
+		return "", false
+	}
+
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
+
+	requestCtx, ok := t.executionContexts[requestID]
+	if !ok {
+		return "", false
+	}
+
+	ctx, ok := requestCtx[executionID]
+	if !ok {
+		return "", false
+	}
+
+	return ctx.functionName, true
+}
+
 // EndExecution marks the end of a function execution, records function stats, and cleans up execution context
 func (t *CallGraphTracker) EndExecution(functionName string, requestID string, executionID string, timestamp time.Time) {
 	if !t.config.Enabled {
@@ -382,16 +405,15 @@ func (t *CallGraphTracker) EndExecution(functionName string, requestID string, e
 			zap.Duration("executionTime", execTime))
 	}
 
-	// Clean up execution context
+	// Keep completed execution contexts until TTL cleanup so queued async descendants
+	// can still attribute their caller using X-Call-Id + X-Exec-Id.
 	if requestCtx, ok := t.executionContexts[requestID]; ok {
-		delete(requestCtx, executionID)
-
-		// If this was the last function in this request, clean up the entire request context
-		if len(requestCtx) == 0 {
-			delete(t.executionContexts, requestID)
-			delete(t.contextLastAccess, requestID)
+		if ctx, ok := requestCtx[executionID]; ok {
+			ctx.endTime = timestamp
+			requestCtx[executionID] = ctx
 		}
 	}
+	t.contextLastAccess[requestID] = time.Now()
 
 	t.logger.Debug("ended execution",
 		zap.String("function", functionName),

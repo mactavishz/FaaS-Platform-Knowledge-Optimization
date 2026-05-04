@@ -114,6 +114,7 @@ type CallGraphTracker struct {
 type executionContext struct {
 	functionName string
 	startTime    time.Time
+	endTime      time.Time
 }
 
 // AggregatedEdge represents aggregated call data between two functions
