@@ -7,7 +7,7 @@ faasd-login:
 
 .PHONY: faasd-passwd
 faasd-passwd:
-	vagrant ssh faasd -c "sudo cat $(FAASD_SECRETES_PATH)/basic-auth-password"
+	@vagrant ssh faasd -c "sudo cat $(FAASD_SECRETES_PATH)/basic-auth-password"
 
 .PHONY: build-faasd
 build-faasd: registry-up
