@@ -161,38 +161,25 @@ func SetupFunctionalityScenario(t *testing.T, stackPath string, functionNames []
 	WipeFunctions(t)
 	t.Cleanup(func() { WipeFunctions(t) })
 	DeployWorkflow(t, stackPath)
-	WaitForFunctionsReady(t, functionNames, true, 90*time.Second)
+	WaitForFunctionsRunningState(t, functionNames, true, 90*time.Second)
 }
 
-func InvokeFunctionEventually(t *testing.T, functionName string, timeout time.Duration) []byte {
+func InvokeFunction(t *testing.T, functionName string, payload string, timeout time.Duration) []byte {
 	t.Helper()
-	return InvokeFunctionEventuallyWithPayload(t, functionName, "integration-test", timeout)
-}
+	t.Logf("[step] invoking %s timeout=%s payload_bytes=%d", functionName, timeout, len(payload))
 
-func InvokeFunctionEventuallyWithPayload(t *testing.T, functionName string, payload string, timeout time.Duration) []byte {
-	t.Helper()
-	t.Logf("[step] invoking %s with retries timeout=%s payload_bytes=%d", functionName, timeout, len(payload))
-
-	deadline := time.Now().Add(timeout)
-	attempt := 0
-	for time.Now().Before(deadline) {
-		attempt++
-		status, body, err := InvokeFunctionOnce(functionName, payload, 20*time.Second)
-		if err == nil && status == http.StatusOK && len(body) > 0 {
-			t.Logf("[step] invoke %s succeeded at attempt=%d", functionName, attempt)
-			return body
-		}
-
-		if err != nil {
-			t.Logf("[invoke %s attempt=%d] err=%v", functionName, attempt, err)
-		} else {
-			t.Logf("[invoke %s attempt=%d] status=%d body=%s", functionName, attempt, status, string(body))
-		}
-		time.Sleep(2 * time.Second)
+	status, body, err := InvokeFunctionOnce(functionName, payload, timeout)
+	if err != nil {
+		t.Fatalf("invoke %s failed: %v", functionName, err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("invoke %s failed, expected status=%d got status=%d body=%s", functionName, http.StatusOK, status, string(body))
+	}
+	if len(body) == 0 {
+		t.Fatalf("invoke %s returned empty body", functionName)
 	}
 
-	t.Fatalf("invoke %s did not succeed within %s", functionName, timeout)
-	return nil
+	return body
 }
 
 func InvokeFunctionOnce(functionName string, payload string, timeout time.Duration) (int, []byte, error) {
@@ -286,30 +273,22 @@ func InvokeJSONOnce(functionName string, payload any, timeout time.Duration) (in
 	return resp.StatusCode, respBody, nil
 }
 
-func InvokeJSONEventually(t *testing.T, functionName string, payload any, timeout time.Duration) []byte {
+func InvokeJSON(t *testing.T, functionName string, payload any, timeout time.Duration) []byte {
 	t.Helper()
 	t.Logf("[step] invoking %s with JSON payload timeout=%s", functionName, timeout)
 
-	deadline := time.Now().Add(timeout)
-	attempt := 0
-	for time.Now().Before(deadline) {
-		attempt++
-		status, body, err := InvokeJSONOnce(functionName, payload, 20*time.Second)
-		if err == nil && status == http.StatusOK && len(body) > 0 {
-			t.Logf("[step] invoke %s succeeded at attempt=%d", functionName, attempt)
-			return body
-		}
-
-		if err != nil {
-			t.Logf("[invoke %s attempt=%d] err=%v", functionName, attempt, err)
-		} else {
-			t.Logf("[invoke %s attempt=%d] status=%d body=%s", functionName, attempt, status, string(body))
-		}
-		time.Sleep(2 * time.Second)
+	status, body, err := InvokeJSONOnce(functionName, payload, timeout)
+	if err != nil {
+		t.Fatalf("invoke %s failed: %v", functionName, err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("invoke %s failed, expected status=%d got status=%d body=%s", functionName, http.StatusOK, status, string(body))
+	}
+	if len(body) == 0 {
+		t.Fatalf("invoke %s returned empty body", functionName)
 	}
 
-	t.Fatalf("invoke %s did not succeed within %s", functionName, timeout)
-	return nil
+	return body
 }
 
 func ListFunctions(t *testing.T) []FunctionStatus {
@@ -333,7 +312,7 @@ func ListFunctions(t *testing.T) []FunctionStatus {
 	return out
 }
 
-func WaitForFunctionsReady(t *testing.T, names []string, running bool, timeout time.Duration) {
+func WaitForFunctionsRunningState(t *testing.T, names []string, running bool, timeout time.Duration) {
 	t.Helper()
 	t.Logf("[step] waiting for running=%t names=%v timeout=%s", running, names, timeout)
 
@@ -352,6 +331,11 @@ func WaitForFunctionsReady(t *testing.T, names []string, running bool, timeout t
 	}
 
 	t.Fatalf("timed out waiting for running=%t for functions %v", running, names)
+}
+
+func WaitForFunctionsScaledDown(t *testing.T, names []string, timeout time.Duration) {
+	t.Helper()
+	WaitForFunctionsRunningState(t, names, false, timeout)
 }
 
 func WaitForFunctionsPresent(t *testing.T, names []string, timeout time.Duration) {

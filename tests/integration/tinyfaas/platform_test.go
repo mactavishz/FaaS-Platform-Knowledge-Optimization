@@ -36,13 +36,13 @@ func (s *PlatformIntegrationSuite) TestNoAutoscalerNoCallgraph() {
 	t.Log("[scenario] no autoscaler + no callgraph")
 	s.setupScenario("no-autoscaler-no-callgraph.env", integrationhelpers.TINYFAAS_LINEAR3_STACK_FILE_PATH, nil)
 
-	body := integrationhelpers.InvokeFunctionEventually(t, "linear3-a", 90*time.Second)
+	body := integrationhelpers.InvokeFunction(t, "linear3-a", "integration-test", 90*time.Second)
 	s.assertWorkflowResponse(body)
 
-	integrationhelpers.WaitForFunctionsReady(t, []string{"linear3-a", "linear3-b", "linear3-c"}, true, 15*time.Second)
+	integrationhelpers.WaitForFunctionsRunningState(t, []string{"linear3-a", "linear3-b", "linear3-c"}, true, 15*time.Second)
 	// Idle timeout is 12s in profile. With autoscaler disabled, these should stay running.
 	time.Sleep(20 * time.Second)
-	integrationhelpers.WaitForFunctionsReady(t, []string{"linear3-a", "linear3-b", "linear3-c"}, true, 15*time.Second)
+	integrationhelpers.WaitForFunctionsRunningState(t, []string{"linear3-a", "linear3-b", "linear3-c"}, true, 15*time.Second)
 
 	s.assertCallgraphEmpty()
 }
@@ -52,13 +52,13 @@ func (s *PlatformIntegrationSuite) TestAutoscalerOnly() {
 	t.Log("[scenario] autoscaler only")
 	s.setupScenario("autoscaler-only.env", integrationhelpers.TINYFAAS_LINEAR3_STACK_FILE_PATH, nil)
 
-	body := integrationhelpers.InvokeFunctionEventually(t, "linear3-a", 90*time.Second)
+	body := integrationhelpers.InvokeFunction(t, "linear3-a", "integration-test", 90*time.Second)
 	s.assertWorkflowResponse(body)
 
 	// Idle timeout is 12s + autoscaler check interval is 10s.
-	integrationhelpers.WaitForFunctionsReady(t, []string{"linear3-a", "linear3-b", "linear3-c"}, false, 90*time.Second)
+	integrationhelpers.WaitForFunctionsScaledDown(t, []string{"linear3-a", "linear3-b", "linear3-c"}, 90*time.Second)
 
-	body = integrationhelpers.InvokeFunctionEventually(t, "linear3-a", 120*time.Second)
+	body = integrationhelpers.InvokeFunction(t, "linear3-a", "integration-test", 120*time.Second)
 	s.assertWorkflowResponse(body)
 
 	s.assertCallgraphEmpty()
@@ -73,7 +73,7 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarm() {
 		map[string]string{"FUNCTION_DELAY_SEC": "5"},
 	)
 
-	body := integrationhelpers.InvokeFunctionEventually(t, "linear3-a", 90*time.Second)
+	body := integrationhelpers.InvokeFunction(t, "linear3-a", "integration-test", 90*time.Second)
 	s.assertWorkflowResponse(body)
 
 	cg := integrationhelpers.GetCallGraph(t)
@@ -88,9 +88,9 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarm() {
 	statsBBefore := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-b")
 	statsCBefore := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-c")
 
-	integrationhelpers.WaitForFunctionsReady(t, []string{"linear3-a", "linear3-b", "linear3-c"}, false, 90*time.Second)
+	integrationhelpers.WaitForFunctionsScaledDown(t, []string{"linear3-a", "linear3-b", "linear3-c"}, 90*time.Second)
 
-	body = integrationhelpers.InvokeFunctionEventually(t, "linear3-a", 180*time.Second)
+	body = integrationhelpers.InvokeFunction(t, "linear3-a", "integration-test", 180*time.Second)
 	s.assertWorkflowResponse(body)
 
 	cg = integrationhelpers.GetCallGraph(t)
@@ -120,7 +120,7 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphAndPrewarm() {
 		map[string]string{"FUNCTION_DELAY_SEC": "5"},
 	)
 
-	body := integrationhelpers.InvokeFunctionEventually(t, "linear3-a", 90*time.Second)
+	body := integrationhelpers.InvokeFunction(t, "linear3-a", "integration-test", 90*time.Second)
 	s.assertWorkflowResponse(body)
 
 	cg := integrationhelpers.GetCallGraph(t)
@@ -135,9 +135,9 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphAndPrewarm() {
 	statsBBefore := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-b")
 	statsCBefore := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-c")
 
-	integrationhelpers.WaitForFunctionsReady(t, []string{"linear3-a", "linear3-b", "linear3-c"}, false, 90*time.Second)
+	integrationhelpers.WaitForFunctionsScaledDown(t, []string{"linear3-a", "linear3-b", "linear3-c"}, 90*time.Second)
 
-	body = integrationhelpers.InvokeFunctionEventually(t, "linear3-a", 180*time.Second)
+	body = integrationhelpers.InvokeFunction(t, "linear3-a", "integration-test", 180*time.Second)
 	s.assertWorkflowResponse(body)
 
 	cg = integrationhelpers.GetCallGraph(t)
