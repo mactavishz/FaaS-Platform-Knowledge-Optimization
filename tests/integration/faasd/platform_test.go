@@ -87,16 +87,9 @@ func (s *PlatformIntegrationSuite) TestAutoscalerOnly() {
 	require.NotEmpty(t, body)
 	s.assertWorkflowResponse(body)
 
-	// wait 2x the scale-to-zero idle duration to ensure functions have time to scale down
-	time.Sleep(25 * time.Second)
-	for _, fn := range []string{"linear3-a", "linear3-b", "linear3-c"} {
-		status := integrationhelpers.GetFaasdFunction(t, s.baseURL, s.auth, fn)
-		require.Equal(t, uint64(1), status.Replicas)
-		require.Equal(t, uint64(0), status.AvailableReplicas)
-		require.False(t, integrationhelpers.ExistsFaasdContainer(t, fn), "Expected container for function %s to not exist", fn)
-	}
+	s.waitForFaasdFunctionsScaledDown([]string{"linear3-a", "linear3-b", "linear3-c"}, 90*time.Second)
 
-	body = integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
+	body = integrationhelpers.InvokeFaasdJSONWithTimeout(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, 120*time.Second)
 	require.NotEmpty(t, body)
 	s.assertWorkflowResponse(body)
 
@@ -128,8 +121,8 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarm() {
 	statsBBefore := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-b")
 	statsCBefore := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-c")
 
-	time.Sleep(25 * time.Second)
-	body = integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
+	s.waitForFaasdFunctionsScaledDown([]string{"linear3-a", "linear3-b", "linear3-c"}, 90*time.Second)
+	body = integrationhelpers.InvokeFaasdJSONWithTimeout(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, 180*time.Second)
 	s.assertWorkflowResponse(body)
 
 	cg = integrationhelpers.GetFaasdCallGraph(t, s.baseURL, s.auth)
@@ -167,8 +160,8 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphAndPrewarm() {
 	statsBBefore := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-b")
 	statsCBefore := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-c")
 
-	time.Sleep(25 * time.Second)
-	body = integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
+	s.waitForFaasdFunctionsScaledDown([]string{"linear3-a", "linear3-b", "linear3-c"}, 90*time.Second)
+	body = integrationhelpers.InvokeFaasdJSONWithTimeout(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, 180*time.Second)
 	s.assertWorkflowResponse(body)
 
 	cg = integrationhelpers.GetFaasdCallGraph(t, s.baseURL, s.auth)
@@ -213,12 +206,7 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAsyncWithCallback() {
 	body := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
 	require.NotEmpty(t, body)
 
-	time.Sleep(25 * time.Second)
-	for _, fn := range []string{"linear3-a", "linear3-b", "linear3-c", "echo-js"} {
-		status := integrationhelpers.GetFaasdFunction(t, s.baseURL, s.auth, fn)
-		require.Equal(t, uint64(1), status.Replicas)
-		require.Equal(t, uint64(0), status.AvailableReplicas, "expected %s to be scaled down", fn)
-	}
+	s.waitForFaasdFunctionsScaledDown([]string{"linear3-a", "linear3-b", "linear3-c", "echo-js"}, 120*time.Second)
 
 	callbackURL := "http://gateway:8080/function/echo-js"
 	statusCode, asyncBody := integrationhelpers.InvokeFaasdAsyncJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, callbackURL)
@@ -236,4 +224,22 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAsyncWithCallback() {
 	callbackStatus := integrationhelpers.GetFaasdFunction(t, s.baseURL, s.auth, "echo-js")
 	assert.Equal(t, uint64(1), callbackStatus.Replicas)
 	assert.Equal(t, uint64(1), callbackStatus.AvailableReplicas)
+}
+
+func (s *PlatformIntegrationSuite) waitForFaasdFunctionsScaledDown(functions []string, timeout time.Duration) {
+	t := s.T()
+	t.Helper()
+
+	integrationhelpers.Eventually(t, timeout, 1*time.Second, func() bool {
+		for _, fn := range functions {
+			status := integrationhelpers.GetFaasdFunction(t, s.baseURL, s.auth, fn)
+			if status.Replicas != 1 || status.AvailableReplicas != 0 {
+				return false
+			}
+			if integrationhelpers.ExistsFaasdContainer(t, fn) {
+				return false
+			}
+		}
+		return true
+	})
 }

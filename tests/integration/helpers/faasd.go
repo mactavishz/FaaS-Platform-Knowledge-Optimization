@@ -625,7 +625,7 @@ func WaitForFaasdFunctionsPresent(t *testing.T, baseURL string, auth FaasdGatewa
 	t.Fatalf("functions %v not present within %s", names, timeout)
 }
 
-func InvokeFaasdJSONOnce(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string, payload any) (int, []byte, error) {
+func InvokeFaasdJSONOnceWithTimeout(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string, payload any, timeout time.Duration) (int, []byte, error) {
 	t.Helper()
 
 	body, err := json.Marshal(payload)
@@ -641,7 +641,7 @@ func InvokeFaasdJSONOnce(t *testing.T, baseURL string, auth FaasdGatewayAuth, fu
 	req.SetBasicAuth(auth.User, authSecret(auth))
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -651,10 +651,30 @@ func InvokeFaasdJSONOnce(t *testing.T, baseURL string, auth FaasdGatewayAuth, fu
 	return resp.StatusCode, respBody, nil
 }
 
+func InvokeFaasdJSONOnce(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string, payload any) (int, []byte, error) {
+	t.Helper()
+	return InvokeFaasdJSONOnceWithTimeout(t, baseURL, auth, functionName, payload, 20*time.Second)
+}
+
 func InvokeFaasdJSON(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string, payload any) []byte {
 	t.Helper()
 
 	status, body, err := InvokeFaasdJSONOnce(t, baseURL, auth, functionName, payload)
+	if err != nil {
+		t.Fatalf("invoke %s failed: %v", functionName, err)
+	}
+
+	if status != http.StatusOK {
+		t.Fatalf("invoke %s failed, expected status=%d got status=%d body=%s", functionName, http.StatusOK, status, string(body))
+	}
+
+	return body
+}
+
+func InvokeFaasdJSONWithTimeout(t *testing.T, baseURL string, auth FaasdGatewayAuth, functionName string, payload any, timeout time.Duration) []byte {
+	t.Helper()
+
+	status, body, err := InvokeFaasdJSONOnceWithTimeout(t, baseURL, auth, functionName, payload, timeout)
 	if err != nil {
 		t.Fatalf("invoke %s failed: %v", functionName, err)
 	}
