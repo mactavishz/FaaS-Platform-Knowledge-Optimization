@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-export PROJECT_ROOT=/vagrant
+export PROJECT_ROOT="${PROJECT_ROOT:-/vagrant}"
 
 wait_for_gateway() {
     local gateway_url="http://127.0.0.1:8080/system/functions"
