@@ -23,7 +23,7 @@ function callFunction(functionName, data, sync, incomingHeaders) {
         try {
             const res = await axios.post(url.toString(), data, {
                 headers,
-                timeout: 30000,
+                timeout: 60000,
                 maxRedirects: 0,
                 validateStatus: () => true,
             });
