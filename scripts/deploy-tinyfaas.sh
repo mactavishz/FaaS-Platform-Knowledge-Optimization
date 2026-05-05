@@ -19,16 +19,17 @@ DEFAULT_DEPLOY_DIR="/opt/faas-platform"
 # ---------------------------------------------------------------------------
 usage() {
     cat <<EOF
-Usage: $(basename "$0") --host <host> --env-file <path> [OPTIONS]
+Usage: $(basename "$0") --host <host> [OPTIONS]
 
 Deploy tinyFaaS to a remote Ubuntu server.
 
 Required:
   --host <host>             SSH target — a bare alias (e.g., hetzner), user@host,
                             or user@ip. Bare aliases are resolved via ~/.ssh/config.
-  --env-file <path>         Local path to .env file to upload
+  --env-file <path>         Local path to .env file to upload (required unless --delete)
 
 Optional:
+  --delete                  Remove tinyFaaS from the target host and delete the remote checkout
   --port <number>           SSH port (default: 22, or as set in ~/.ssh/config)
   --branch <name>           Git branch to deploy (default: $DEFAULT_BRANCH)
   --github-token <token>    GitHub PAT for HTTPS clone
@@ -54,6 +55,9 @@ Examples:
 
   # Re-deploy (update) skipping dependency installation
   $(basename "$0") --host hetzner --env-file .env --skip-deps
+
+  # Delete tinyFaaS and remove the remote checkout
+  $(basename "$0") --host hetzner --delete
 EOF
 }
 
@@ -68,11 +72,13 @@ SSH_KEY=""
 SSH_PORT=""
 DEPLOY_DIR="$DEFAULT_DEPLOY_DIR"
 SKIP_DEPS=false
+DELETE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --host)          HOST="$2"; shift 2 ;;
         --env-file)      ENV_FILE="$2"; shift 2 ;;
+        --delete)        DELETE=true; shift ;;
         --port)          SSH_PORT="$2"; shift 2 ;;
         --branch)        BRANCH="$2"; shift 2 ;;
         --github-token)  GITHUB_TOKEN="$2"; shift 2 ;;
@@ -94,15 +100,17 @@ if [[ -z "$HOST" ]]; then
     errors=$((errors + 1))
 fi
 
-if [[ -z "$ENV_FILE" ]]; then
-    echo "ERROR: --env-file is required"
-    errors=$((errors + 1))
-elif [[ ! -f "$ENV_FILE" ]]; then
-    echo "ERROR: env file not found: $ENV_FILE"
-    errors=$((errors + 1))
+if [[ "$DELETE" != "true" ]]; then
+    if [[ -z "$ENV_FILE" ]]; then
+        echo "ERROR: --env-file is required unless --delete is used"
+        errors=$((errors + 1))
+    elif [[ ! -f "$ENV_FILE" ]]; then
+        echo "ERROR: env file not found: $ENV_FILE"
+        errors=$((errors + 1))
+    fi
 fi
 
-if [[ -z "$GITHUB_TOKEN" ]]; then
+if [[ "$DELETE" != "true" && -z "$GITHUB_TOKEN" ]]; then
     echo "ERROR: GitHub token is required. Use --github-token or set GITHUB_TOKEN env var."
     errors=$((errors + 1))
 fi
@@ -172,6 +180,43 @@ log_step() {
     echo "    --> $*"
 }
 
+remove_remote_deploy_dir() {
+    log_step "Removing remote checkout at $DEPLOY_DIR"
+    ssh_cmd "if [ -e '$DEPLOY_DIR' ]; then rm -rf '$DEPLOY_DIR' || sudo rm -rf '$DEPLOY_DIR'; fi"
+}
+
+delete_tinyfaas_fallback() {
+    log_step "Running fallback tinyFaaS cleanup"
+    ssh_cmd "sudo systemctl disable --now tf-manager 2>/dev/null || true; sudo systemctl disable --now tf-rproxy 2>/dev/null || true; sudo systemctl disable --now tf-gateway 2>/dev/null || true; sudo rm -f /etc/default/tinyfaas; sudo rm -f /usr/local/bin/tf-manager /usr/local/bin/tf-rproxy /usr/local/bin/tf-gateway; sudo rm -f /etc/systemd/system/tf-manager.service /etc/systemd/system/tf-rproxy.service /etc/systemd/system/tf-gateway.service; sudo rm -rf /var/lib/tinyfaas; sudo systemctl daemon-reload"
+}
+
+delete_tinyfaas() {
+    log_phase "Phase 1: Removing tinyFaaS deployment"
+
+    if ssh_cmd "test -d '$DEPLOY_DIR/tinyFaaS' && command -v make >/dev/null 2>&1"; then
+        log_step "Repository checkout found - running tinyFaaS teardown"
+        if ! ssh_cmd "bash -lc 'make -C \"$DEPLOY_DIR/tinyFaaS\" down'"; then
+            log_step "Repo-based teardown failed, falling back to direct cleanup"
+            delete_tinyfaas_fallback
+        fi
+    else
+        log_step "Repository checkout not found - using fallback cleanup"
+        delete_tinyfaas_fallback
+    fi
+
+    log_step "Removing persistent tinyFaaS state"
+    ssh_cmd "sudo rm -rf /var/lib/tinyfaas"
+    remove_remote_deploy_dir
+
+    echo ""
+    echo "=================================================="
+    echo "  tinyFaaS removed successfully from $HOST"
+    echo "=================================================="
+    echo "  Services stopped and uninstalled"
+    echo "  Deployment directory removed: $DEPLOY_DIR"
+    echo "=================================================="
+}
+
 # ---------------------------------------------------------------------------
 # Phase 0: Connectivity check
 # ---------------------------------------------------------------------------
@@ -187,6 +232,11 @@ fi
 
 REMOTE_USER=$(ssh_cmd "whoami")
 log_step "Remote user: $REMOTE_USER"
+
+if [[ "$DELETE" == "true" ]]; then
+    delete_tinyfaas
+    exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Phase 1: Install prerequisites
