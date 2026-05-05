@@ -111,35 +111,38 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarm() {
 	s.assertWorkflowResponse(body)
 
 	cg := integrationhelpers.GetFaasdCallGraph(t, s.baseURL, s.auth)
+
 	count := integrationhelpers.EdgeCount(cg, "", "linear3-a")
-	assert.GreaterOrEqual(t, count, 1)
 	countAB := integrationhelpers.EdgeCount(cg, "linear3-a", "linear3-b")
 	countBC := integrationhelpers.EdgeCount(cg, "linear3-b", "linear3-c")
-	assert.GreaterOrEqual(t, countAB, 1)
-	assert.GreaterOrEqual(t, countBC, 1)
+	statsA := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-a")
+	statsB := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-b")
+	statsC := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-c")
 
-	statsBBefore := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-b")
-	statsCBefore := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-c")
+	// check callgraph edges are present with expected counts
+	assert.Equal(t, count, 1, "expected callgraph edge external->linear3-a count = 1, got %d", count)
+	assert.Equal(t, countAB, 1, "expected callgraph edge linear3-a->linear3-b count = 1, got %d", countAB)
+	assert.Equal(t, countBC, 1, "expected callgraph edge linear3-b->linear3-c count = 1, got %d", countBC)
 
-	s.waitForFaasdFunctionsScaledDown([]string{"linear3-a", "linear3-b", "linear3-c"}, 90*time.Second)
-	body = integrationhelpers.InvokeFaasdJSONWithTimeout(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, 180*time.Second)
-	s.assertWorkflowResponse(body)
+	// check names are correct in stats response
+	assert.Equal(t, statsA.Name, "linear3-a", "expected linear3-a stats name to be linear3-a, got %s", statsA.Name)
+	assert.Equal(t, statsB.Name, "linear3-b", "expected linear3-b stats name to be linear3-b, got %s", statsB.Name)
+	assert.Equal(t, statsC.Name, "linear3-c", "expected linear3-c stats name to be linear3-c, got %s", statsC.Name)
 
-	cg = integrationhelpers.GetFaasdCallGraph(t, s.baseURL, s.auth)
-	updatedCount := integrationhelpers.EdgeCount(cg, "", "linear3-a")
-	updatedCountAB := integrationhelpers.EdgeCount(cg, "linear3-a", "linear3-b")
-	updatedCountBC := integrationhelpers.EdgeCount(cg, "linear3-b", "linear3-c")
-	assert.GreaterOrEqual(t, updatedCount, count+1)
-	assert.GreaterOrEqual(t, updatedCountAB, countAB+1)
-	assert.GreaterOrEqual(t, updatedCountBC, countBC+1)
+	// check total calls are 1 for each function
+	assert.Equal(t, statsA.TotalCalls, 1, "expected linear3-a total calls to be 1, got %d", statsA.TotalCalls)
+	assert.Equal(t, statsB.TotalCalls, 1, "expected linear3-b total calls to be 1, got %d", statsB.TotalCalls)
+	assert.Equal(t, statsC.TotalCalls, 1, "expected linear3-c total calls to be 1, got %d", statsC.TotalCalls)
 
-	statsBAfter := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-b")
-	statsCAfter := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-c")
+	// check cold starts are 1 for each function since they should all scale from 0
+	assert.Equal(t, statsA.TotalColdStarts, 1, "expected linear3-a total cold starts to be 1, got %d", statsA.TotalColdStarts)
+	assert.Equal(t, statsB.TotalColdStarts, 1, "expected linear3-b total cold starts to be 1, got %d", statsB.TotalColdStarts)
+	assert.Equal(t, statsC.TotalColdStarts, 1, "expected linear3-c total cold starts to be 1, got %d", statsC.TotalColdStarts)
 
-	assert.Equal(t, statsBBefore.TotalPrewarms, statsBAfter.TotalPrewarms)
-	assert.Equal(t, statsCBefore.TotalPrewarms, statsCAfter.TotalPrewarms)
-	assert.GreaterOrEqual(t, statsBAfter.TotalColdStarts, statsBBefore.TotalColdStarts+1)
-	assert.GreaterOrEqual(t, statsCAfter.TotalColdStarts, statsCBefore.TotalColdStarts+1)
+	// check prewarm counts are 0 with prewarm disabled
+	assert.Equal(t, statsA.TotalPrewarms, 0, "expected linear3-a prewarm count to be 0, got %d", statsA.TotalPrewarms)
+	assert.Equal(t, statsB.TotalPrewarms, 0, "expected linear3-b prewarm count to be 0, got %d", statsB.TotalPrewarms)
+	assert.Equal(t, statsC.TotalPrewarms, 0, "expected linear3-c prewarm count to be 0, got %d", statsC.TotalPrewarms)
 }
 
 func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphAndPrewarm() {
@@ -150,15 +153,16 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphAndPrewarm() {
 	s.assertWorkflowResponse(body)
 
 	cg := integrationhelpers.GetFaasdCallGraph(t, s.baseURL, s.auth)
+
 	count := integrationhelpers.EdgeCount(cg, "", "linear3-a")
-	assert.GreaterOrEqual(t, count, 1)
 	countAB := integrationhelpers.EdgeCount(cg, "linear3-a", "linear3-b")
 	countBC := integrationhelpers.EdgeCount(cg, "linear3-b", "linear3-c")
-	assert.GreaterOrEqual(t, countAB, 1)
-	assert.GreaterOrEqual(t, countBC, 1)
-
 	statsBBefore := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-b")
 	statsCBefore := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-c")
+
+	assert.Equal(t, count, 1, "expected callgraph edge external->linear3-a count = 1, got %d", count)
+	assert.Equal(t, countAB, 1, "expected callgraph edge linear3-a->linear3-b count = 1, got %d", countAB)
+	assert.Equal(t, countBC, 1, "expected callgraph edge linear3-b->linear3-c count = 1, got %d", countBC)
 
 	s.waitForFaasdFunctionsScaledDown([]string{"linear3-a", "linear3-b", "linear3-c"}, 90*time.Second)
 	body = integrationhelpers.InvokeFaasdJSONWithTimeout(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, 180*time.Second)
@@ -168,15 +172,15 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphAndPrewarm() {
 	updatedCount := integrationhelpers.EdgeCount(cg, "", "linear3-a")
 	updatedCountAB := integrationhelpers.EdgeCount(cg, "linear3-a", "linear3-b")
 	updatedCountBC := integrationhelpers.EdgeCount(cg, "linear3-b", "linear3-c")
-	assert.GreaterOrEqual(t, updatedCount, count+1)
-	assert.GreaterOrEqual(t, updatedCountAB, countAB+1)
-	assert.GreaterOrEqual(t, updatedCountBC, countBC+1)
-
 	statsBAfter := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-b")
 	statsCAfter := integrationhelpers.GetFaasdFunctionCallGraphStats(t, s.baseURL, s.auth, "linear3-c")
 
-	assert.GreaterOrEqual(t, statsBAfter.TotalPrewarms, statsBBefore.TotalPrewarms+1)
-	assert.GreaterOrEqual(t, statsCAfter.TotalPrewarms, statsCBefore.TotalPrewarms)
+	assert.Equal(t, updatedCount, count+1, "expected callgraph edge external->linear3-a count to be incremented by 1 after second invocation, got %d", updatedCount)
+	assert.Equal(t, updatedCountAB, countAB+1, "expected callgraph edge linear3-a->linear3-b count to be incremented by 1 after second invocation, got %d", updatedCountAB)
+	assert.Equal(t, updatedCountBC, countBC+1, "expected callgraph edge linear3-b->linear3-c count to be incremented by 1 after second invocation, got %d", updatedCountBC)
+
+	assert.GreaterOrEqual(t, statsBAfter.TotalPrewarms, statsBBefore.TotalPrewarms+1, "expected linear3-b total prewarms to be incremented by at least 1 after second invocation, got %d", statsBAfter.TotalPrewarms)
+	assert.GreaterOrEqual(t, statsCAfter.TotalPrewarms, statsCBefore.TotalPrewarms, "expected linear3-c total prewarms to be incremented by at least 1 after second invocation, got %d", statsCAfter.TotalPrewarms)
 }
 
 func (s *PlatformIntegrationSuite) assertCallgraphEmpty() {
