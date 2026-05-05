@@ -86,25 +86,6 @@ type Serializer interface {
 	FromJSON(data []byte) error
 }
 
-// PathAnalyzer defines the interface for analyzing call paths in DAG topologies
-type PathAnalyzer interface {
-	// GetCallPaths returns all unique call paths starting from external calls
-	// Properly handles DAG topologies with branches
-	GetCallPaths() []CallPath
-
-	// GetEntryPoints returns all functions that are called from external sources
-	GetEntryPoints() []string
-
-	// GetLeafFunctions returns all functions that don't call any other functions
-	GetLeafFunctions() []string
-
-	// GetDownstreamFunctions returns all functions reachable from the given function
-	GetDownstreamFunctions(functionName string) []string
-
-	// GetUpstreamFunctions returns all functions that can reach the given function
-	GetUpstreamFunctions(functionName string) []string
-}
-
 // Prewarmer defines the interface for prewarming prediction
 type Prewarmer interface {
 	// PrewarmEnabled returns whether the prewarmer is enabled
@@ -118,6 +99,5 @@ type Prewarmer interface {
 type FullTracker interface {
 	Tracker
 	Serializer
-	PathAnalyzer
 	Prewarmer
 }

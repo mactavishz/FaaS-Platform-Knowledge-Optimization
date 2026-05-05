@@ -222,18 +222,6 @@ type CallGraph struct {
 	RecordedSince time.Time `json:"recorded_since"`
 }
 
-// CallPath represents a sequence of function calls forming a workflow path
-type CallPath struct {
-	// Path is the ordered list of function names in the call path
-	Path []string `json:"path"`
-
-	// TotalExecutionTime is the sum of execution times for all functions in the path
-	TotalExecutionTime time.Duration `json:"total_execution_time_ns"`
-
-	// Count is how many times this exact path has been observed
-	Count int `json:"count"`
-}
-
 // PrewarmTarget represents a function that should be prewarmed
 type PrewarmTarget struct {
 	// FunctionName is the name of the function to prewarm
