@@ -301,8 +301,8 @@ fi
 _port() {
     grep -E "^${1}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]' || echo "$2"
 }
-GATEWAY_PORT=$(_port GATEWAY_PORT 80)
-MANAGER_PORT=$(_port MANAGER_PORT 8080)
+GATEWAY_PORT=$(_port GATEWAY_PORT 8080)
+MANAGER_PORT=$(_port MANAGER_PORT 8001)
 RPROXY_PORT=$(_port RPROXY_PORT 8000)
 
 REMOTE_HOST="${HOST##*@}"
