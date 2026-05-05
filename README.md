@@ -95,6 +95,24 @@ make build-faasd
 
 The faasd gateway will be available at `http://127.0.0.1:8080` by default.
 
+### Deploy faasd/tinyfaas to a Remote Host
+
+You can deploy faasd/tinyfaas to a remote Linux host over SSH with the helper script below:
+
+```bash
+# for faasd
+GITHUB_TOKEN=<github-pat> ./scripts/deploy-faasd.sh \
+  --host user@server \
+  --env-file .env
+
+# for tinyfaas
+GITHUB_TOKEN=<github-pat> ./scripts/deploy-tinyfaas.sh \
+  --host user@server \
+  --env-file .env
+```
+
+The script installs faasd/tinyfaas prerequisites, clones or updates this repository on the target host, uploads the provided env file, and runs the remote build/install flow.
+
 ### Start tinyFaaS
 
 ```bash
