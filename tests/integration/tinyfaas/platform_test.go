@@ -77,38 +77,38 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarm() {
 	s.assertWorkflowResponse(body)
 
 	cg := integrationhelpers.GetCallGraph(t)
-	count := integrationhelpers.EdgeCount(cg, "", "linear3-a")
-	assert.GreaterOrEqual(t, count, 1, "expected callgraph edge external->linear3-a count >= 1, got %d", count)
 
+	count := integrationhelpers.EdgeCount(cg, "", "linear3-a")
 	countAB := integrationhelpers.EdgeCount(cg, "linear3-a", "linear3-b")
 	countBC := integrationhelpers.EdgeCount(cg, "linear3-b", "linear3-c")
-	assert.GreaterOrEqual(t, countAB, 1, "expected callgraph edge linear3-a->linear3-b count >= 1, got %d", countAB)
-	assert.GreaterOrEqual(t, countBC, 1, "expected callgraph edge linear3-b->linear3-c count >= 1, got %d", countBC)
+	statsA := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-a")
+	statsB := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-b")
+	statsC := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-c")
 
-	statsBBefore := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-b")
-	statsCBefore := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-c")
+	// check callgraph edges are present with expected counts
+	assert.Equal(t, count, 1, "expected callgraph edge external->linear3-a count = 1, got %d", count)
+	assert.Equal(t, countAB, 1, "expected callgraph edge linear3-a->linear3-b count = 1, got %d", countAB)
+	assert.Equal(t, countBC, 1, "expected callgraph edge linear3-b->linear3-c count = 1, got %d", countBC)
 
-	integrationhelpers.WaitForFunctionsScaledDown(t, []string{"linear3-a", "linear3-b", "linear3-c"}, 90*time.Second)
+	// check names are correct in stats response
+	assert.Equal(t, statsA.Name, "linear3-a", "expected linear3-a stats name to be linear3-a, got %s", statsA.Name)
+	assert.Equal(t, statsB.Name, "linear3-b", "expected linear3-b stats name to be linear3-b, got %s", statsB.Name)
+	assert.Equal(t, statsC.Name, "linear3-c", "expected linear3-c stats name to be linear3-c, got %s", statsC.Name)
 
-	body = integrationhelpers.InvokeFunction(t, "linear3-a", "integration-test", 180*time.Second)
-	s.assertWorkflowResponse(body)
+	// check total calls are 1 for each function
+	assert.Equal(t, statsA.TotalCalls, 1, "expected linear3-a total calls to be 1, got %d", statsA.TotalCalls)
+	assert.Equal(t, statsB.TotalCalls, 1, "expected linear3-b total calls to be 1, got %d", statsB.TotalCalls)
+	assert.Equal(t, statsC.TotalCalls, 1, "expected linear3-c total calls to be 1, got %d", statsC.TotalCalls)
 
-	cg = integrationhelpers.GetCallGraph(t)
-	updatedCount := integrationhelpers.EdgeCount(cg, "", "linear3-a")
-	assert.GreaterOrEqual(t, updatedCount, count+1, "expected callgraph edge external->linear3-a count to increase after re-invocation, before=%d after=%d", count, updatedCount)
+	// check cold starts are 1 for each function since they should all scale from 0
+	assert.Equal(t, statsA.TotalColdStarts, 1, "expected linear3-a total cold starts to be 1, got %d", statsA.TotalColdStarts)
+	assert.Equal(t, statsB.TotalColdStarts, 1, "expected linear3-b total cold starts to be 1, got %d", statsB.TotalColdStarts)
+	assert.Equal(t, statsC.TotalColdStarts, 1, "expected linear3-c total cold starts to be 1, got %d", statsC.TotalColdStarts)
 
-	updatedCountAB := integrationhelpers.EdgeCount(cg, "linear3-a", "linear3-b")
-	updatedCountBC := integrationhelpers.EdgeCount(cg, "linear3-b", "linear3-c")
-	assert.GreaterOrEqual(t, updatedCountAB, countAB+1, "expected callgraph edge linear3-a->linear3-b count to increase after re-invocation, before=%d after=%d", countAB, updatedCountAB)
-	assert.GreaterOrEqual(t, updatedCountBC, countBC+1, "expected callgraph edge linear3-b->linear3-c count to increase after re-invocation, before=%d after=%d", countBC, updatedCountBC)
-
-	statsBAfter := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-b")
-	statsCAfter := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-c")
-
-	assert.Equal(t, statsBBefore.TotalPrewarms, statsBAfter.TotalPrewarms, "expected linear3-b prewarm count to stay unchanged when prewarming disabled, before=%d after=%d", statsBBefore.TotalPrewarms, statsBAfter.TotalPrewarms)
-	assert.Equal(t, statsCBefore.TotalPrewarms, statsCAfter.TotalPrewarms, "expected linear3-c prewarm count to stay unchanged when prewarming disabled, before=%d after=%d", statsCBefore.TotalPrewarms, statsCAfter.TotalPrewarms)
-	assert.GreaterOrEqual(t, statsBAfter.TotalColdStarts, statsBBefore.TotalColdStarts+1, "expected linear3-b cold starts to increase without prewarming, before=%d after=%d", statsBBefore.TotalColdStarts, statsBAfter.TotalColdStarts)
-	assert.GreaterOrEqual(t, statsCAfter.TotalColdStarts, statsCBefore.TotalColdStarts+1, "expected linear3-c cold starts to increase without prewarming, before=%d after=%d", statsCBefore.TotalColdStarts, statsCAfter.TotalColdStarts)
+	// check prewarm counts are 0 with prewarm disabled
+	assert.Equal(t, statsA.TotalPrewarms, 0, "expected linear3-a prewarm count to be 0, got %d", statsA.TotalPrewarms)
+	assert.Equal(t, statsB.TotalPrewarms, 0, "expected linear3-b prewarm count to be 0, got %d", statsB.TotalPrewarms)
+	assert.Equal(t, statsC.TotalPrewarms, 0, "expected linear3-c prewarm count to be 0, got %d", statsC.TotalPrewarms)
 }
 
 func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphAndPrewarm() {
@@ -125,15 +125,14 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphAndPrewarm() {
 
 	cg := integrationhelpers.GetCallGraph(t)
 	count := integrationhelpers.EdgeCount(cg, "", "linear3-a")
-	assert.GreaterOrEqual(t, count, 1, "expected callgraph edge external->linear3-a count >= 1, got %d", count)
-
 	countAB := integrationhelpers.EdgeCount(cg, "linear3-a", "linear3-b")
 	countBC := integrationhelpers.EdgeCount(cg, "linear3-b", "linear3-c")
-	assert.GreaterOrEqual(t, countAB, 1, "expected callgraph edge linear3-a->linear3-b count >= 1, got %d", countAB)
-	assert.GreaterOrEqual(t, countBC, 1, "expected callgraph edge linear3-b->linear3-c count >= 1, got %d", countBC)
-
 	statsBBefore := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-b")
 	statsCBefore := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-c")
+
+	assert.Equal(t, count, 1, "expected callgraph edge external->linear3-a count = 1, got %d", count)
+	assert.Equal(t, countAB, 1, "expected callgraph edge linear3-a->linear3-b count = 1, got %d", countAB)
+	assert.Equal(t, countBC, 1, "expected callgraph edge linear3-b->linear3-c count = 1, got %d", countBC)
 
 	integrationhelpers.WaitForFunctionsScaledDown(t, []string{"linear3-a", "linear3-b", "linear3-c"}, 90*time.Second)
 
@@ -142,15 +141,14 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphAndPrewarm() {
 
 	cg = integrationhelpers.GetCallGraph(t)
 	updatedCount := integrationhelpers.EdgeCount(cg, "", "linear3-a")
-	assert.GreaterOrEqual(t, updatedCount, count+1, "expected callgraph edge external->linear3-a count to increase after re-invocation, before=%d after=%d", count, updatedCount)
-
 	updatedCountAB := integrationhelpers.EdgeCount(cg, "linear3-a", "linear3-b")
 	updatedCountBC := integrationhelpers.EdgeCount(cg, "linear3-b", "linear3-c")
-	assert.GreaterOrEqual(t, updatedCountAB, countAB+1, "expected callgraph edge linear3-a->linear3-b count to increase after re-invocation, before=%d after=%d", countAB, updatedCountAB)
-	assert.GreaterOrEqual(t, updatedCountBC, countBC+1, "expected callgraph edge linear3-b->linear3-c count to increase after re-invocation, before=%d after=%d", countBC, updatedCountBC)
-
 	statsBAfter := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-b")
 	statsCAfter := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-c")
+
+	assert.Equal(t, updatedCount, count+1, "expected callgraph edge external->linear3-a count to increase after re-invocation, before=%d after=%d", count, updatedCount)
+	assert.Equal(t, updatedCountAB, countAB+1, "expected callgraph edge linear3-a->linear3-b count to increase after re-invocation, before=%d after=%d", countAB, updatedCountAB)
+	assert.Equal(t, updatedCountBC, countBC+1, "expected callgraph edge linear3-b->linear3-c count to increase after re-invocation, before=%d after=%d", countBC, updatedCountBC)
 
 	assert.GreaterOrEqual(t, statsBAfter.TotalPrewarms, statsBBefore.TotalPrewarms+1, "expected linear3-b prewarm count to increase with prewarming enabled, before=%d after=%d", statsBBefore.TotalPrewarms, statsBAfter.TotalPrewarms)
 	assert.GreaterOrEqual(t, statsCAfter.TotalPrewarms, statsCBefore.TotalPrewarms, "expected linear3-c prewarm count to stay the same or increase with prewarming enabled, before=%d after=%d", statsCBefore.TotalPrewarms, statsCAfter.TotalPrewarms)
