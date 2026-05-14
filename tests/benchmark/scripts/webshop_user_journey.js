@@ -7,8 +7,9 @@ import {
   envInt,
   envList,
   envString,
-  normalizeBaseUrl,
   parseJsonSafe,
+  resolveBenchmarkConfig,
+  withAuthHeaders,
   workflowScaledDown,
 } from './lib/utils.js';
 
@@ -23,10 +24,11 @@ const listFailures = new Counter('list_failures');
 const stateValidationFailures = new Counter('state_validation_failures');
 const scaleDownTimeouts = new Counter('scale_down_timeouts');
 
-const gatewayUrl = normalizeBaseUrl(envString('GATEWAY_URL', 'http://127.0.0.1:8888', false));
+const benchmarkConfig = resolveBenchmarkConfig();
+const gatewayUrl = benchmarkConfig.gatewayUrl;
 const entryFunction = envString('ENTRY_FUNCTION', 'webshop-frontend', false);
-const invokePathTemplate = envString('INVOKE_PATH', '/fn/{name}', false);
-const listPath = envString('LIST_PATH', '/system/list', false);
+const invokePathTemplate = benchmarkConfig.invokePathTemplate;
+const listPath = benchmarkConfig.listPath;
 
 const workflowFunctions = parseWorkflowFunctions();
 const strictFunctions = envBool('STRICT_FUNCTIONS', true);
@@ -190,9 +192,7 @@ function parseJsonOrDefault(raw, defaultValue, envKey) {
 function invokeFrontend(operation, payload, tags) {
   const requestBody = JSON.stringify({ operation, ...payload });
   const response = http.post(frontendUrl, requestBody, {
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: withAuthHeaders({ 'Content-Type': 'application/json' }, benchmarkConfig.authHeaders),
     timeout: `${invokeTimeoutMs}ms`,
     tags,
   });
@@ -227,6 +227,7 @@ function waitForScaleDown(tags) {
     }
 
     const listResponse = http.get(listUrl, {
+      headers: benchmarkConfig.authHeaders,
       timeout: `${invokeTimeoutMs}ms`,
       tags,
     });
@@ -240,7 +241,9 @@ function waitForScaleDown(tags) {
       const payload = parseJsonSafe(listResponse.body);
       if (!payload) {
         listFailures.add(1, tags);
-      } else if (workflowScaledDown(payload, workflowFunctions, strictFunctions)) {
+      } else if (
+        workflowScaledDown(payload, workflowFunctions, strictFunctions, benchmarkConfig.platform)
+      ) {
         scaleDownWaitMs.add(Date.now() - waitStart, tags);
         return;
       }

@@ -16,23 +16,24 @@ pnpm -C tests/benchmark install
 
 ## Workflow cold-start latency benchmark
 
-This benchmark sends one request to a workflow entry function, records the client-observed latency, then waits for all workflow functions to scale down (`/system/list` reports `running=false`) before sending the next request. This intentionally triggers cold starts.
+This benchmark sends one request to a workflow entry function, records the client-observed latency, then waits for all workflow functions to scale down before sending the next request. For tinyFaaS this uses `/system/list` with `running=false`; for faasd this uses `/system/functions` with `availableReplicas=0`.
 
 This script uses a `shared-iterations` scenario with configurable `MAX_DURATION` and `GRACEFUL_STOP`, so longer cold-start runs do not get cut off by the default k6 time limit.
 
 ### Environment variables
 
-- `GATEWAY_URL` (default: `http://127.0.0.1:8888`)
+- `PLATFORM` (default: `tinyfaas`; supported: `tinyfaas`, `faasd`)
+- `GATEWAY_URL` (default: `http://127.0.0.1:8080`)
 - `ENTRY_FUNCTION` (required)
 - `WORKFLOW_FUNCTIONS` (required, comma-separated list)
 
-- `INVOKE_PATH` (default: `/fn/{name}`)
-- `LIST_PATH` (default: `/system/list`)
+- `INVOKE_PATH` (default: `/fn/{name}` for tinyFaaS, `/function/{name}` for faasd)
+- `LIST_PATH` (default: `/system/list` for tinyFaaS, `/system/functions` for faasd)
 
-For OpenFaaS/faasd, set:
+For authenticated faasd gateways, set:
 
-- `GATEWAY_URL=http://127.0.0.1:8080`
-- `INVOKE_PATH=/function/{name}`
+- `BASIC_AUTH_USER`
+- `BASIC_AUTH_PASSWORD`
 
 - `ITERATIONS` (default: `10`)
 - `VUS` (default: `1`)
@@ -51,13 +52,16 @@ For OpenFaaS/faasd, set:
 ### Example (IoT workflow)
 
 ```bash
+PLATFORM=tinyfaas \
 ENTRY_FUNCTION=iot-i \
 WORKFLOW_FUNCTIONS=iot-i,iot-cw,iot-se,iot-ct,iot-cs,iot-ca,iot-csl,iot-csa,iot-dj,iot-as \
-GATEWAY_URL=http://127.0.0.1:8888 \
+GATEWAY_URL=http://127.0.0.1:8080 \
 ITERATIONS=10 \
 MAX_DURATION=60m \
 k6 run tests/benchmark/scripts/workflow_cold_latency.js
 ```
+
+For the faasd IoT workflow, use `PLATFORM=faasd` and include `BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD` when the gateway has basic auth enabled.
 
 Note: the IoT workflow includes async fan-out. This benchmark measures the entry invocation latency, not the full end-to-end completion across async branches.
 
@@ -83,7 +87,8 @@ The benchmark therefore measures direct end-to-end step latency for those operat
 
 Required/important:
 
-- `GATEWAY_URL` (default: `http://127.0.0.1:8888`)
+- `PLATFORM` (default: `tinyfaas`; supported: `tinyfaas`, `faasd`)
+- `GATEWAY_URL` (default: `http://127.0.0.1:8080`)
 - `ENTRY_FUNCTION` (default: `webshop-frontend`)
 - `WORKFLOW_FUNCTIONS` (optional; defaults to the exercised webshop function set)
 - `RUN_ID` (default: `webshop-bench`)
@@ -115,14 +120,14 @@ Journey payload tuning:
 
 Compatibility/path options:
 
-- `INVOKE_PATH` (default: `/fn/{name}`)
-- `LIST_PATH` (default: `/system/list`)
+- `INVOKE_PATH` (default: `/fn/{name}` for tinyFaaS, `/function/{name}` for faasd)
+- `LIST_PATH` (default: `/system/list` for tinyFaaS, `/system/functions` for faasd)
 - `EXPECTED_STATUS` (default: `200`)
 
-For OpenFaaS/faasd, set:
+For authenticated faasd gateways, set:
 
-- `GATEWAY_URL=http://127.0.0.1:8080`
-- `INVOKE_PATH=/function/{name}`
+- `BASIC_AUTH_USER`
+- `BASIC_AUTH_PASSWORD`
 
 ### Metrics emitted
 
@@ -148,8 +153,9 @@ For OpenFaaS/faasd, set:
 ### Example: training pass (callgraph disabled)
 
 ```bash
+PLATFORM=tinyfaas \
 RUN_ID=webshop-off-train \
-GATEWAY_URL=http://127.0.0.1:8888 \
+GATEWAY_URL=http://127.0.0.1:8080 \
 ITERATIONS=3 \
 VUS=1 \
 IDLE_WAIT_MS=35000 \
@@ -160,8 +166,9 @@ k6 run tests/benchmark/scripts/webshop_user_journey.js
 ### Example: measured pass (callgraph disabled)
 
 ```bash
+PLATFORM=tinyfaas \
 RUN_ID=webshop-off-measure \
-GATEWAY_URL=http://127.0.0.1:8888 \
+GATEWAY_URL=http://127.0.0.1:8080 \
 ITERATIONS=10 \
 VUS=1 \
 IDLE_WAIT_MS=35000 \
@@ -172,8 +179,9 @@ k6 run tests/benchmark/scripts/webshop_user_journey.js
 ### Example: measured pass (callgraph enabled)
 
 ```bash
+PLATFORM=tinyfaas \
 RUN_ID=webshop-on-measure \
-GATEWAY_URL=http://127.0.0.1:8888 \
+GATEWAY_URL=http://127.0.0.1:8080 \
 ITERATIONS=10 \
 VUS=1 \
 IDLE_WAIT_MS=35000 \
