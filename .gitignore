@@ -49,3 +49,10 @@ node_modules/
 
 # faas-cli templates
 template
+
+# terraform
+.terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl
