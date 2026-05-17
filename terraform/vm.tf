@@ -27,8 +27,7 @@ locals {
 
 resource "random_password" "faasd_auth_password" {
   count = var.faas_platform == "faasd" && var.faasd_auth_password == null ? 1 : 0
-
-  length  = 63
+  length  = 32
   special = true
 }
 
