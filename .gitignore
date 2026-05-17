@@ -55,4 +55,5 @@ template
 *.tfstate
 *.tfstate.*
 *.tfvars
-.terraform.lock.hcl
+terraform/gcp
+terraform/gcp.pub
