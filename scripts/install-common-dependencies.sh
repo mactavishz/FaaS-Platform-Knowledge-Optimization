@@ -2,7 +2,8 @@
 # This script should be run as root
 
 # environment variables
-export GO_VERSION=1.25.4
+export GO_VERSION=1.26.3
+export NERDCTL_VERSION=2.2.2
 ARCH=$(uname -m)
 if [ "$ARCH" = "x86_64" ]; then
   ARCH="amd64"
@@ -34,7 +35,6 @@ go version
 # Install go tools
 echo "Installing golang tools ..."
 GOBIN=/usr/local/bin go install github.com/jesseduffield/lazydocker@latest
-NERDCTL_VERSION=2.2.2
 curl -sSL https://github.com/containerd/nerdctl/releases/download/v$NERDCTL_VERSION/nerdctl-$NERDCTL_VERSION-linux-$ARCH.tar.gz \
   -o /tmp/nerdctl.tar.gz \
   && tar -C /usr/local/bin -xzf /tmp/nerdctl.tar.gz

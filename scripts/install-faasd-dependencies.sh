@@ -2,8 +2,8 @@
 # This script should be run as root
 
 # environment variables
-export CONTAINERD_VERSION=2.2.0
-export CNI_PLUGIN_VERSION=1.8.0
+export CONTAINERD_VERSION=2.3.0
+export CNI_PLUGIN_VERSION=1.9.1
 
 ARCH=$(uname -m)
 if [ "$ARCH" = "x86_64" ]; then
