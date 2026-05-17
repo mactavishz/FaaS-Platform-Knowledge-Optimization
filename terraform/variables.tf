@@ -10,13 +10,7 @@ variable "zone" {
 
 variable "ssh_pubkey" {
   description = "Absolute Path to the ssh public key for the vm"
-  default     = "~/.ssh/id_rsa.pub"
-}
-
-variable "ssh_private_key" {
-  description = "Absolute path to the private key matching ssh_pubkey. Used by Terraform to read faasd auth secrets after provisioning."
-  default     = "~/.ssh/id_rsa"
-  sensitive   = true
+  default     = "~/.ssh/id_ed25519.pub"
 }
 
 variable "ssh_user" {

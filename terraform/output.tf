@@ -19,7 +19,7 @@ output "gateway_url" {
 }
 
 output "ssh_command" {
-  value = "ssh -i ${pathexpand(nonsensitive(var.ssh_private_key))} ${var.ssh_user}@${google_compute_instance.bench_vm.network_interface.0.access_config.0.nat_ip}"
+  value = "ssh -i <private-key-path> ${var.ssh_user}@${google_compute_instance.bench_vm.network_interface.0.access_config.0.nat_ip}"
 }
 
 output "faasd_auth_user" {
