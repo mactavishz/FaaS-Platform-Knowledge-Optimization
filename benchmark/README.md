@@ -11,7 +11,7 @@ This folder contains basic k6 scripts for benchmarking function workflows on tin
 ## Install
 
 ```bash
-pnpm -C tests/benchmark install
+pnpm -C benchmark install
 ```
 
 ## Workflow cold-start latency benchmark
@@ -81,7 +81,7 @@ The benchmark therefore measures direct end-to-end step latency for those operat
 
 ### Script
 
-- `tests/benchmark/scripts/webshop_user_journey.js`
+- `benchmark/scripts/webshop_user_journey.js`
 
 ### Environment variables
 
@@ -160,7 +160,7 @@ ITERATIONS=3 \
 VUS=1 \
 IDLE_WAIT_MS=35000 \
 MAX_DURATION=60m \
-k6 run tests/benchmark/scripts/webshop_user_journey.js
+k6 run benchmark/scripts/webshop_user_journey.js
 ```
 
 ### Example: measured pass (callgraph disabled)
@@ -173,7 +173,7 @@ ITERATIONS=10 \
 VUS=1 \
 IDLE_WAIT_MS=35000 \
 MAX_DURATION=60m \
-k6 run tests/benchmark/scripts/webshop_user_journey.js
+k6 run benchmark/scripts/webshop_user_journey.js
 ```
 
 ### Example: measured pass (callgraph enabled)
@@ -186,7 +186,7 @@ ITERATIONS=10 \
 VUS=1 \
 IDLE_WAIT_MS=35000 \
 MAX_DURATION=60m \
-k6 run tests/benchmark/scripts/webshop_user_journey.js
+k6 run benchmark/scripts/webshop_user_journey.js
 ```
 
 Note: callgraph on/off is controlled by tinyFaaS runtime env (`CALLGRAPH_ENABLED`), not by the k6 script.
