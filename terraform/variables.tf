@@ -8,6 +8,12 @@ variable "zone" {
   default     = "europe-west3-a"
 }
 
+variable "network" {
+  description = "The name of the VPC Network where all resources should be created."
+  type        = string
+  default     = "default"
+}
+
 variable "ssh_pubkey" {
   description = "Absolute Path to the ssh public key for the vm"
   default     = "~/.ssh/id_ed25519.pub"

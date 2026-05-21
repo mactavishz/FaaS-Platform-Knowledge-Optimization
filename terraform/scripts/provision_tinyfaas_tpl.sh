@@ -173,7 +173,14 @@ show_failure_logs() {
   journalctl -u tf-manager -n 100 --no-pager || true
 }
 
+install_ops_agent() {
+  echo "==> Installing Google Cloud Ops Agent..."
+  curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
+  sudo bash add-google-cloud-ops-agent-repo.sh --also-install
+}
+
 main() {
+  install_ops_agent
   echo "==> Starting tinyFaaS benchmark VM provisioning..."
   ensure_deploy_user_environment
   install_common_dependencies

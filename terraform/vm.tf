@@ -1,6 +1,9 @@
+data "google_client_config" "current" {
+}
+
 data "google_compute_image" "ubuntu" {
   project = "ubuntu-os-cloud"
-  family  = "ubuntu-2604-lts-amd64"
+  family  = "ubuntu-2404-lts-amd64"
 }
 
 locals {
@@ -32,11 +35,27 @@ resource "random_password" "faasd_auth_password" {
 }
 
 resource "google_service_account" "bench_sa" {
-  account_id   = "vm-service-account"
+  project      = data.google_client_config.current.project
+  account_id   = "bench-vm-sa"
   display_name = "Benchmark SA for VM Instance"
 }
 
+# Grant necessary IAM roles to the service account for logging and monitoring (Ops Agent)
+resource "google_project_iam_member" "monitoring" {
+  project  = data.google_client_config.current.project
+  for_each = toset(["roles/logging.logWriter", "roles/monitoring.metricWriter"])
+  role     = each.value
+  member   = format("serviceAccount:%s", google_service_account.bench_sa.email)
+}
+
+resource "google_compute_address" "ip_address" {
+  project = data.google_client_config.current.project
+  name    = "bench-vm-ip"
+  region  = var.region
+}
+
 resource "google_compute_instance" "bench_vm" {
+  project = data.google_client_config.current.project
   name = var.faas_platform == "faasd" ? "faasd-bench-vm" : "tinyfaas-bench-vm"
   # n2-standard-16
   machine_type = var.machine_type
@@ -52,8 +71,9 @@ resource "google_compute_instance" "bench_vm" {
 
   network_interface {
     # A default network is created for all GCP projects
-    network = google_compute_network.vpc_network.id
+    network = var.network
     access_config {
+      nat_ip = google_compute_address.ip_address.address
     }
   }
 
@@ -70,15 +90,9 @@ resource "google_compute_instance" "bench_vm" {
   }
 }
 
-resource "google_compute_network" "vpc_network" {
-  name                    = "faas-platform-benchmark-network"
-  auto_create_subnetworks = true
-}
-
 resource "google_compute_firewall" "ssh" {
   name    = "ssh-access"
-  network = google_compute_network.vpc_network.name
-
+  network = var.network
 
   allow {
     protocol = "tcp"
@@ -90,8 +104,9 @@ resource "google_compute_firewall" "ssh" {
 }
 
 resource "google_compute_firewall" "http" {
+  project = data.google_client_config.current.project
   name    = "http-access"
-  network = google_compute_network.vpc_network.name
+  network = var.network
 
   allow {
     protocol = "tcp"
@@ -104,7 +119,7 @@ resource "google_compute_firewall" "http" {
 
 resource "terracurl_request" "gateway_health_check" {
   name   = "gateway-health-check"
-  url    = "http://${google_compute_instance.bench_vm.network_interface.0.access_config.0.nat_ip}:${var.gateway_port}/${local.gateway_health_endpoint}"
+  url    = "http://${google_compute_address.ip_address.address}:${var.gateway_port}/${local.gateway_health_endpoint}"
   method = "GET"
 
   response_codes = var.faas_platform == "faasd" ? [200, 401, 403] : [200]

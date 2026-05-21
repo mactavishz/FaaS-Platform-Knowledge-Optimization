@@ -1,5 +1,5 @@
 output "public_ip" {
-  value = google_compute_instance.bench_vm.network_interface.0.access_config.0.nat_ip
+  value = google_compute_address.ip_address.address
 }
 
 output "deployed_faas_platform" {
@@ -15,11 +15,11 @@ output "zone" {
 }
 
 output "gateway_url" {
-  value = "http://${google_compute_instance.bench_vm.network_interface.0.access_config.0.nat_ip}:${var.gateway_port}"
+  value = "http://${google_compute_address.ip_address.address}:${var.gateway_port}"
 }
 
 output "ssh_command" {
-  value = "ssh -i <private-key-path> ${var.ssh_user}@${google_compute_instance.bench_vm.network_interface.0.access_config.0.nat_ip}"
+  value = "ssh -i <private-key-path> ${var.ssh_user}@${google_compute_address.ip_address.address}"
 }
 
 output "faasd_auth_user" {
