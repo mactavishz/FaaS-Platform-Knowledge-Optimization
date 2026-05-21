@@ -28,16 +28,23 @@ locals {
   }
 }
 
+# The random_id resource is used to generate a unique suffix for the VM instance name and service account to avoid naming conflicts on repeated runs.
+resource "random_string" "vm_id" {
+  length  = 6
+  special = false
+  upper   = false
+}
+
 resource "random_password" "faasd_auth_password" {
-  count = var.faas_platform == "faasd" && var.faasd_auth_password == null ? 1 : 0
+  count   = var.faas_platform == "faasd" && var.faasd_auth_password == null ? 1 : 0
   length  = 32
-  special = true
+  special = false
 }
 
 resource "google_service_account" "bench_sa" {
   project      = data.google_client_config.current.project
-  account_id   = "bench-vm-sa"
-  display_name = "Benchmark SA for VM Instance"
+  account_id   = "faas-bench-vm-sa-${random_string.vm_id.result}"
+  display_name = "Service Account for FaaS Benchmark VM Instance"
 }
 
 # Grant necessary IAM roles to the service account for logging and monitoring (Ops Agent)
@@ -50,17 +57,17 @@ resource "google_project_iam_member" "monitoring" {
 
 resource "google_compute_address" "ip_address" {
   project = data.google_client_config.current.project
-  name    = "bench-vm-ip"
+  name    = "faas-bench-vm-ip-${random_string.vm_id.result}"
   region  = var.region
 }
 
 resource "google_compute_instance" "bench_vm" {
   project = data.google_client_config.current.project
-  name = var.faas_platform == "faasd" ? "faasd-bench-vm" : "tinyfaas-bench-vm"
+  name    = "faas-bench-vm-${random_string.vm_id.result}"
   # n2-standard-16
   machine_type = var.machine_type
   zone         = var.zone
-  tags         = ["ssh", "http"]
+  tags         = ["ssh", "http", "benchmark"]
 
   boot_disk {
     initialize_params {
@@ -91,7 +98,7 @@ resource "google_compute_instance" "bench_vm" {
 }
 
 resource "google_compute_firewall" "ssh" {
-  name    = "ssh-access"
+  name    = "${google_compute_instance.bench_vm.name}-ssh-access"
   network = var.network
 
   allow {
@@ -105,7 +112,7 @@ resource "google_compute_firewall" "ssh" {
 
 resource "google_compute_firewall" "http" {
   project = data.google_client_config.current.project
-  name    = "http-access"
+  name    = "${google_compute_instance.bench_vm.name}-http-access"
   network = var.network
 
   allow {
