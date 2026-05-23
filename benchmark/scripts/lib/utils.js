@@ -13,6 +13,50 @@ const platformDefaults = {
   },
 };
 
+const workflowPresets = {
+  iot: {
+    entryFunction: 'iot-i',
+    functions: [
+      'iot-i',
+      'iot-as',
+      'iot-ca',
+      'iot-cs',
+      'iot-csa',
+      'iot-csl',
+      'iot-ct',
+      'iot-cw',
+      'iot-dj',
+      'iot-se',
+    ],
+  },
+  tree: {
+    entryFunction: 'tree-a',
+    functions: ['tree-a', 'tree-b', 'tree-c', 'tree-d', 'tree-e', 'tree-f', 'tree-g'],
+  },
+  webshop: {
+    entryFunction: 'webshop-frontend',
+    functions: [
+      'webshop-frontend',
+      'webshop-checkout',
+      'webshop-addcartitem',
+      'webshop-emptycart',
+      'webshop-getcart',
+      'webshop-cartstorage',
+      'webshop-listproducts',
+      'webshop-getproduct',
+      'webshop-searchproducts',
+      'webshop-listrecommendations',
+      'webshop-currency',
+      'webshop-supportedcurrencies',
+      'webshop-getads',
+      'webshop-shipmentquote',
+      'webshop-shiporder',
+      'webshop-payment',
+      'webshop-email',
+    ],
+  },
+};
+
 export function envString(key, defaultValue, required) {
   const value = __ENV[key];
   if (value === undefined || value === '') {
@@ -42,6 +86,20 @@ export function envBool(key, defaultValue) {
     return defaultValue;
   }
   return raw.toLowerCase() === 'true' || raw === '1' || raw.toLowerCase() === 'yes';
+}
+
+export function resolveWorkflowPreset(defaultWorkflow = '') {
+  const workflowName = envString('WORKFLOW', defaultWorkflow, defaultWorkflow === '').toLowerCase();
+  const preset = workflowPresets[workflowName];
+  if (!preset) {
+    throw new Error(`Invalid WORKFLOW: ${workflowName}. Expected iot, tree, or webshop`);
+  }
+
+  return {
+    name: workflowName,
+    entryFunction: preset.entryFunction,
+    functions: [...preset.functions],
+  };
 }
 
 export function envList(key, required) {

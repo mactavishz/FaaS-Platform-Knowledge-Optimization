@@ -9,15 +9,15 @@ import {
   envString,
   parseJsonSafe,
   resolveBenchmarkConfig,
+  resolveWorkflowPreset,
   withAuthHeaders,
   workflowScaledDown,
 } from './lib/utils.js';
 
-const browseMs = new Trend('browse_ms');
-const addcartMs = new Trend('addcart_ms');
-const checkoutMs = new Trend('checkout_ms');
-const journeyMs = new Trend('journey_ms');
-const scaleDownWaitMs = new Trend('scale_down_wait_ms');
+const browseMs = new Trend('browse_latency_ms');
+const addcartMs = new Trend('addcart_latency_ms');
+const checkoutMs = new Trend('checkout_latency_ms');
+const journeyMs = new Trend('user_journey_latency_ms');
 
 const invokeFailures = new Counter('invoke_failures');
 const listFailures = new Counter('list_failures');
@@ -25,12 +25,17 @@ const stateValidationFailures = new Counter('state_validation_failures');
 const scaleDownTimeouts = new Counter('scale_down_timeouts');
 
 const benchmarkConfig = resolveBenchmarkConfig();
+const workflow = resolveWorkflowPreset('webshop');
+if (workflow.name !== 'webshop') {
+  throw new Error('webshop_user_journey.js only supports WORKFLOW=webshop');
+}
+
 const gatewayUrl = benchmarkConfig.gatewayUrl;
-const entryFunction = envString('ENTRY_FUNCTION', 'webshop-frontend', false);
+const entryFunction = workflow.entryFunction;
 const invokePathTemplate = benchmarkConfig.invokePathTemplate;
 const listPath = benchmarkConfig.listPath;
 
-const workflowFunctions = parseWorkflowFunctions();
+const workflowFunctions = workflow.functions;
 const strictFunctions = envBool('STRICT_FUNCTIONS', true);
 
 const expectedStatus = envInt('EXPECTED_STATUS', 200);
@@ -78,11 +83,9 @@ export default function () {
   const userId = `${runId}-vu${__VU}-iter${__ITER}`;
   const baseTags = {
     entry: entryFunction,
-    workflow: workflowFunctions.join(','),
+    workflow: workflow.name,
     label: runLabel,
   };
-
-  cleanupCart(userId, baseTags);
 
   waitForScaleDown({ ...baseTags, phase: 'before_browse' });
 
@@ -134,29 +137,6 @@ export default function () {
   validateCheckoutPayload(checkoutResult.body, userId, baseTags);
 
   journeyMs.add(Date.now() - journeyStart, { ...baseTags, step: 'journey' });
-}
-
-function parseWorkflowFunctions() {
-  const configured = envList('WORKFLOW_FUNCTIONS', false);
-  if (configured.length > 0) {
-    return configured;
-  }
-  return [
-    'webshop-frontend',
-    'webshop-checkout',
-    'webshop-addcartitem',
-    'webshop-emptycart',
-    'webshop-getcart',
-    'webshop-cartstorage',
-    'webshop-listproducts',
-    'webshop-listrecommendations',
-    'webshop-currency',
-    'webshop-supportedcurrencies',
-    'webshop-getads',
-    'webshop-shipmentquote',
-    'webshop-shiporder',
-    'webshop-email',
-  ];
 }
 
 function parseProductPlan() {
@@ -244,8 +224,7 @@ function waitForScaleDown(tags) {
       } else if (
         workflowScaledDown(payload, workflowFunctions, strictFunctions, benchmarkConfig.platform)
       ) {
-        scaleDownWaitMs.add(Date.now() - waitStart, tags);
-        return;
+        break;
       }
     }
 
@@ -258,53 +237,6 @@ function idleAndScaleDown(phase, baseTags) {
   waitForScaleDown({ ...baseTags, phase });
 }
 
-function cleanupCart(userId, baseTags) {
-  invokeFrontend(
-    'emptycart',
-    {
-      userId,
-    },
-    { ...baseTags, step: 'cleanup_emptycart' },
-  );
-  waitForCartEmpty(userId, baseTags, 'cleanup_verify');
-}
-
-function waitForCartEmpty(userId, baseTags, step) {
-  const timeoutLabel = step || 'cart_empty';
-  const cleanupTimeoutMs = envInt('CLEANUP_TIMEOUT_MS', 60000);
-  const stateStart = Date.now();
-
-  while (true) {
-    const cart = loadCart(userId, { ...baseTags, step: `${timeoutLabel}_poll` });
-    if (cart && cart.length === 0) {
-      return;
-    }
-
-    if (Date.now() - stateStart > cleanupTimeoutMs) {
-      stateValidationFailures.add(1, { ...baseTags, step: timeoutLabel });
-      throw new Error(`Timeout waiting for empty cart (${timeoutLabel}) for user ${userId}`);
-    }
-
-    sleep(pollIntervalMs / 1000);
-  }
-}
-
-function loadCart(userId, tags) {
-  const result = invokeFrontend(
-    'cart',
-    {
-      userId,
-    },
-    tags,
-  );
-
-  if (!result.body || !Array.isArray(result.body.cart)) {
-    stateValidationFailures.add(1, tags);
-    return null;
-  }
-  return result.body.cart;
-}
-
 function validateBrowsePayload(payload, baseTags) {
   if (!payload) {
     stateValidationFailures.add(1, { ...baseTags, step: 'browse_validate' });
@@ -312,7 +244,8 @@ function validateBrowsePayload(payload, baseTags) {
   }
 
   const valid = check(payload, {
-    'browse has products': (data) => Array.isArray(data.productsList) && data.productsList.length === 11,
+    'browse has products': (data) =>
+      Array.isArray(data.productsList) && data.productsList.length === 11,
     'browse has cart': (data) => Array.isArray(data.cart),
     'browse has recommendations': (data) => Array.isArray(data.recommendations),
   });

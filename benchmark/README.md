@@ -24,8 +24,7 @@ This script uses a `shared-iterations` scenario with configurable `MAX_DURATION`
 
 - `PLATFORM` (default: `tinyfaas`; supported: `tinyfaas`, `faasd`)
 - `GATEWAY_URL` (default: `http://127.0.0.1:8080`)
-- `ENTRY_FUNCTION` (required)
-- `WORKFLOW_FUNCTIONS` (required, comma-separated list)
+- `WORKFLOW` (required; supported: `iot`, `tree`, `webshop`)
 
 - `INVOKE_PATH` (default: `/fn/{name}` for tinyFaaS, `/function/{name}` for faasd)
 - `LIST_PATH` (default: `/system/list` for tinyFaaS, `/system/functions` for faasd)
@@ -53,12 +52,11 @@ For authenticated faasd gateways, set:
 
 ```bash
 PLATFORM=tinyfaas \
-ENTRY_FUNCTION=iot-i \
-WORKFLOW_FUNCTIONS=iot-i,iot-cw,iot-se,iot-ct,iot-cs,iot-ca,iot-csl,iot-csa,iot-dj,iot-as \
+WORKFLOW=iot \
 GATEWAY_URL=http://127.0.0.1:8080 \
 ITERATIONS=10 \
 MAX_DURATION=60m \
-k6 run tests/benchmark/scripts/workflow_cold_latency.js
+k6 run benchmark/scripts/workflow_cold_latency.js
 ```
 
 For the faasd IoT workflow, use `PLATFORM=faasd` and include `BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD` when the gateway has basic auth enabled.
@@ -69,15 +67,15 @@ Note: the IoT workflow includes async fan-out. This benchmark measures the entry
 
 This benchmark drives the `webshop-frontend` function as a shopping session:
 
-1. cleanup cart
-2. browse products (`operation=get`)
-3. add products to cart (`operation=addcart`)
-4. checkout (`operation=checkout`)
+1. browse products (`operation=get`)
+2. add products to cart (`operation=addcart`)
+3. checkout (`operation=checkout`)
 
 It is designed to compare `CALLGRAPH_ENABLED=false|true` while keeping autoscaler enabled.
 
 In the current webshop workflow, frontend `addcart` and `checkout` are synchronous.
-The benchmark therefore measures direct end-to-end step latency for those operations.
+The checkout function asynchronously empties the cart, and the benchmark uses a new `userId`
+for every VU iteration, so there is no separate cart cleanup step.
 
 ### Script
 
@@ -89,8 +87,7 @@ Required/important:
 
 - `PLATFORM` (default: `tinyfaas`; supported: `tinyfaas`, `faasd`)
 - `GATEWAY_URL` (default: `http://127.0.0.1:8080`)
-- `ENTRY_FUNCTION` (default: `webshop-frontend`)
-- `WORKFLOW_FUNCTIONS` (optional; defaults to the exercised webshop function set)
+- `WORKFLOW` (default: `webshop`; only `webshop` is supported by this script)
 - `RUN_ID` (default: `webshop-bench`)
 
 Traffic and iteration:
@@ -131,11 +128,10 @@ For authenticated faasd gateways, set:
 
 ### Metrics emitted
 
-- `browse_ms`
-- `addcart_ms`
-- `checkout_ms`
-- `journey_ms`
-- `scale_down_wait_ms`
+- `browse_latency_ms`
+- `addcart_latency_ms`
+- `checkout_latency_ms`
+- `user_journey_latency_ms`
 - `invoke_failures`
 - `list_failures`
 - `state_validation_failures`
@@ -146,7 +142,7 @@ For authenticated faasd gateways, set:
 1. Keep autoscaler enabled in both conditions: `AUTOSCALER_ENABLED=true`.
 2. Set idle scale-down to `30s` for both conditions: `DEFAULT_SCALE_TO_ZERO_IDLE_DURATION=30s`.
 3. Rebuild tinyFaaS after env changes.
-4. Deploy `tests/workflows/tinyfaas/webshop/stack.yml`.
+4. Deploy `tests/workflows/tinyfaas/webshop/stack.yaml`.
 5. Run one short training pass for each condition before measured samples.
 6. Run measured samples with `VUS=1` for strict cold-sensitive comparison.
 

@@ -5,24 +5,24 @@ import {
   buildInvokePath,
   envBool,
   envInt,
-  envList,
   envString,
   parseJsonSafe,
   resolveBenchmarkConfig,
+  resolveWorkflowPreset,
   withAuthHeaders,
   workflowScaledDown,
 } from './lib/utils.js';
 
-const entryLatencyMs = new Trend('entry_e2e_ms');
-const scaleDownWaitMs = new Trend('scale_down_wait_ms');
+const workflowLatencyMs = new Trend('workflow_latency_ms');
 const invokeFailures = new Counter('invoke_failures');
 const listFailures = new Counter('list_failures');
 const scaleDownTimeouts = new Counter('scale_down_timeouts');
 
 const benchmarkConfig = resolveBenchmarkConfig();
+const workflow = resolveWorkflowPreset();
 const gatewayUrl = benchmarkConfig.gatewayUrl;
-const entryFunction = envString('ENTRY_FUNCTION', '', true);
-const workflowFunctions = envList('WORKFLOW_FUNCTIONS', true);
+const entryFunction = workflow.entryFunction;
+const workflowFunctions = workflow.functions;
 const invokePathTemplate = benchmarkConfig.invokePathTemplate;
 const listPath = benchmarkConfig.listPath;
 const method = envString('METHOD', 'POST', false).toUpperCase();
@@ -50,7 +50,7 @@ export const options = {
 export default function () {
   const invokeUrl = `${gatewayUrl}${buildInvokePath(invokePathTemplate, entryFunction)}`;
   const listUrl = `${gatewayUrl}${listPath}`;
-  const tags = { entry: entryFunction, workflow: workflowFunctions.join(',') };
+  const tags = { entry: entryFunction, workflow: workflow.name, platform: benchmarkConfig.platform };
   const requestBody = method === 'GET' || method === 'HEAD' ? null : body;
 
   const response = http.request(method, invokeUrl, requestBody, {
@@ -67,8 +67,9 @@ export default function () {
     invokeFailures.add(1, tags);
   }
 
-  entryLatencyMs.add(response.timings.duration, tags);
+  workflowLatencyMs.add(response.timings.duration, tags);
 
+  // wait for the workflow to scale down before starting next iteration
   const waitStart = Date.now();
   while (true) {
     const elapsed = Date.now() - waitStart;
@@ -97,7 +98,6 @@ export default function () {
       } else if (
         workflowScaledDown(payload, workflowFunctions, strictFunctions, benchmarkConfig.platform)
       ) {
-        scaleDownWaitMs.add(Date.now() - waitStart, tags);
         break;
       }
     }
