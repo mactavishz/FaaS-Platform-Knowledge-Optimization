@@ -42,7 +42,6 @@ const expectedStatus = envInt('EXPECTED_STATUS', 200);
 const invokeTimeoutMs = envInt('INVOKE_TIMEOUT_MS', 60000);
 const pollIntervalMs = envInt('POLL_INTERVAL_MS', 500);
 const scaleDownTimeoutMs = envInt('SCALE_DOWN_TIMEOUT_MS', 120000);
-const idleWaitMs = envInt('IDLE_WAIT_MS', 35000);
 const maxDuration = envString('MAX_DURATION', '60m', false);
 const gracefulStop = envString('GRACEFUL_STOP', '30s', false);
 
@@ -100,7 +99,7 @@ export default function () {
   browseMs.add(browseResult.response.timings.duration, { ...baseTags, step: 'browse' });
   validateBrowsePayload(browseResult.body, baseTags);
 
-  idleAndScaleDown('before_addcart', baseTags);
+  waitForScaleDown({ ...baseTags, phase: 'before_addcart' });
 
   for (const product of productPlan) {
     const addcartResult = invokeFrontend(
@@ -120,7 +119,7 @@ export default function () {
     validateAddcartPayload(addcartResult.body, product, baseTags);
   }
 
-  idleAndScaleDown('before_checkout', baseTags);
+  waitForScaleDown({ ...baseTags, phase: 'before_checkout' });
 
   const checkoutResult = invokeFrontend(
     'checkout',
@@ -230,11 +229,6 @@ function waitForScaleDown(tags) {
 
     sleep(pollIntervalMs / 1000);
   }
-}
-
-function idleAndScaleDown(phase, baseTags) {
-  sleep(idleWaitMs / 1000);
-  waitForScaleDown({ ...baseTags, phase });
 }
 
 function validateBrowsePayload(payload, baseTags) {
