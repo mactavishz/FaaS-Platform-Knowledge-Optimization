@@ -5,9 +5,9 @@ import {
   buildInvokePath,
   envBool,
   envInt,
-  envList,
   envString,
   parseJsonSafe,
+  randomWebshopCartItem,
   resolveBenchmarkConfig,
   resolveWorkflowPreset,
   withAuthHeaders,
@@ -46,7 +46,6 @@ const maxDuration = envString('MAX_DURATION', '60m', false);
 const gracefulStop = envString('GRACEFUL_STOP', '30s', false);
 
 const currency = envString('CURRENCY', 'EUR', false);
-const productPlan = parseProductPlan();
 const runId = envString('RUN_ID', 'webshop-bench', false);
 const runLabel = envString('RUN_LABEL', '', false);
 
@@ -101,23 +100,26 @@ export default function () {
 
   waitForScaleDown({ ...baseTags, phase: 'before_addcart' });
 
-  for (const product of productPlan) {
-    const addcartResult = invokeFrontend(
-      'addcart',
-      {
-        userId,
-        productId: product.productId,
-        quantity: product.quantity,
-      },
-      { ...baseTags, step: 'addcart' },
-    );
-    addcartMs.add(addcartResult.response.timings.duration, {
-      ...baseTags,
-      step: 'addcart',
-      product_id: product.productId,
-    });
-    validateAddcartPayload(addcartResult.body, product, baseTags);
-  }
+  const product = randomWebshopCartItem();
+  const productTags = {
+    ...baseTags,
+    product_id: product.productId,
+    quantity: String(product.quantity),
+  };
+  const addcartResult = invokeFrontend(
+    'addcart',
+    {
+      userId,
+      productId: product.productId,
+      quantity: product.quantity,
+    },
+    { ...productTags, step: 'addcart' },
+  );
+  addcartMs.add(addcartResult.response.timings.duration, {
+    ...productTags,
+    step: 'addcart',
+  });
+  validateAddcartPayload(addcartResult.body, product, baseTags);
 
   waitForScaleDown({ ...baseTags, phase: 'before_checkout' });
 
@@ -136,25 +138,6 @@ export default function () {
   validateCheckoutPayload(checkoutResult.body, userId, baseTags);
 
   journeyMs.add(Date.now() - journeyStart, { ...baseTags, step: 'journey' });
-}
-
-function parseProductPlan() {
-  const productIds = envList('PRODUCT_IDS', false);
-  const quantities = envList('PRODUCT_QUANTITIES', false);
-
-  const ids = productIds.length > 0 ? productIds : ['3', '8'];
-  const qtys = quantities.length > 0 ? quantities : ['1', '2'];
-
-  const plan = [];
-  for (let i = 0; i < ids.length; i += 1) {
-    const rawQuantity = qtys[i] || qtys[qtys.length - 1] || '1';
-    const parsedQuantity = parseInt(rawQuantity, 10);
-    if (Number.isNaN(parsedQuantity) || parsedQuantity <= 0) {
-      throw new Error(`Invalid quantity for PRODUCT_QUANTITIES at index ${i}: ${rawQuantity}`);
-    }
-    plan.push({ productId: ids[i], quantity: parsedQuantity });
-  }
-  return plan;
 }
 
 function parseJsonOrDefault(raw, defaultValue, envKey) {
@@ -255,12 +238,18 @@ function validateAddcartPayload(payload, product, baseTags) {
     return;
   }
 
-  const found = payload.cart.some((row) => row && row.itemId === product.productId);
-  if (!found) {
+  const cartItem = payload.cart.find((row) => row && String(row.itemId) === product.productId);
+  const quantityMatches =
+    !cartItem ||
+    cartItem.quantity === undefined ||
+    Number(cartItem.quantity) === Number(product.quantity);
+
+  if (!cartItem || !quantityMatches) {
     stateValidationFailures.add(1, {
       ...baseTags,
       step: 'addcart_validate',
       product_id: product.productId,
+      quantity: String(product.quantity),
     });
   }
 }

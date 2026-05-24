@@ -57,6 +57,16 @@ const workflowPresets = {
   },
 };
 
+export const WEBSHOP_PRODUCT_IDS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'];
+export const WEBSHOP_QUANTITIES = [1, 2, 3, 4, 5];
+
+export function randomWebshopCartItem() {
+  return {
+    productId: randomItem(WEBSHOP_PRODUCT_IDS),
+    quantity: randomItem(WEBSHOP_QUANTITIES),
+  };
+}
+
 export function envString(key, defaultValue, required) {
   const value = __ENV[key];
   if (value === undefined || value === '') {
@@ -206,4 +216,8 @@ function functionRunning(item, platform) {
     return Number(item.availableReplicas || 0) > 0;
   }
   return item.running === true;
+}
+
+function randomItem(values) {
+  return values[Math.floor(Math.random() * values.length)];
 }
