@@ -109,11 +109,12 @@ Timeout and polling:
 Journey payload tuning:
 
 - `CURRENCY` (default: `EUR`)
-- `PRODUCT_IDS` (default: `3,8`)
-- `PRODUCT_QUANTITIES` (default: `1,2`)
 - `CHECKOUT_ADDRESS_JSON` (default: `{"street":"123 Main St"}`)
 - `CHECKOUT_EMAIL` (default: `bench-user@example.com`)
 - `CHECKOUT_CREDIT_CARD_JSON` (default: `{"creditCardNumber":"4111111111111111"}`)
+
+For each iteration, the webshop journey adds one random cart item. Product IDs are selected
+from the hardcoded webshop catalogue (`1..11`), and quantities are selected from `1..5`.
 
 Compatibility/path options:
 
