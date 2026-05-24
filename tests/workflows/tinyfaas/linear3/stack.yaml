@@ -6,17 +6,17 @@ functions:
     lang: python3
     handler: ./a
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   linear3-b:
     lang: python3
     handler: ./b
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   linear3-c:
     lang: python3
     handler: ./c
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}

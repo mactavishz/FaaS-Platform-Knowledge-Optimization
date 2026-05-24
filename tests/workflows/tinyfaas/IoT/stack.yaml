@@ -6,69 +6,69 @@ functions:
     lang: nodejs
     handler: ./I
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   iot-as:
     lang: nodejs
     handler: ./AS
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
     environment_file:
       - .env.yaml
   iot-ca:
     lang: nodejs
     handler: ./CA
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   iot-cs:
     lang: nodejs
     handler: ./CS
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   iot-csa:
     lang: nodejs
     handler: ./CSA
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
     environment_file:
       - .env.yaml
   iot-csl:
     lang: nodejs
     handler: ./CSL
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
     environment_file:
       - .env.yaml
   iot-ct:
     lang: nodejs
     handler: ./CT
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   iot-cw:
     lang: nodejs
     handler: ./CW
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   iot-dj:
     lang: nodejs
     handler: ./DJ
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
     environment_file:
       - .env.yaml
   iot-se:
     lang: nodejs
     handler: ./SE
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
     environment_file:
       - .env.yaml

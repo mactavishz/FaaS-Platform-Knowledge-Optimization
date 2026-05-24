@@ -6,103 +6,103 @@ functions:
     lang: nodejs
     handler: ./frontend
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-checkout:
     lang: nodejs
     handler: ./checkout
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-addcartitem:
     lang: nodejs
     handler: ./addcartitem
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-emptycart:
     lang: nodejs
     handler: ./emptycart
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-getcart:
     lang: nodejs
     handler: ./getcart
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-cartstorage:
     lang: nodejs
     handler: ./cartstorage
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
     environment_file:
       - .env.yaml
   webshop-listproducts:
     lang: nodejs
     handler: ./listproducts
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-getproduct:
     lang: nodejs
     handler: ./getproduct
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-searchproducts:
     lang: nodejs
     handler: ./searchproducts
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-listrecommendations:
     lang: nodejs
     handler: ./listrecommendations
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-currency:
     lang: nodejs
     handler: ./currency
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-supportedcurrencies:
     lang: nodejs
     handler: ./supportedcurrencies
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-getads:
     lang: nodejs
     handler: ./getads
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-shipmentquote:
     lang: nodejs
     handler: ./shipmentquote
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-shiporder:
     lang: nodejs
     handler: ./shiporder
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-payment:
     lang: nodejs
     handler: ./payment
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-email:
     lang: nodejs
     handler: ./email
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}

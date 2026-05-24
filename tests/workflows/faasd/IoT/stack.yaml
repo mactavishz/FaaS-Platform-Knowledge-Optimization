@@ -8,15 +8,15 @@ functions:
     handler: ./I
     image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-i:latest
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   iot-as:
     lang: node24
     handler: ./AS
     image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-as:latest
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
     environment_file:
       - .env.yaml
   iot-ca:
@@ -24,22 +24,22 @@ functions:
     handler: ./CA
     image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-ca:latest
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   iot-cs:
     lang: node24
     handler: ./CS
     image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-cs:latest
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   iot-csa:
     lang: node24
     handler: ./CSA
     image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-csa:latest
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
     environment_file:
       - .env.yaml
   iot-csl:
@@ -47,8 +47,8 @@ functions:
     handler: ./CSL
     image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-csl:latest
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
     environment_file:
       - .env.yaml
   iot-ct:
@@ -56,22 +56,22 @@ functions:
     handler: ./CT
     image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-ct:latest
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   iot-cw:
     lang: node24
     handler: ./CW
     image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-cw:latest
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   iot-dj:
     lang: node24
     handler: ./DJ
     image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-dj:latest
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
     environment_file:
       - .env.yaml
   iot-se:
@@ -79,8 +79,8 @@ functions:
     handler: ./SE
     image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}iot-se:latest
     limits:
-      cpu: 0.25
-      memory: 256Mi
+      cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
+      memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
     environment_file:
       - .env.yaml
 configuration:
