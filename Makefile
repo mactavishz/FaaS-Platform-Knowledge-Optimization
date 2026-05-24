@@ -55,6 +55,7 @@ test-faasd: build-faasd
 
 .PHONY: test-integration
 test-integration: build-faas-cli
+	unset TINYFAAS_GATEWAY_URL && unset FAASD_GATEWAY_URL
 	go test -count=1 -v -timeout 30m ./tests/integration/tinyfaas/...
 	go test -count=1 -v -timeout 30m ./tests/integration/faasd/...
 
