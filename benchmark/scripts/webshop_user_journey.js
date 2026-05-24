@@ -221,10 +221,10 @@ function validateBrowsePayload(payload, baseTags) {
   }
 
   const valid = check(payload, {
-    'browse has products': (data) =>
+    'browse returns products': (data) =>
       Array.isArray(data.productsList) && data.productsList.length === 11,
-    'browse has cart': (data) => Array.isArray(data.cart),
-    'browse has recommendations': (data) => Array.isArray(data.recommendations),
+    'browse returns cart': (data) => Array.isArray(data.cart),
+    'browse returns recommendations': (data) => Array.isArray(data.recommendations),
   });
 
   if (!valid) {
@@ -233,18 +233,25 @@ function validateBrowsePayload(payload, baseTags) {
 }
 
 function validateAddcartPayload(payload, product, baseTags) {
-  if (!payload || !Array.isArray(payload.cart)) {
-    stateValidationFailures.add(1, { ...baseTags, step: 'addcart_validate' });
-    return;
-  }
+  const valid = check(payload, {
+    'addcart playload contains updated cart': (data) => data && Array.isArray(data.cart),
+    'addcart payload contains added product': (data) =>
+      data &&
+      Array.isArray(data.cart) &&
+      data.cart.some((row) => row && String(row.itemId) === product.productId),
+    'addcart payload quantity matches': (data) => {
+      if (!data || !Array.isArray(data.cart)) {
+        return false;
+      }
+      const cartItem = data.cart.find((row) => row && String(row.itemId) === product.productId);
+      return (
+        cartItem &&
+        (cartItem.quantity === undefined || Number(cartItem.quantity) === Number(product.quantity))
+      );
+    },
+  });
 
-  const cartItem = payload.cart.find((row) => row && String(row.itemId) === product.productId);
-  const quantityMatches =
-    !cartItem ||
-    cartItem.quantity === undefined ||
-    Number(cartItem.quantity) === Number(product.quantity);
-
-  if (!cartItem || !quantityMatches) {
+  if (!valid) {
     stateValidationFailures.add(1, {
       ...baseTags,
       step: 'addcart_validate',
@@ -256,7 +263,7 @@ function validateAddcartPayload(payload, product, baseTags) {
 
 function validateCheckoutPayload(payload, userId, baseTags) {
   const valid = check(payload, {
-    'checkout returns user': (data) => data && data.userId === userId,
+    'checkout returns valid payload': (data) => data && data.userId === userId,
   });
 
   if (!valid) {
