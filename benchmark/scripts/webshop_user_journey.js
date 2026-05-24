@@ -17,7 +17,6 @@ import {
 const browseMs = new Trend('browse_latency_ms');
 const addcartMs = new Trend('addcart_latency_ms');
 const checkoutMs = new Trend('checkout_latency_ms');
-const journeyMs = new Trend('user_journey_latency_ms');
 
 const invokeFailures = new Counter('invoke_failures');
 const listFailures = new Counter('list_failures');
@@ -77,7 +76,6 @@ export const options = {
 };
 
 export default function () {
-  const journeyStart = Date.now();
   const userId = `${runId}-vu${__VU}-iter${__ITER}`;
   const baseTags = {
     entry: entryFunction,
@@ -136,8 +134,6 @@ export default function () {
   );
   checkoutMs.add(checkoutResult.response.timings.duration, { ...baseTags, step: 'checkout' });
   validateCheckoutPayload(checkoutResult.body, userId, baseTags);
-
-  journeyMs.add(Date.now() - journeyStart, { ...baseTags, step: 'journey' });
 }
 
 function parseJsonOrDefault(raw, defaultValue, envKey) {
