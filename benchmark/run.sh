@@ -34,6 +34,7 @@ CURRENT_PROFILE_PATH=""
 INTERRUPTED="false"
 CLEANUP_IN_PROGRESS="false"
 EXIT_STATUS=0
+RESOLVED_PROFILES=()
 
 log() {
   printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2
@@ -45,10 +46,14 @@ fatal() {
 }
 
 bool_true() {
-  case "${1,,}" in
+  case "$(lowercase "$1")" in
     1 | true | yes | y) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+lowercase() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
 }
 
 ensure_dependencies() {
@@ -82,7 +87,7 @@ profile_name_for() {
 }
 
 get_workflow_dir_name() {
-  case "${1,,}" in
+  case "$(lowercase "$1")" in
     iot) printf 'IoT\n' ;;
     tree) printf 'tree\n' ;;
     webshop) printf 'webshop\n' ;;
@@ -92,7 +97,7 @@ get_workflow_dir_name() {
 }
 
 get_k6_workflow_name() {
-  case "${1,,}" in
+  case "$(lowercase "$1")" in
     iot) printf 'iot\n' ;;
     tree) printf 'tree\n' ;;
     webshop) printf 'webshop\n' ;;
@@ -101,7 +106,7 @@ get_k6_workflow_name() {
 }
 
 get_workflow_k6_script() {
-  case "${1,,}" in
+  case "$(lowercase "$1")" in
     iot | tree) printf '%s\n' "$BENCHMARK_DIR/scripts/workflow_cold_latency.js" ;;
     webshop) printf '%s\n' "$BENCHMARK_DIR/scripts/webshop_user_journey.js" ;;
     *) fatal "unsupported workflow: $1" ;;
@@ -128,13 +133,25 @@ resolve_profiles() {
   find "$ENV_DIR" -maxdepth 1 -type f -name '*.env' | sort
 }
 
+load_resolved_profiles() {
+  [[ -d "$ENV_DIR" ]] || fatal "benchmark env directory not found: $ENV_DIR"
+
+  RESOLVED_PROFILES=()
+  local profile
+  while IFS= read -r profile; do
+    RESOLVED_PROFILES+=("$profile")
+  done < <(resolve_profiles)
+
+  [[ "${#RESOLVED_PROFILES[@]}" -gt 0 ]] || fatal "no benchmark profiles resolved"
+}
+
 ensure_benchmark_configs() {
   [[ -d "$ENV_DIR" ]] || fatal "benchmark env directory not found: $ENV_DIR"
 
   local profile
-  while IFS= read -r profile; do
+  for profile in "${RESOLVED_PROFILES[@]}"; do
     [[ -f "$profile" ]] || fatal "profile env file not found: $profile"
-  done < <(resolve_profiles)
+  done
 
   local platform workflow stack
   for platform in $PLATFORMS; do
@@ -191,8 +208,11 @@ terraform_destroy() {
   local platform="$1"
   local profile="$2"
   local log_file="$3"
-  local -a args
-  readarray -d '' -t args < <(terraform_args "$platform" "$profile")
+  local arg
+  local -a args=()
+  while IFS= read -r -d '' arg; do
+    args+=("$arg")
+  done < <(terraform_args "$platform" "$profile")
   run_terraform "$log_file" destroy -auto-approve "${args[@]}"
 }
 
@@ -200,8 +220,11 @@ terraform_apply() {
   local platform="$1"
   local profile="$2"
   local log_file="$3"
-  local -a args
-  readarray -d '' -t args < <(terraform_args "$platform" "$profile")
+  local arg
+  local -a args=()
+  while IFS= read -r -d '' arg; do
+    args+=("$arg")
+  done < <(terraform_args "$platform" "$profile")
   run_terraform "$log_file" apply -auto-approve "${args[@]}"
 }
 
@@ -237,6 +260,7 @@ ssh_base() {
   local host="$1"
   shift
   ssh \
+    -n \
     -i "$SSH_PRIVATE_KEY" \
     -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null \
@@ -272,8 +296,12 @@ curl_json() {
   local auth_password="$3"
   local url="$4"
   local output="$5"
+  local arg
   local -a auth_args=()
-  readarray -d '' -t auth_args < <(http_auth_args "$platform" "$auth_user" "$auth_password")
+
+  while IFS= read -r -d '' arg; do
+    auth_args+=("$arg")
+  done < <(http_auth_args "$platform" "$auth_user" "$auth_password")
 
   curl --fail --silent --show-error "${auth_args[@]}" "$url" -o "$output"
 }
@@ -612,12 +640,18 @@ run_one() {
 
 write_manifest() {
   mkdir -p "$OUTPUT_ROOT"
+  local profile profile_names=""
+  for profile in "${RESOLVED_PROFILES[@]}"; do
+    profile_names+="$(profile_name_for "$profile") "
+  done
+
   jq -n \
     --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg output_root "$OUTPUT_ROOT" \
     --arg machine_type "$MACHINE_TYPE" \
     --arg ssh_public_key "$SSH_PUBLIC_KEY" \
     --arg ssh_user "$SSH_USER" \
+    --arg profiles "$profile_names" \
     --arg platforms "$PLATFORMS" \
     --arg workflows "$WORKFLOWS" \
     --argjson k6_iterations "$K6_ITERATIONS" \
@@ -628,6 +662,7 @@ write_manifest() {
       machine_type: $machine_type,
       ssh_public_key: $ssh_public_key,
       ssh_user: $ssh_user,
+      profiles: ($profiles | split(" ") | map(select(length > 0))),
       platforms: ($platforms | split(" ") | map(select(length > 0))),
       workflows: ($workflows | split(" ") | map(select(length > 0))),
       k6: {
@@ -651,7 +686,7 @@ print_benchmark_configs() {
   echo -e "DRY_RUN: $DRY_RUN"
   echo -e "\nPROFILE\tPLATFORM\tWORKFLOW\tSTACK_PATH"
   local profile platform workflow profile_name stack
-  while IFS= read -r profile; do
+  for profile in "${RESOLVED_PROFILES[@]}"; do
     profile_name="$(profile_name_for "$profile")"
     for platform in $PLATFORMS; do
       for workflow in $WORKFLOWS; do
@@ -659,7 +694,7 @@ print_benchmark_configs() {
         printf '%s\t%s\t%s\t%s\n' "$profile_name" "$platform" "$(get_k6_workflow_name "$workflow")" "$stack"
       done
     done
-  done < <(resolve_profiles)
+  done
 }
 
 main() {
@@ -667,6 +702,7 @@ main() {
 
   ensure_dependencies
   ensure_benchmark_envs
+  load_resolved_profiles
   ensure_benchmark_configs
 
   if bool_true "$DRY_RUN"; then
@@ -684,7 +720,7 @@ main() {
   write_manifest
 
   local profile platform workflow run_failed
-  while IFS= read -r profile; do
+  for profile in "${RESOLVED_PROFILES[@]}"; do
     for platform in $PLATFORMS; do
       for workflow in $WORKFLOWS; do
         run_failed="false"
@@ -712,7 +748,7 @@ main() {
         fi
       done
     done
-  done < <(resolve_profiles)
+  done
 }
 
 main "$@"
