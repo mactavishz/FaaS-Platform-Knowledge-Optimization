@@ -274,6 +274,12 @@ func (as *AutoScaler) ScaleUpWhenReady(ctx context.Context, name string) error {
 		state := entry.state.State
 		switch state {
 		case StateActive, StateBlocked:
+			now := time.Now()
+			entry.state.LastAccessTime = now
+			if state == StateActive {
+				entry.state.LastActiveTime = now
+			}
+			entry.cond.Broadcast()
 			entry.mu.Unlock()
 			return nil
 		case StateScalingUp, StateScalingDown:
@@ -337,6 +343,12 @@ func (as *AutoScaler) ScaleDownWhenIdle(ctx context.Context, name string) error 
 			entry.mu.Unlock()
 			continue
 		case StateActive:
+			now := time.Now()
+			if entry.state.ScaleToZeroEnabled && now.Sub(entry.state.LastActiveTime) <= entry.state.IdleDuration {
+				entry.state.LastAccessTime = now
+				entry.mu.Unlock()
+				return nil
+			}
 			entry.state.State = StateScalingDown
 			entry.cond.Broadcast()
 			entry.mu.Unlock()

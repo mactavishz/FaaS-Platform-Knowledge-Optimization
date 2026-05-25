@@ -68,6 +68,20 @@ func (m *mockScaleOperation) UpCalls() int {
 	return m.upCalls
 }
 
+func markFunctionIdle(t *testing.T, as *AutoScaler, name string) {
+	t.Helper()
+
+	entry, ok := as.getFunctionEntry(name)
+	if !ok {
+		t.Fatalf("expected function %s to be registered", name)
+	}
+
+	entry.mu.Lock()
+	entry.state.LastAccessTime = time.Now().Add(-entry.state.IdleDuration - time.Second)
+	entry.state.LastActiveTime = entry.state.LastAccessTime
+	entry.mu.Unlock()
+}
+
 func TestRegisterFunctionInitialState(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, zap.NewNop())
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
@@ -91,10 +105,11 @@ func TestBlockedTransitions(t *testing.T) {
 	assert.Equal(t, StateActive, state)
 }
 
-func TestScaleDownWaitsUntilUnblocked(t *testing.T) {
+func TestScaleDownWhenIdleAbortsWhenBlockedInvocationRefreshesActivity(t *testing.T) {
 	m := &mockScaleOperation{}
 	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
 	as.RegisterFunction("fn", nil)
+	markFunctionIdle(t, as, "fn")
 
 	assert.NoError(t, as.StartInvocation("fn"))
 
@@ -108,9 +123,9 @@ func TestScaleDownWaitsUntilUnblocked(t *testing.T) {
 
 	as.EndInvocation("fn")
 	assert.NoError(t, <-done)
-	assert.Equal(t, 1, m.DownCalls())
+	assert.Equal(t, 0, m.DownCalls())
 	state, _ := as.GetState("fn")
-	assert.Equal(t, StateScaledDown, state)
+	assert.Equal(t, StateActive, state)
 }
 
 func TestEnsureActiveFromScaledDown(t *testing.T) {
@@ -144,6 +159,7 @@ func TestScaleDownFailureReturnsActive(t *testing.T) {
 	m := &mockScaleOperation{downErr: errors.New("boom")}
 	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
 	as.RegisterFunction("fn", nil)
+	markFunctionIdle(t, as, "fn")
 
 	err := as.ScaleDownWhenIdle(context.TODO(), "fn")
 	assert.Error(t, err)
@@ -173,6 +189,23 @@ func TestScaleUpWhenReadyBlockedReturnsImmediately(t *testing.T) {
 	assert.Equal(t, 0, m.UpCalls())
 
 	as.EndInvocation("fn")
+}
+
+func TestScaleUpWhenReadyRefreshesActiveFunctionActivity(t *testing.T) {
+	m := &mockScaleOperation{}
+	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
+	as.RegisterFunction("fn", nil)
+	markFunctionIdle(t, as, "fn")
+
+	err := as.ScaleUpWhenReady(context.TODO(), "fn")
+	assert.NoError(t, err)
+	assert.Equal(t, 0, m.UpCalls())
+
+	err = as.ScaleDownWhenIdle(context.TODO(), "fn")
+	assert.NoError(t, err)
+	assert.Equal(t, 0, m.DownCalls())
+	state, _ := as.GetState("fn")
+	assert.Equal(t, StateActive, state)
 }
 
 func TestConcurrentInvocationAccounting(t *testing.T) {
@@ -205,6 +238,7 @@ func TestScaleUpWhenReadyWaitsForScalingDown(t *testing.T) {
 	m := &mockScaleOperation{downCh: downStarted, downReleaseCh: downRelease}
 	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
 	as.RegisterFunction("fn", nil)
+	markFunctionIdle(t, as, "fn")
 
 	downDone := make(chan error, 1)
 	go func() {
