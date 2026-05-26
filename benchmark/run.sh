@@ -11,7 +11,7 @@ WORKFLOWS_DIR="$ROOT_DIR/tests/workflows"
 RUN_TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_NAME="${RUN_NAME:-$RUN_TIMESTAMP}"
 PROFILES="${PROFILES:-}"
-PLATFORMS="${PLATFORMS:-tinyfaas faasd}"
+PLATFORMS="${PLATFORMS:-faasd tinyfaas}"
 WORKFLOWS="${WORKFLOWS:-iot tree webshop}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$BENCHMARK_DIR/results/$RUN_NAME}"
 MACHINE_TYPE="${MACHINE_TYPE:-n2-highcpu-32}"
@@ -24,6 +24,7 @@ K6_MAX_DURATION="${K6_MAX_DURATION:-6h}"
 K6_GRACEFUL_STOP="${K6_GRACEFUL_STOP:-30s}"
 CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-false}"
 KEEP_INFRA_ON_FAILURE="${KEEP_INFRA_ON_FAILURE:-false}"
+RERUN_OVERWRITE="${RERUN_OVERWRITE:-false}"
 DRY_RUN="${DRY_RUN:-false}"
 
 CURRENT_RUN_DIR=""
@@ -525,6 +526,24 @@ create_run_dirs() {
     "$run_dir/logs"
 }
 
+get_run_dir() {
+  local profile_name="$1"
+  local platform="$2"
+  local workflow_name="$3"
+  local base_dir="$OUTPUT_ROOT/$profile_name/$platform/$workflow_name"
+
+  if bool_true "$RERUN_OVERWRITE"; then
+    printf '%s\n' "$base_dir"
+    return
+  fi
+
+  if [[ -e "$base_dir" ]]; then
+    printf '%s_%s\n' "$base_dir" "$RUN_TIMESTAMP"
+  else
+    printf '%s\n' "$base_dir"
+  fi
+}
+
 cleanup_current_infra() {
   if [[ "$CLEANUP_IN_PROGRESS" == "true" ]]; then
     log "cleanup already in progress; skipping nested cleanup request"
@@ -575,7 +594,7 @@ handle_interrupt() {
   exit "$EXIT_STATUS"
 }
 
-run_one() {
+run_benchmark() {
   local profile_path="$1"
   local platform="$2"
   local workflow="$3"
@@ -583,7 +602,7 @@ run_one() {
   profile_name="$(profile_name_for "$profile_path")"
   workflow_name="$(get_k6_workflow_name "$workflow")"
   run_id="$profile_name-$platform-$workflow_name"
-  run_dir="$OUTPUT_ROOT/$profile_name/$platform/$workflow_name"
+  run_dir="$(get_run_dir "$profile_name" "$platform" "$workflow_name")"
   stack_path="$(stack_path_for "$platform" "$workflow")"
 
   CURRENT_RUN_DIR="$run_dir"
@@ -591,6 +610,13 @@ run_one() {
   CURRENT_PROFILE_PATH="$profile_path"
   CURRENT_INFRA_ACTIVE="false"
   CURRENT_RUN_FAILED="false"
+
+  if bool_true "$RERUN_OVERWRITE"; then
+    log "overwriting selected run directory: $run_dir"
+    rm -rf -- "$run_dir"
+  elif [[ -e "$run_dir" ]]; then
+    fatal "resolved run directory already exists: $run_dir"
+  fi
 
   create_run_dirs "$run_dir"
   cp "$profile_path" "$run_dir/profile.env"
@@ -640,11 +666,16 @@ run_one() {
 
 write_manifest() {
   mkdir -p "$OUTPUT_ROOT"
+  local manifest_file="$OUTPUT_ROOT/manifest.json"
   local profile profile_names=""
   for profile in "${RESOLVED_PROFILES[@]}"; do
     profile_names+="$(profile_name_for "$profile") "
   done
 
+  [[ -f "$manifest_file" ]] || printf '[]\n' >"$manifest_file"
+
+  local new_manifest
+  new_manifest="$(mktemp)"
   jq -n \
     --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg output_root "$OUTPUT_ROOT" \
@@ -669,7 +700,11 @@ write_manifest() {
         iterations: $k6_iterations,
         vus: $k6_vus
       }
-    }' >"$OUTPUT_ROOT/manifest.json"
+    }' >"$new_manifest"
+
+  jq --slurpfile new_manifest "$new_manifest" '. + $new_manifest' "$manifest_file" >"$manifest_file.tmp"
+  mv "$manifest_file.tmp" "$manifest_file"
+  rm -f "$new_manifest"
 }
 
 print_benchmark_configs() {
@@ -683,15 +718,18 @@ print_benchmark_configs() {
   echo -e "K6_VUS: $K6_VUS"
   echo -e "CONTINUE_ON_ERROR: $CONTINUE_ON_ERROR"
   echo -e "KEEP_INFRA_ON_FAILURE: $KEEP_INFRA_ON_FAILURE"
+  echo -e "RERUN_OVERWRITE: $RERUN_OVERWRITE"
   echo -e "DRY_RUN: $DRY_RUN"
-  echo -e "\nPROFILE\tPLATFORM\tWORKFLOW\tSTACK_PATH"
-  local profile platform workflow profile_name stack
+  echo -e "\nPROFILE\tPLATFORM\tWORKFLOW\tRUN_DIR\tSTACK_PATH"
+  local profile platform workflow profile_name workflow_name stack run_dir
   for profile in "${RESOLVED_PROFILES[@]}"; do
     profile_name="$(profile_name_for "$profile")"
     for platform in $PLATFORMS; do
       for workflow in $WORKFLOWS; do
+        workflow_name="$(get_k6_workflow_name "$workflow")"
         stack="$(stack_path_for "$platform" "$workflow")"
-        printf '%s\t%s\t%s\t%s\n' "$profile_name" "$platform" "$(get_k6_workflow_name "$workflow")" "$stack"
+        run_dir="$(get_run_dir "$profile_name" "$platform" "$workflow_name")"
+        printf '%s\t%s\t%s\t%s\t%s\n' "$profile_name" "$platform" "$workflow_name" "$run_dir" "$stack"
       done
     done
   done
@@ -701,7 +739,6 @@ main() {
   cd "$ROOT_DIR"
 
   ensure_dependencies
-  ensure_benchmark_envs
   load_resolved_profiles
   ensure_benchmark_configs
 
@@ -710,6 +747,7 @@ main() {
     return
   fi
 
+  ensure_benchmark_envs
 
   trap 'handle_interrupt INT' INT
   trap 'handle_interrupt TERM' TERM
@@ -724,7 +762,7 @@ main() {
     for platform in $PLATFORMS; do
       for workflow in $WORKFLOWS; do
         run_failed="false"
-        if ! run_one "$profile" "$platform" "$workflow"; then
+        if ! run_benchmark "$profile" "$platform" "$workflow"; then
           run_failed="true"
           CURRENT_RUN_FAILED="true"
           log "run failed: $(profile_name_for "$profile")/$platform/$(get_k6_workflow_name "$workflow")"
