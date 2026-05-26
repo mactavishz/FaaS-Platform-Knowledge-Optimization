@@ -13,8 +13,11 @@ RUN_NAME="${RUN_NAME:-$RUN_TIMESTAMP}"
 PROFILES="${PROFILES:-}"
 PLATFORMS="${PLATFORMS:-faasd tinyfaas}"
 WORKFLOWS="${WORKFLOWS:-iot tree webshop}"
+WORKFLOW_CPU_LIMIT=${WORKFLOW_CPU_LIMIT:-0.5}
+WORKFLOW_MEMORY_LIMIT=${WORKFLOW_MEMORY_LIMIT:-1024Mi}
 OUTPUT_ROOT="${OUTPUT_ROOT:-$BENCHMARK_DIR/results/$RUN_NAME}"
-MACHINE_TYPE="${MACHINE_TYPE:-n2-highcpu-32}"
+# n2-standard-8: 8 vCPUs, 32 GB memory
+MACHINE_TYPE="${MACHINE_TYPE:-n2-standard-8}"
 SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY:-$TERRAFORM_DIR/gcp}"
 SSH_PUBLIC_KEY="${SSH_PUBLIC_KEY:-$TERRAFORM_DIR/gcp.pub}"
 SSH_USER="${SSH_USER:-bench}"
@@ -425,8 +428,9 @@ deploy_workflow() {
   fi
 
   log "deploying $platform workflow from $stack_path"
-  WORKFLOW_CPU_LIMIT=1 \
-    WORKFLOW_MEMORY_LIMIT=1024Mi \
+  log "workflow resource limits: CPU=$WORKFLOW_CPU_LIMIT, Memory=$WORKFLOW_MEMORY_LIMIT"
+  WORKFLOW_CPU_LIMIT=$WORKFLOW_CPU_LIMIT \
+    WORKFLOW_MEMORY_LIMIT=$WORKFLOW_MEMORY_LIMIT \
     faas-cli deploy \
       --gateway "$gateway_url" \
       -f "$stack_path" >>"$log_file" 2>&1 || return
