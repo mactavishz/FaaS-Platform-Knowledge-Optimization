@@ -1,3 +1,5 @@
+import http from 'k6/http';
+import { check, sleep } from 'k6';
 import encoding from 'k6/encoding';
 
 const defaultGatewayUrl = 'http://127.0.0.1:8080';
@@ -209,6 +211,57 @@ export function workflowScaledDown(listPayload, expectedNames, strict, platform 
     }
   }
   return true;
+}
+
+export function waitForScaleDown({
+  listUrl,
+  authHeaders,
+  timeoutMs,
+  pollIntervalMs,
+  scaleDownTimeoutMs,
+  workflowFunctions,
+  strictFunctions,
+  platform,
+  tags,
+  listFailures,
+  scaleDownTimeouts,
+}) {
+  if (workflowFunctions.length === 0) {
+    return;
+  }
+
+  const waitStart = Date.now();
+  while (true) {
+    const elapsed = Date.now() - waitStart;
+    if (elapsed > scaleDownTimeoutMs) {
+      scaleDownTimeouts.add(1, tags);
+      throw new Error(
+        `Scale-down wait exceeded ${scaleDownTimeoutMs}ms for workflow ${workflowFunctions.join(',')}`,
+      );
+    }
+
+    sleep(pollIntervalMs / 1000);
+
+    const listResponse = http.get(listUrl, {
+      headers: authHeaders,
+      timeout: `${timeoutMs}ms`,
+      tags,
+    });
+
+    const listOk = check(listResponse, {
+      'list status ok': (res) => res.status === 200,
+    });
+    if (!listOk) {
+      listFailures.add(1, tags);
+    } else {
+      const payload = parseJsonSafe(listResponse.body);
+      if (!payload) {
+        listFailures.add(1, tags);
+      } else if (workflowScaledDown(payload, workflowFunctions, strictFunctions, platform)) {
+        break;
+      }
+    }
+  }
 }
 
 function functionRunning(item, platform) {

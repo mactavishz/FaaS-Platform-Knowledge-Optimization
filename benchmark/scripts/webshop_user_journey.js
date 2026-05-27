@@ -1,5 +1,5 @@
 import http from 'k6/http';
-import { check, sleep } from 'k6';
+import { check } from 'k6';
 import { Counter, Trend } from 'k6/metrics';
 import {
   buildInvokePath,
@@ -10,8 +10,8 @@ import {
   randomWebshopCartItem,
   resolveBenchmarkConfig,
   resolveWorkflowPreset,
+  waitForScaleDown,
   withAuthHeaders,
-  workflowScaledDown,
 } from './lib/utils.js';
 
 const browseMs = new Trend('browse_latency_ms');
@@ -39,7 +39,7 @@ const strictFunctions = envBool('STRICT_FUNCTIONS', true);
 
 const expectedStatus = envInt('EXPECTED_STATUS', 200);
 const invokeTimeoutMs = envInt('INVOKE_TIMEOUT_MS', 60000);
-const pollIntervalMs = envInt('POLL_INTERVAL_MS', 500);
+const pollIntervalMs = envInt('POLL_INTERVAL_MS', 15000);
 const scaleDownTimeoutMs = envInt('SCALE_DOWN_TIMEOUT_MS', 120000);
 const maxDuration = envString('MAX_DURATION', '60m', false);
 const gracefulStop = envString('GRACEFUL_STOP', '30s', false);
@@ -83,7 +83,7 @@ export default function () {
     label: runLabel,
   };
 
-  waitForScaleDown({ ...baseTags, phase: 'before_browse' });
+  waitForScaleDownForPhase({ ...baseTags, phase: 'before_browse' });
 
   const browseResult = invokeFrontend(
     'get',
@@ -96,7 +96,7 @@ export default function () {
   browseMs.add(browseResult.response.timings.duration, { ...baseTags, step: 'browse' });
   validateBrowsePayload(browseResult.body, baseTags);
 
-  waitForScaleDown({ ...baseTags, phase: 'before_addcart' });
+  waitForScaleDownForPhase({ ...baseTags, phase: 'before_addcart' });
 
   const product = randomWebshopCartItem();
   const productTags = {
@@ -119,7 +119,7 @@ export default function () {
   });
   validateAddcartPayload(addcartResult.body, product, baseTags);
 
-  waitForScaleDown({ ...baseTags, phase: 'before_checkout' });
+  waitForScaleDownForPhase({ ...baseTags, phase: 'before_checkout' });
 
   const checkoutResult = invokeFrontend(
     'checkout',
@@ -169,45 +169,20 @@ function invokeFrontend(operation, payload, tags) {
   };
 }
 
-function waitForScaleDown(tags) {
-  if (workflowFunctions.length === 0) {
-    return;
-  }
-
-  const waitStart = Date.now();
-  while (true) {
-    const elapsed = Date.now() - waitStart;
-    if (elapsed > scaleDownTimeoutMs) {
-      scaleDownTimeouts.add(1, tags);
-      throw new Error(
-        `Scale-down wait exceeded ${scaleDownTimeoutMs}ms for workflow ${workflowFunctions.join(',')}`,
-      );
-    }
-
-    const listResponse = http.get(listUrl, {
-      headers: benchmarkConfig.authHeaders,
-      timeout: `${invokeTimeoutMs}ms`,
-      tags,
-    });
-
-    const listOk = check(listResponse, {
-      'list status ok': (res) => res.status === 200,
-    });
-    if (!listOk) {
-      listFailures.add(1, tags);
-    } else {
-      const payload = parseJsonSafe(listResponse.body);
-      if (!payload) {
-        listFailures.add(1, tags);
-      } else if (
-        workflowScaledDown(payload, workflowFunctions, strictFunctions, benchmarkConfig.platform)
-      ) {
-        break;
-      }
-    }
-
-    sleep(pollIntervalMs / 1000);
-  }
+function waitForScaleDownForPhase(tags) {
+  waitForScaleDown({
+    listUrl,
+    authHeaders: benchmarkConfig.authHeaders,
+    timeoutMs: invokeTimeoutMs,
+    pollIntervalMs,
+    scaleDownTimeoutMs,
+    workflowFunctions,
+    strictFunctions,
+    platform: benchmarkConfig.platform,
+    tags,
+    listFailures,
+    scaleDownTimeouts,
+  });
 }
 
 function validateBrowsePayload(payload, baseTags) {
