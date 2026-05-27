@@ -359,65 +359,118 @@ collect_function_names() {
   rm -f "$tmp_file"
 }
 
-write_metadata() {
+utc_now() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+update_metadata_json() {
+  local file="$1"
+  shift
+  local tmp_file
+  tmp_file="$(mktemp)"
+  jq "$@" "$file" >"$tmp_file" && mv "$tmp_file" "$file"
+}
+
+init_metadata() {
   local file="$1"
   local profile_name="$2"
   local profile_path="$3"
   local platform="$4"
   local workflow="$5"
   local run_dir="$6"
-  local gateway_url="$7"
-  local public_ip="$8"
-  local instance_name="$9"
-  local zone="${10}"
-  local stack_path="${11}"
+  local stack_path="$7"
 
   jq -n \
-    --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg profile "$profile_name" \
     --arg profile_path "$profile_path" \
     --arg platform "$platform" \
     --arg workflow "$workflow" \
     --arg run_dir "$run_dir" \
-    --arg gateway_url "$gateway_url" \
-    --arg public_ip "$public_ip" \
-    --arg instance_name "$instance_name" \
-    --arg zone "$zone" \
     --arg machine_type "$MACHINE_TYPE" \
     --arg ssh_user "$SSH_USER" \
     --arg stack_path "$stack_path" \
     --argjson k6_iterations "$K6_ITERATIONS" \
     --argjson k6_vus "$K6_VUS" \
     '{
-      started_at: $started_at,
       profile: $profile,
       profile_path: $profile_path,
       platform: $platform,
       workflow: $workflow,
       run_dir: $run_dir,
-      gateway_url: $gateway_url,
-      public_ip: $public_ip,
-      instance_name: $instance_name,
-      zone: $zone,
+      gateway_url: null,
+      public_ip: null,
+      instance_name: null,
+      zone: null,
       machine_type: $machine_type,
       ssh_user: $ssh_user,
       stack_path: $stack_path,
       k6: {
         iterations: $k6_iterations,
         vus: $k6_vus
-      }
+      },
+      provision_started_at: null,
+      provision_finished_at: null,
+      k6_run_started_at: null,
+      k6_run_finished_at: null,
+      status: "running",
+      message: ""
     }' >"$file"
 }
 
-write_status() {
+set_metadata_time() {
+  local file="$1"
+  local field="$2"
+  [[ -f "$file" ]] || return 0
+  update_metadata_json "$file" \
+    --arg field "$field" \
+    --arg timestamp "$(utc_now)" \
+    '.[$field] = $timestamp'
+}
+
+set_metadata_terraform_outputs() {
+  local file="$1"
+  local gateway_url="$2"
+  local public_ip="$3"
+  local instance_name="$4"
+  local zone="$5"
+  update_metadata_json "$file" \
+    --arg gateway_url "$gateway_url" \
+    --arg public_ip "$public_ip" \
+    --arg instance_name "$instance_name" \
+    --arg zone "$zone" \
+    '.gateway_url = $gateway_url
+      | .public_ip = $public_ip
+      | .instance_name = $instance_name
+      | .zone = $zone'
+}
+
+set_metadata_status() {
   local file="$1"
   local status="$2"
   local message="${3:-}"
-  jq -n \
-    --arg finished_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  if [[ ! -f "$file" ]]; then
+    jq -n \
+      --arg status "$status" \
+      --arg message "$message" \
+      '{
+        gateway_url: null,
+        public_ip: null,
+        instance_name: null,
+        zone: null,
+        provision_started_at: null,
+        provision_finished_at: null,
+        k6_run_started_at: null,
+        k6_run_finished_at: null,
+        status: $status,
+        message: $message
+      }' >"$file"
+    return
+  fi
+
+  update_metadata_json "$file" \
     --arg status "$status" \
     --arg message "$message" \
-    '{finished_at: $finished_at, status: $status, message: $message}' >"$file"
+    '.status = $status | .message = $message'
 }
 
 deploy_workflow() {
@@ -599,7 +652,7 @@ handle_child_interrupt() {
 
   log "received SIG$signal in ${CHILD_PLATFORM:-benchmark} worker; cleaning up"
   if [[ -n "$CHILD_RUN_DIR" ]]; then
-    write_status "$CHILD_RUN_DIR/status.json" "interrupted" "received SIG$signal" || true
+    set_metadata_status "$CHILD_RUN_DIR/metadata.json" "interrupted" "received SIG$signal" || true
   fi
 
   if [[ "$CHILD_INFRA_ACTIVE" == "true" && "$CHILD_CLEANUP_DONE" != "true" && -n "$CHILD_PLATFORM" && -n "$CHILD_PROFILE_PATH" && -n "$CHILD_RUN_DIR" ]]; then
@@ -618,7 +671,7 @@ mark_failed_and_cleanup() {
   local message="$4"
   local public_ip="${5:-}"
 
-  write_status "$run_dir/status.json" "failed" "$message" || true
+  set_metadata_status "$run_dir/metadata.json" "failed" "$message" || true
   if ! bool_true "$KEEP_INFRA_ON_FAILURE"; then
     if [[ -n "$public_ip" ]]; then
       collect_remote_logs "$platform" "$public_ip" "$run_dir" || true
@@ -655,10 +708,34 @@ run_benchmark() {
   cp "$profile_path" "$run_dir/profile.env"
 
   log "starting run: $run_id"
+  init_metadata \
+    "$run_dir/metadata.json" \
+    "$profile_name" \
+    "$profile_path" \
+    "$platform" \
+    "$workflow_name" \
+    "$run_dir" \
+    "$stack_path" || {
+      mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "metadata initialization failed"
+      CHILD_CLEANUP_DONE="true"
+      return 1
+    }
+
   terraform_destroy "$platform" "$profile_path" "$run_dir" "$run_dir/logs/terraform-destroy-before.log" || true
   CHILD_INFRA_ACTIVE="true"
-  terraform_apply "$platform" "$profile_path" "$run_dir" "$run_dir/logs/terraform-apply.log" || {
+  set_metadata_time "$run_dir/metadata.json" "provision_started_at" || {
+    mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "provision start timestamp write failed"
+    CHILD_CLEANUP_DONE="true"
+    return 1
+  }
+  if ! terraform_apply "$platform" "$profile_path" "$run_dir" "$run_dir/logs/terraform-apply.log"; then
+    set_metadata_time "$run_dir/metadata.json" "provision_finished_at" || true
     mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "terraform apply failed"
+    CHILD_CLEANUP_DONE="true"
+    return 1
+  fi
+  set_metadata_time "$run_dir/metadata.json" "provision_finished_at" || {
+    mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "provision finish timestamp write failed"
     CHILD_CLEANUP_DONE="true"
     return 1
   }
@@ -677,6 +754,12 @@ run_benchmark() {
   auth_user=""
   auth_password=""
 
+  set_metadata_terraform_outputs "$run_dir/metadata.json" "$gateway_url" "$public_ip" "$instance_name" "$zone" || {
+    mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "metadata terraform output write failed" "$public_ip"
+    CHILD_CLEANUP_DONE="true"
+    return 1
+  }
+
   if [[ "$platform" == "faasd" ]]; then
     auth_user="$(terraform_output_json "$run_dir" faasd_auth_users | jq -r --arg platform "$platform" '.[$platform]')" || {
       mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "faasd auth user output failed" "$public_ip"
@@ -690,34 +773,28 @@ run_benchmark() {
     }
   fi
 
-  write_metadata \
-    "$run_dir/metadata.json" \
-    "$profile_name" \
-    "$profile_path" \
-    "$platform" \
-    "$workflow_name" \
-    "$run_dir" \
-    "$gateway_url" \
-    "$public_ip" \
-    "$instance_name" \
-    "$zone" \
-    "$stack_path" || {
-      mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "metadata write failed" "$public_ip"
-      CHILD_CLEANUP_DONE="true"
-      return 1
-    }
-
   if ! deploy_workflow "$platform" "$stack_path" "$gateway_url" "$auth_user" "$auth_password" "$run_dir/logs/workflow-deploy.log"; then
     mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "workflow deploy failed" "$public_ip"
     CHILD_CLEANUP_DONE="true"
     return 1
   fi
 
+  set_metadata_time "$run_dir/metadata.json" "k6_run_started_at" || {
+    mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "k6 start timestamp write failed" "$public_ip"
+    CHILD_CLEANUP_DONE="true"
+    return 1
+  }
   if ! run_k6 "$platform" "$workflow_name" "$gateway_url" "$auth_user" "$auth_password" "$run_id" "$run_dir"; then
+    set_metadata_time "$run_dir/metadata.json" "k6_run_finished_at" || true
     mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "k6 run failed" "$public_ip"
     CHILD_CLEANUP_DONE="true"
     return 1
   fi
+  set_metadata_time "$run_dir/metadata.json" "k6_run_finished_at" || {
+    mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "k6 finish timestamp write failed" "$public_ip"
+    CHILD_CLEANUP_DONE="true"
+    return 1
+  }
 
   if ! collect_stats "$platform" "$gateway_url" "$auth_user" "$auth_password" "$run_dir"; then
     mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "stats collection failed" "$public_ip"
@@ -726,7 +803,7 @@ run_benchmark() {
   fi
 
   collect_remote_logs "$platform" "$public_ip" "$run_dir" || true
-  write_status "$run_dir/status.json" "success" || {
+  set_metadata_status "$run_dir/metadata.json" "success" || {
     if ! bool_true "$KEEP_INFRA_ON_FAILURE"; then
       terraform_destroy "$platform" "$profile_path" "$run_dir" "$run_dir/logs/terraform-destroy-after.log" || true
     fi
