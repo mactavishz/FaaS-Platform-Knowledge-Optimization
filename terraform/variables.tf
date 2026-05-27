@@ -1,11 +1,11 @@
 variable "region" {
   description = "Region to deploy the resources"
-  default     = "europe-west3"
+  default     = "europe-central2"
 }
 
 variable "zone" {
   description = "Zone in the region to deploy the resources"
-  default     = "europe-west3-a"
+  default     = "europe-central2-a"
 }
 
 variable "network" {
@@ -26,7 +26,7 @@ variable "ssh_user" {
 
 variable "machine_type" {
   description = "Machine type of the VM to create"
-  default     = "n2-standard-4"
+  default     = "n2-standard-2" # 2 vCPUs, 8 GB RAM
 }
 
 variable "deploy_dir" {
@@ -49,13 +49,14 @@ variable "gateway_health_retry_interval" {
   default     = 10
 }
 
-variable "faas_platform" {
-  description = "FaaS platform to benchmark (faasd or tinyfaas)"
-  default     = "tinyfaas"
+variable "faas_platforms" {
+  description = "FaaS platforms to benchmark (faasd and/or tinyfaas)"
+  type        = list(string)
+  default     = ["faasd", "tinyfaas"]
 
   validation {
-    condition     = contains(["faasd", "tinyfaas"], var.faas_platform)
-    error_message = "faas_platform must be either \"faasd\" or \"tinyfaas\"."
+    condition     = length(var.faas_platforms) > 0 && length(setsubtract(toset(var.faas_platforms), toset(["faasd", "tinyfaas"]))) == 0
+    error_message = "faas_platforms must contain only \"faasd\" and/or \"tinyfaas\"."
   }
 }
 

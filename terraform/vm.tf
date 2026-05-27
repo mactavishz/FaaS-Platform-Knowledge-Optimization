@@ -7,80 +7,112 @@ data "google_compute_image" "ubuntu" {
 }
 
 locals {
-  env_content             = var.env_file == "" ? "" : file(pathexpand(var.env_file))
-  gateway_health_endpoint = var.faas_platform == "faasd" ? "system/functions" : "system/list"
-  faasd_auth_user         = var.faas_platform == "faasd" ? var.faasd_auth_user : ""
-  faasd_auth_password     = var.faas_platform == "faasd" ? coalesce(var.faasd_auth_password, one(random_password.faasd_auth_password[*].result)) : ""
+  platforms   = toset(var.faas_platforms)
+  env_content = var.env_file == "" ? "" : file(pathexpand(var.env_file))
+
+  gateway_health_endpoint = {
+    faasd    = "system/functions"
+    tinyfaas = "system/list"
+  }
+
+  faasd_auth_user = {
+    for platform in local.platforms :
+    platform => platform == "faasd" ? var.faasd_auth_user : ""
+  }
+
+  faasd_auth_password = {
+    for platform in local.platforms :
+    platform => platform == "faasd" ? coalesce(var.faasd_auth_password, try(random_password.faasd_auth_password["faasd"].result, "")) : ""
+  }
+
   startup_template_vars = {
-    github_token_b64        = base64encode(var.github_token)
-    repo_url_b64            = base64encode(var.repo_url)
-    repo_ref_b64            = base64encode(var.repo_ref)
-    env_content_b64         = base64encode(local.env_content)
-    faasd_auth_user_b64     = base64encode(local.faasd_auth_user)
-    faasd_auth_password_b64 = base64encode(local.faasd_auth_password)
-    gateway_port            = tostring(var.gateway_port)
-    ssh_user                = var.ssh_user
-    deploy_dir              = var.deploy_dir
-    go_version              = var.go_version
-    nerdctl_version         = var.nerdctl_version
-    containerd_version      = var.containerd_version
-    cni_plugin_version      = var.cni_plugin_version
+    for platform in local.platforms :
+    platform => {
+      github_token_b64        = base64encode(var.github_token)
+      repo_url_b64            = base64encode(var.repo_url)
+      repo_ref_b64            = base64encode(var.repo_ref)
+      env_content_b64         = base64encode(local.env_content)
+      faasd_auth_user_b64     = base64encode(local.faasd_auth_user[platform])
+      faasd_auth_password_b64 = base64encode(local.faasd_auth_password[platform])
+      gateway_port            = tostring(var.gateway_port)
+      ssh_user                = var.ssh_user
+      deploy_dir              = var.deploy_dir
+      go_version              = var.go_version
+      nerdctl_version         = var.nerdctl_version
+      containerd_version      = var.containerd_version
+      cni_plugin_version      = var.cni_plugin_version
+    }
+  }
+
+  iam_roles = toset(["roles/logging.logWriter", "roles/monitoring.metricWriter"])
+  iam_members = {
+    for pair in setproduct(local.platforms, local.iam_roles) :
+    "${pair[0]}-${replace(pair[1], "/", "-")}" => {
+      platform = pair[0]
+      role     = pair[1]
+    }
   }
 }
 
-# The random_id resource is used to generate a unique suffix for the VM instance name and service account to avoid naming conflicts on repeated runs.
 resource "random_string" "vm_id" {
+  for_each = local.platforms
+
   length  = 6
   special = false
   upper   = false
 }
 
 resource "random_password" "faasd_auth_password" {
-  count   = var.faas_platform == "faasd" && var.faasd_auth_password == null ? 1 : 0
+  for_each = toset(contains(var.faas_platforms, "faasd") ? ["faasd"] : [])
+
   length  = 32
   special = false
 }
 
 resource "google_service_account" "bench_sa" {
+  for_each = local.platforms
+
   project      = data.google_client_config.current.project
-  account_id   = "faas-bench-vm-sa-${random_string.vm_id.result}"
-  display_name = "Service Account for FaaS Benchmark VM Instance"
+  account_id   = "faas-bench-${each.key}-sa-${random_string.vm_id[each.key].result}"
+  display_name = "Service Account for ${each.key} Benchmark VM Instance"
 }
 
-# Grant necessary IAM roles to the service account for logging and monitoring (Ops Agent)
 resource "google_project_iam_member" "monitoring" {
   project  = data.google_client_config.current.project
-  for_each = toset(["roles/logging.logWriter", "roles/monitoring.metricWriter"])
-  role     = each.value
-  member   = format("serviceAccount:%s", google_service_account.bench_sa.email)
+  for_each = local.iam_members
+
+  role   = each.value.role
+  member = format("serviceAccount:%s", google_service_account.bench_sa[each.value.platform].email)
 }
 
 resource "google_compute_address" "ip_address" {
+  for_each = local.platforms
+
   project = data.google_client_config.current.project
-  name    = "faas-bench-vm-ip-${random_string.vm_id.result}"
+  name    = "faas-bench-${each.key}-ip-${random_string.vm_id[each.key].result}"
   region  = var.region
 }
 
 resource "google_compute_instance" "bench_vm" {
-  project = data.google_client_config.current.project
-  name    = "faas-bench-vm-${random_string.vm_id.result}"
-  # n2-standard-16
+  for_each = local.platforms
+
+  project      = data.google_client_config.current.project
+  name         = "faas-bench-${each.key}-${random_string.vm_id[each.key].result}"
   machine_type = var.machine_type
   zone         = var.zone
-  tags         = ["ssh", "http", "benchmark"]
+  tags         = ["ssh", "http", "benchmark", each.key]
 
   boot_disk {
     initialize_params {
       image = data.google_compute_image.ubuntu.self_link
-      size  = 200
+      size  = 50
     }
   }
 
   network_interface {
-    # A default network is created for all GCP projects
     network = var.network
     access_config {
-      nat_ip = google_compute_address.ip_address.address
+      nat_ip = google_compute_address.ip_address[each.key].address
     }
   }
 
@@ -88,17 +120,19 @@ resource "google_compute_instance" "bench_vm" {
     ssh-keys = "${var.ssh_user}:${trimspace(file(pathexpand(var.ssh_pubkey)))}"
   }
 
-  metadata_startup_script = var.faas_platform == "faasd" ? templatefile("${path.module}/scripts/provision_faasd_tpl.sh", local.startup_template_vars) : templatefile("${path.module}/scripts/provision_tinyfaas_tpl.sh", local.startup_template_vars)
+  metadata_startup_script = each.key == "faasd" ? templatefile("${path.module}/scripts/provision_faasd_tpl.sh", local.startup_template_vars[each.key]) : templatefile("${path.module}/scripts/provision_tinyfaas_tpl.sh", local.startup_template_vars[each.key])
 
   service_account {
-    # Google recommends custom service accounts that have cloud-platform scope and permissions granted via IAM Roles.
-    email  = google_service_account.bench_sa.email
+    email  = google_service_account.bench_sa[each.key].email
     scopes = ["cloud-platform"]
   }
 }
 
 resource "google_compute_firewall" "ssh" {
-  name    = "${google_compute_instance.bench_vm.name}-ssh-access"
+  for_each = local.platforms
+
+  project = data.google_client_config.current.project
+  name    = "${google_compute_instance.bench_vm[each.key].name}-ssh-access"
   network = var.network
 
   allow {
@@ -106,13 +140,15 @@ resource "google_compute_firewall" "ssh" {
     ports    = ["22"]
   }
 
-  target_tags   = ["ssh"]
+  target_tags   = [each.key]
   source_ranges = ["0.0.0.0/0"]
 }
 
 resource "google_compute_firewall" "http" {
+  for_each = local.platforms
+
   project = data.google_client_config.current.project
-  name    = "${google_compute_instance.bench_vm.name}-http-access"
+  name    = "${google_compute_instance.bench_vm[each.key].name}-http-access"
   network = var.network
 
   allow {
@@ -120,16 +156,18 @@ resource "google_compute_firewall" "http" {
     ports    = [var.gateway_port]
   }
 
-  target_tags   = ["http"]
+  target_tags   = [each.key]
   source_ranges = ["0.0.0.0/0"]
 }
 
 resource "terracurl_request" "gateway_health_check" {
-  name   = "gateway-health-check"
-  url    = "http://${google_compute_address.ip_address.address}:${var.gateway_port}/${local.gateway_health_endpoint}"
+  for_each = local.platforms
+
+  name   = "${each.key}-gateway-health-check"
+  url    = "http://${google_compute_address.ip_address[each.key].address}:${var.gateway_port}/${local.gateway_health_endpoint[each.key]}"
   method = "GET"
 
-  response_codes = var.faas_platform == "faasd" ? [200, 401, 403] : [200]
+  response_codes = each.key == "faasd" ? [200, 401, 403] : [200]
   max_retry      = var.gateway_health_max_retry
   retry_interval = var.gateway_health_retry_interval
 

@@ -35,12 +35,12 @@ export TF_VAR_github_token="$GITHUB_TOKEN"
 terraform -chdir=terraform init
 # Assuming you have the default tinyFaaS env file at .env and ssh public key at ~/.ssh/id_ed25519.pub:
 terraform -chdir=terraform apply \
-  -var faas_platform=tinyfaas \
+  -var 'faas_platforms=["tinyfaas"]' \
   -var env_file="$PWD/.env" \
   -var ssh_pubkey="$HOME/.ssh/id_ed25519.pub"
 ```
 
-Use `-var faas_platform=faasd` to provision faasd instead.
+Use `-var 'faas_platforms=["faasd"]'` to provision faasd instead, or `-var 'faas_platforms=["faasd","tinyfaas"]'` to provision both platforms in one Terraform state.
 
 The default gateway port is `8080`. tinyFaaS consumes `GATEWAY_PORT` from `/etc/default/tinyfaas`. The current faasd gateway binary listens on `8080`, so use the default for faasd unless the gateway implementation is updated to support a configurable listen port.
 
@@ -49,11 +49,11 @@ The startup script builds from a `bench`-owned checkout at `/opt/faas-platform` 
 ## Outputs
 
 ```bash
-terraform -chdir=terraform output instance_name
-terraform -chdir=terraform output zone
-terraform -chdir=terraform output public_ip
-terraform -chdir=terraform output gateway_url
-terraform -chdir=terraform output ssh_command
+terraform -chdir=terraform output instance_names
+terraform -chdir=terraform output zones
+terraform -chdir=terraform output public_ips
+terraform -chdir=terraform output gateway_urls
+terraform -chdir=terraform output ssh_commands
 ```
 
 ## Access
@@ -61,7 +61,7 @@ terraform -chdir=terraform output ssh_command
 SSH:
 
 ```bash
-ssh -i "<private-key-path>" bench@$(terraform -chdir=terraform output -raw public_ip)
+ssh -i "<private-key-path>" bench@$(terraform -chdir=terraform output -json public_ips | jq -r .tinyfaas)
 ```
 
 Or use the placeholder output and replace `<private-key-path>`:
@@ -73,15 +73,15 @@ terraform -chdir=terraform output -raw ssh_command
 For faasd, Terraform manages the basic-auth credentials:
 
 ```bash
-terraform -chdir=terraform output faasd_auth_user
-terraform -chdir=terraform output -raw faasd_auth_password
+terraform -chdir=terraform output faasd_auth_users
+terraform -chdir=terraform output faasd_auth_passwords
 ```
 
 Or, you can combine the outputs to `faas-cli` commands:
 
 ```bash
 # Login to faasd with the Terraform outputs
-terraform output -raw faasd_auth_password | faas-cli login -s -g $(terraform output -raw gateway_url)
+terraform output -json faasd_auth_passwords | jq -r .faasd | faas-cli login -s -g "$(terraform output -json gateway_urls | jq -r .faasd)"
 
 # Then verify the function list is accessible
 faas-cli list
@@ -93,8 +93,8 @@ If Terraform is still waiting on the gateway health check, inspect the serial co
 
 ```bash
 gcloud compute instances get-serial-port-output \
-  "$(terraform -chdir=terraform output -raw instance_name)" \
-  --zone "$(terraform -chdir=terraform output -raw zone)" \
+  "$(terraform -chdir=terraform output -json instance_names | jq -r .tinyfaas)" \
+  --zone "$(terraform -chdir=terraform output -json zones | jq -r .tinyfaas)" \
   --port 1
 ```
 

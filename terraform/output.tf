@@ -1,32 +1,56 @@
-output "public_ip" {
-  value = google_compute_address.ip_address.address
+output "public_ips" {
+  value = {
+    for platform, address in google_compute_address.ip_address :
+    platform => address.address
+  }
 }
 
-output "deployed_faas_platform" {
-  value = var.faas_platform
+output "deployed_faas_platforms" {
+  value = {
+    for platform in local.platforms :
+    platform => platform
+  }
 }
 
-output "instance_name" {
-  value = google_compute_instance.bench_vm.name
+output "instance_names" {
+  value = {
+    for platform, instance in google_compute_instance.bench_vm :
+    platform => instance.name
+  }
 }
 
-output "zone" {
-  value = var.zone
+output "zones" {
+  value = {
+    for platform in local.platforms :
+    platform => var.zone
+  }
 }
 
-output "gateway_url" {
-  value = "http://${google_compute_address.ip_address.address}:${var.gateway_port}"
+output "gateway_urls" {
+  value = {
+    for platform, address in google_compute_address.ip_address :
+    platform => "http://${address.address}:${var.gateway_port}"
+  }
 }
 
-output "ssh_command" {
-  value = "ssh -i <private-key-path> ${var.ssh_user}@${google_compute_address.ip_address.address}"
+output "ssh_commands" {
+  value = {
+    for platform, address in google_compute_address.ip_address :
+    platform => "ssh -i <private-key-path> ${var.ssh_user}@${address.address}"
+  }
 }
 
-output "faasd_auth_user" {
-  value = var.faas_platform == "faasd" ? local.faasd_auth_user : null
+output "faasd_auth_users" {
+  value = {
+    for platform in local.platforms :
+    platform => platform == "faasd" ? local.faasd_auth_user[platform] : null
+  }
 }
 
-output "faasd_auth_password" {
-  value     = var.faas_platform == "faasd" ? local.faasd_auth_password : null
+output "faasd_auth_passwords" {
+  value = {
+    for platform in local.platforms :
+    platform => platform == "faasd" ? local.faasd_auth_password[platform] : null
+  }
   sensitive = true
 }
