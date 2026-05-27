@@ -52,6 +52,20 @@ export default function () {
   const tags = { entry: entryFunction, workflow: workflow.name, platform: benchmarkConfig.platform };
   const requestBody = method === 'GET' || method === 'HEAD' ? null : body;
 
+  waitForScaleDown({
+    listUrl,
+    authHeaders: benchmarkConfig.authHeaders,
+    timeoutMs: invokeTimeoutMs,
+    pollIntervalMs,
+    scaleDownTimeoutMs,
+    workflowFunctions,
+    strictFunctions,
+    platform: benchmarkConfig.platform,
+    tags,
+    listFailures,
+    scaleDownTimeouts,
+  });
+
   const response = http.request(method, invokeUrl, requestBody, {
     headers: withAuthHeaders({ 'Content-Type': 'application/json' }, benchmarkConfig.authHeaders),
     timeout: `${invokeTimeoutMs}ms`,
@@ -67,18 +81,4 @@ export default function () {
   }
 
   workflowLatencyMs.add(response.timings.duration, tags);
-
-  waitForScaleDown({
-    listUrl,
-    authHeaders: benchmarkConfig.authHeaders,
-    timeoutMs: invokeTimeoutMs,
-    pollIntervalMs,
-    scaleDownTimeoutMs,
-    workflowFunctions,
-    strictFunctions,
-    platform: benchmarkConfig.platform,
-    tags,
-    listFailures,
-    scaleDownTimeouts,
-  });
 }
