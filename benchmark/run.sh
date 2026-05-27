@@ -479,9 +479,8 @@ run_k6() {
   k6 run \
     "${env_args[@]}" \
     --quiet \
-    --summary-mode full \
     --summary-export "$run_dir/k6/summary.json" \
-    --out "json=$run_dir/k6/metrics.json" \
+    --out "csv=$run_dir/k6/metrics.csv" \
     "$script" >"$run_dir/logs/k6-run.log" 2>&1
 }
 
