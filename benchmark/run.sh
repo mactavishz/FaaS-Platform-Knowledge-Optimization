@@ -21,7 +21,7 @@ MACHINE_TYPE="${MACHINE_TYPE:-n2-standard-8}"
 SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY:-$TERRAFORM_DIR/gcp}"
 SSH_PUBLIC_KEY="${SSH_PUBLIC_KEY:-$TERRAFORM_DIR/gcp.pub}"
 SSH_USER="${SSH_USER:-bench}"
-K6_ITERATIONS="${K6_ITERATIONS:-70}"
+K6_ITERATIONS="${K6_ITERATIONS:-50}"
 K6_VUS="${K6_VUS:-1}"
 K6_MAX_DURATION="${K6_MAX_DURATION:-6h}"
 K6_GRACEFUL_STOP="${K6_GRACEFUL_STOP:-30s}"
@@ -30,15 +30,16 @@ KEEP_INFRA_ON_FAILURE="${KEEP_INFRA_ON_FAILURE:-false}"
 RERUN_OVERWRITE="${RERUN_OVERWRITE:-false}"
 DRY_RUN="${DRY_RUN:-false}"
 
-CURRENT_RUN_DIR=""
-CURRENT_PLATFORM=""
-CURRENT_INFRA_ACTIVE="false"
-CURRENT_RUN_FAILED="false"
-CURRENT_PROFILE_PATH=""
 INTERRUPTED="false"
-CLEANUP_IN_PROGRESS="false"
 EXIT_STATUS=0
 RESOLVED_PROFILES=()
+RUN_PIDS=()
+RUN_PID_PLATFORMS=()
+CHILD_PLATFORM=""
+CHILD_PROFILE_PATH=""
+CHILD_RUN_DIR=""
+CHILD_INFRA_ACTIVE="false"
+CHILD_CLEANUP_DONE="false"
 
 log() {
   printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2
@@ -76,7 +77,7 @@ abs_path() {
   fi
 }
 
-profile_path_for() {
+get_profile_path() {
   local profile="$1"
   if [[ "$profile" = */* || "$profile" = *.env ]]; then
     abs_path "$profile"
@@ -85,7 +86,7 @@ profile_path_for() {
   fi
 }
 
-profile_name_for() {
+get_profile_name() {
   local path="$1"
   basename "$path" .env
 }
@@ -117,7 +118,7 @@ get_workflow_k6_script() {
   esac
 }
 
-stack_path_for() {
+get_stack_file_path() {
   local platform="$1"
   local workflow="$2"
   local workflow_dir
@@ -129,7 +130,7 @@ resolve_profiles() {
   if [[ -n "$PROFILES" ]]; then
     local profile
     for profile in $PROFILES; do
-      profile_path_for "$profile"
+      get_profile_path "$profile"
     done
     return
   fi
@@ -164,7 +165,7 @@ ensure_benchmark_configs() {
       *) fatal "unsupported platform: $platform" ;;
     esac
     for workflow in $WORKFLOWS; do
-      stack="$(stack_path_for "$platform" "$workflow")"
+      stack="$(get_stack_file_path "$platform" "$workflow")"
       [[ -f "$stack" ]] || fatal "workflow stack not found: $stack"
     done
   done
@@ -189,7 +190,7 @@ terraform_args() {
   local platform="$1"
   local profile="$2"
   printf '%s\0' \
-    -var "faas_platform=$platform" \
+    -var "faas_platforms=[\"$platform\"]" \
     -var "env_file=$profile" \
     -var "machine_type=$MACHINE_TYPE" \
     -var "ssh_pubkey=$SSH_PUBLIC_KEY" \
@@ -198,9 +199,11 @@ terraform_args() {
 
 run_terraform() {
   local log_file="$1"
+  local state_file="$2"
+  shift
   shift
   log "terraform $*"
-  terraform -chdir="$TERRAFORM_DIR" "$@" >"$log_file" 2>&1
+  terraform -chdir="$TERRAFORM_DIR" "$@" -state="$state_file" >"$log_file" 2>&1
 }
 
 terraform_init() {
@@ -211,39 +214,45 @@ terraform_init() {
 terraform_destroy() {
   local platform="$1"
   local profile="$2"
-  local log_file="$3"
+  local run_dir="$3"
+  local log_file="$4"
   local arg
   local -a args=()
   while IFS= read -r -d '' arg; do
     args+=("$arg")
   done < <(terraform_args "$platform" "$profile")
-  run_terraform "$log_file" destroy -auto-approve "${args[@]}"
+  run_terraform "$log_file" "$run_dir/terraform.tfstate" destroy -auto-approve "${args[@]}"
 }
 
 terraform_apply() {
   local platform="$1"
   local profile="$2"
-  local log_file="$3"
+  local run_dir="$3"
+  local log_file="$4"
   local arg
   local -a args=()
   while IFS= read -r -d '' arg; do
     args+=("$arg")
   done < <(terraform_args "$platform" "$profile")
-  run_terraform "$log_file" apply -auto-approve "${args[@]}"
+  run_terraform "$log_file" "$run_dir/terraform.tfstate" apply -auto-approve "${args[@]}"
 }
 
-terraform_output_raw() {
-  terraform -chdir="$TERRAFORM_DIR" output -raw "$1"
+terraform_output_json() {
+  local run_dir="$1"
+  local name="$2"
+  terraform -chdir="$TERRAFORM_DIR" output -state="$run_dir/terraform.tfstate" -json "$name"
 }
 
-capture_sanitized_outputs() {
-  local output_file="$1"
+sanitize_terraform_outputs() {
+  local platform="$1"
+  local run_dir="$2"
+  local output_file="$3"
   local public_ip gateway_url instance_name zone deployed_platform
-  public_ip="$(terraform_output_raw public_ip)" || return
-  gateway_url="$(terraform_output_raw gateway_url)" || return
-  instance_name="$(terraform_output_raw instance_name)" || return
-  zone="$(terraform_output_raw zone)" || return
-  deployed_platform="$(terraform_output_raw deployed_faas_platform)" || return
+  public_ip="$(terraform_output_json "$run_dir" public_ips | jq -r --arg platform "$platform" '.[$platform]')" || return
+  gateway_url="$(terraform_output_json "$run_dir" gateway_urls | jq -r --arg platform "$platform" '.[$platform]')" || return
+  instance_name="$(terraform_output_json "$run_dir" instance_names | jq -r --arg platform "$platform" '.[$platform]')" || return
+  zone="$(terraform_output_json "$run_dir" zones | jq -r --arg platform "$platform" '.[$platform]')" || return
+  deployed_platform="$(terraform_output_json "$run_dir" deployed_faas_platforms | jq -r --arg platform "$platform" '.[$platform]')" || return
 
   jq -n \
     --arg public_ip "$public_ip" \
@@ -310,7 +319,7 @@ curl_json() {
   curl --fail --silent --show-error "${auth_args[@]}" "$url" -o "$output"
 }
 
-list_endpoint_for() {
+get_list_endpoint() {
   case "$1" in
     tinyfaas) printf '/system/list\n' ;;
     faasd) printf '/system/functions\n' ;;
@@ -318,7 +327,7 @@ list_endpoint_for() {
   esac
 }
 
-stats_url_for() {
+get_stats_endpoint() {
   local platform="$1"
   local gateway_url="$2"
   local function_name="$3"
@@ -336,7 +345,7 @@ collect_function_names() {
   local auth_password="$4"
   local output_file="$5"
   local list_path tmp_file
-  list_path="$(list_endpoint_for "$platform")"
+  list_path="$(get_list_endpoint "$platform")"
   tmp_file="$(mktemp)"
 
   curl_json "$platform" "$auth_user" "$auth_password" "$gateway_url$list_path" "$tmp_file" || {
@@ -493,7 +502,7 @@ collect_stats() {
   local function_name url output
   while IFS= read -r function_name; do
     [[ -n "$function_name" ]] || continue
-    url="$(stats_url_for "$platform" "$gateway_url" "$function_name")"
+    url="$(get_stats_endpoint "$platform" "$gateway_url" "$function_name")"
     output="$run_dir/stats/functions/$function_name.json"
     curl_json "$platform" "$auth_user" "$auth_password" "$url" "$output" || true
   done <"$function_names_file"
@@ -548,41 +557,18 @@ get_run_dir() {
   fi
 }
 
-cleanup_current_infra() {
-  if [[ "$CLEANUP_IN_PROGRESS" == "true" ]]; then
-    log "cleanup already in progress; skipping nested cleanup request"
-    return
-  fi
-  if [[ "$CURRENT_INFRA_ACTIVE" != "true" || -z "$CURRENT_RUN_DIR" || -z "$CURRENT_PLATFORM" ]]; then
-    return
-  fi
-  if [[ "$CURRENT_RUN_FAILED" == "true" && "$INTERRUPTED" != "true" ]] && bool_true "$KEEP_INFRA_ON_FAILURE"; then
-    log "keeping infrastructure for failed run: $CURRENT_RUN_DIR"
-    return
-  fi
-
-  CLEANUP_IN_PROGRESS="true"
-  log "destroying infrastructure for current run"
-  if [[ -n "${CURRENT_PROFILE_PATH:-}" ]]; then
-    terraform_destroy "$CURRENT_PLATFORM" "$CURRENT_PROFILE_PATH" "$CURRENT_RUN_DIR/logs/terraform-destroy-after.log" || true
-  fi
-  CURRENT_INFRA_ACTIVE="false"
-  CLEANUP_IN_PROGRESS="false"
-}
-
 on_exit() {
   local status=$?
   if [[ "$EXIT_STATUS" -ne 0 ]]; then
     status="$EXIT_STATUS"
   fi
-  cleanup_current_infra
   exit "$status"
 }
 
 handle_interrupt() {
   local signal="$1"
   INTERRUPTED="true"
-  CURRENT_RUN_FAILED="true"
+  trap - INT TERM
 
   case "$signal" in
     INT) EXIT_STATUS=130 ;;
@@ -590,12 +576,56 @@ handle_interrupt() {
     *) EXIT_STATUS=130 ;;
   esac
 
-  log "received SIG$signal; stopping benchmark and cleaning up infrastructure"
-  if [[ -n "$CURRENT_RUN_DIR" ]]; then
-    write_status "$CURRENT_RUN_DIR/status.json" "interrupted" "received SIG$signal" || true
-  fi
-  cleanup_current_infra
+  log "received SIG$signal; stopping benchmark jobs"
+  local pid
+  for pid in "${RUN_PIDS[@]:-}"; do
+    kill -TERM "$pid" >/dev/null 2>&1 || true
+  done
+  for pid in "${RUN_PIDS[@]:-}"; do
+    wait "$pid" >/dev/null 2>&1 || true
+  done
   exit "$EXIT_STATUS"
+}
+
+handle_child_interrupt() {
+  local signal="$1"
+  local status
+  trap '' INT TERM
+
+  case "$signal" in
+    INT) status=130 ;;
+    TERM) status=143 ;;
+    *) status=130 ;;
+  esac
+
+  log "received SIG$signal in ${CHILD_PLATFORM:-benchmark} worker; cleaning up"
+  if [[ -n "$CHILD_RUN_DIR" ]]; then
+    write_status "$CHILD_RUN_DIR/status.json" "interrupted" "received SIG$signal" || true
+  fi
+
+  if [[ "$CHILD_INFRA_ACTIVE" == "true" && "$CHILD_CLEANUP_DONE" != "true" && -n "$CHILD_PLATFORM" && -n "$CHILD_PROFILE_PATH" && -n "$CHILD_RUN_DIR" ]]; then
+    CHILD_CLEANUP_DONE="true"
+    log "destroying interrupted infrastructure for $CHILD_PLATFORM; log: $CHILD_RUN_DIR/logs/terraform-destroy-after.log"
+    terraform_destroy "$CHILD_PLATFORM" "$CHILD_PROFILE_PATH" "$CHILD_RUN_DIR" "$CHILD_RUN_DIR/logs/terraform-destroy-after.log" || true
+  fi
+
+  exit "$status"
+}
+
+mark_failed_and_cleanup() {
+  local platform="$1"
+  local profile_path="$2"
+  local run_dir="$3"
+  local message="$4"
+  local public_ip="${5:-}"
+
+  write_status "$run_dir/status.json" "failed" "$message" || true
+  if ! bool_true "$KEEP_INFRA_ON_FAILURE"; then
+    if [[ -n "$public_ip" ]]; then
+      collect_remote_logs "$platform" "$public_ip" "$run_dir" || true
+    fi
+    terraform_destroy "$platform" "$profile_path" "$run_dir" "$run_dir/logs/terraform-destroy-after.log" || true
+  fi
 }
 
 run_benchmark() {
@@ -603,17 +633,16 @@ run_benchmark() {
   local platform="$2"
   local workflow="$3"
   local profile_name workflow_name run_id run_dir stack_path
-  profile_name="$(profile_name_for "$profile_path")"
+  profile_name="$(get_profile_name "$profile_path")"
   workflow_name="$(get_k6_workflow_name "$workflow")"
   run_id="$profile_name-$platform-$workflow_name"
   run_dir="$(get_run_dir "$profile_name" "$platform" "$workflow_name")"
-  stack_path="$(stack_path_for "$platform" "$workflow")"
-
-  CURRENT_RUN_DIR="$run_dir"
-  CURRENT_PLATFORM="$platform"
-  CURRENT_PROFILE_PATH="$profile_path"
-  CURRENT_INFRA_ACTIVE="false"
-  CURRENT_RUN_FAILED="false"
+  stack_path="$(get_stack_file_path "$platform" "$workflow")"
+  CHILD_PLATFORM="$platform"
+  CHILD_PROFILE_PATH="$profile_path"
+  CHILD_RUN_DIR="$run_dir"
+  CHILD_INFRA_ACTIVE="false"
+  CHILD_CLEANUP_DONE="false"
 
   if bool_true "$RERUN_OVERWRITE"; then
     log "overwriting selected run directory: $run_dir"
@@ -623,14 +652,23 @@ run_benchmark() {
   fi
 
   create_run_dirs "$run_dir"
+  exec > >(tee -a "$run_dir/logs/benchmark-run.log") 2>&1
   cp "$profile_path" "$run_dir/profile.env"
 
   log "starting run: $run_id"
-  terraform_destroy "$platform" "$profile_path" "$run_dir/logs/terraform-destroy-before.log" || true
-  CURRENT_INFRA_ACTIVE="true"
-  terraform_apply "$platform" "$profile_path" "$run_dir/logs/terraform-apply.log" || return
+  terraform_destroy "$platform" "$profile_path" "$run_dir" "$run_dir/logs/terraform-destroy-before.log" || true
+  CHILD_INFRA_ACTIVE="true"
+  terraform_apply "$platform" "$profile_path" "$run_dir" "$run_dir/logs/terraform-apply.log" || {
+    mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "terraform apply failed"
+    CHILD_CLEANUP_DONE="true"
+    return 1
+  }
 
-  capture_sanitized_outputs "$run_dir/terraform-outputs.json" || return
+  sanitize_terraform_outputs "$platform" "$run_dir" "$run_dir/terraform-outputs.json" || {
+    mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "terraform output capture failed"
+    CHILD_CLEANUP_DONE="true"
+    return 1
+  }
 
   local gateway_url public_ip instance_name zone auth_user auth_password
   gateway_url="$(jq -r '.gateway_url' "$run_dir/terraform-outputs.json")" || return
@@ -641,8 +679,16 @@ run_benchmark() {
   auth_password=""
 
   if [[ "$platform" == "faasd" ]]; then
-    auth_user="$(terraform_output_raw faasd_auth_user)" || return
-    auth_password="$(terraform_output_raw faasd_auth_password)" || return
+    auth_user="$(terraform_output_json "$run_dir" faasd_auth_users | jq -r --arg platform "$platform" '.[$platform]')" || {
+      mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "faasd auth user output failed" "$public_ip"
+      CHILD_CLEANUP_DONE="true"
+      return 1
+    }
+    auth_password="$(terraform_output_json "$run_dir" faasd_auth_passwords | jq -r --arg platform "$platform" '.[$platform]')" || {
+      mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "faasd auth password output failed" "$public_ip"
+      CHILD_CLEANUP_DONE="true"
+      return 1
+    }
   fi
 
   write_metadata \
@@ -656,16 +702,101 @@ run_benchmark() {
     "$public_ip" \
     "$instance_name" \
     "$zone" \
-    "$stack_path" || return
+    "$stack_path" || {
+      mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "metadata write failed" "$public_ip"
+      CHILD_CLEANUP_DONE="true"
+      return 1
+    }
 
-  deploy_workflow "$platform" "$stack_path" "$gateway_url" "$auth_user" "$auth_password" "$run_dir/logs/workflow-deploy.log" || return
-  run_k6 "$platform" "$workflow_name" "$gateway_url" "$auth_user" "$auth_password" "$run_id" "$run_dir" || return
-  collect_stats "$platform" "$gateway_url" "$auth_user" "$auth_password" "$run_dir" || return
+  if ! deploy_workflow "$platform" "$stack_path" "$gateway_url" "$auth_user" "$auth_password" "$run_dir/logs/workflow-deploy.log"; then
+    mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "workflow deploy failed" "$public_ip"
+    CHILD_CLEANUP_DONE="true"
+    return 1
+  fi
+
+  if ! run_k6 "$platform" "$workflow_name" "$gateway_url" "$auth_user" "$auth_password" "$run_id" "$run_dir"; then
+    mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "k6 run failed" "$public_ip"
+    CHILD_CLEANUP_DONE="true"
+    return 1
+  fi
+
+  if ! collect_stats "$platform" "$gateway_url" "$auth_user" "$auth_password" "$run_dir"; then
+    mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "stats collection failed" "$public_ip"
+    CHILD_CLEANUP_DONE="true"
+    return 1
+  fi
+
   collect_remote_logs "$platform" "$public_ip" "$run_dir" || true
-  write_status "$run_dir/status.json" "success" || return
+  write_status "$run_dir/status.json" "success" || {
+    if ! bool_true "$KEEP_INFRA_ON_FAILURE"; then
+      terraform_destroy "$platform" "$profile_path" "$run_dir" "$run_dir/logs/terraform-destroy-after.log" || true
+    fi
+    CHILD_CLEANUP_DONE="true"
+    return 1
+  }
 
-  cleanup_current_infra
+  terraform_destroy "$platform" "$profile_path" "$run_dir" "$run_dir/logs/terraform-destroy-after.log" || true
+  CHILD_INFRA_ACTIVE="false"
+  CHILD_CLEANUP_DONE="true"
   log "completed run: $run_id"
+}
+
+run_platform_profile() {
+  local profile="$1"
+  local platform="$2"
+  local workflow run_failed
+
+  for workflow in $WORKFLOWS; do
+    run_failed="false"
+    log "starting platform benchmark step: $(get_profile_name "$profile")/$platform/$(get_k6_workflow_name "$workflow")"
+    if ! run_benchmark "$profile" "$platform" "$workflow"; then
+      run_failed="true"
+      log "platform benchmark step failed: $(get_profile_name "$profile")/$platform/$(get_k6_workflow_name "$workflow")"
+    fi
+
+    if [[ "$run_failed" == "true" ]] && ! bool_true "$CONTINUE_ON_ERROR"; then
+      return 1
+    fi
+  done
+}
+
+run_profiles_parallel() {
+  local profile="$1"
+  local platform pid failed index status
+  failed="false"
+  RUN_PIDS=()
+  RUN_PID_PLATFORMS=()
+
+  for platform in $PLATFORMS; do
+    log "launching platform benchmark $(get_profile_name "$profile")/$platform in background"
+    (
+      trap 'handle_child_interrupt INT' INT
+      trap 'handle_child_interrupt TERM' TERM
+      run_platform_profile "$profile" "$platform"
+    ) &
+    pid="$!"
+    RUN_PIDS+=("$pid")
+    RUN_PID_PLATFORMS+=("$platform")
+    log "launched $platform platform benchmark pid=$pid"
+  done
+
+  for index in "${!RUN_PIDS[@]}"; do
+    pid="${RUN_PIDS[$index]}"
+    platform="${RUN_PID_PLATFORMS[$index]}"
+    log "waiting for $platform platform benchmark pid=$pid"
+    status=0
+    wait "$pid" || status="$?"
+    if [[ "$status" -ne 0 ]]; then
+      failed="true"
+      log "$platform platform benchmark pid=$pid failed with exit status $status"
+    else
+      log "$platform platform benchmark pid=$pid finished successfully"
+    fi
+  done
+  RUN_PIDS=()
+  RUN_PID_PLATFORMS=()
+
+  [[ "$failed" != "true" ]]
 }
 
 write_manifest() {
@@ -673,7 +804,7 @@ write_manifest() {
   local manifest_file="$OUTPUT_ROOT/manifest.json"
   local profile profile_names=""
   for profile in "${RESOLVED_PROFILES[@]}"; do
-    profile_names+="$(profile_name_for "$profile") "
+    profile_names+="$(get_profile_name "$profile") "
   done
 
   [[ -f "$manifest_file" ]] || printf '[]\n' >"$manifest_file"
@@ -718,6 +849,8 @@ print_benchmark_configs() {
   echo -e "SSH_USER: $SSH_USER"
   echo -e "PLATFORMS: $PLATFORMS"
   echo -e "WORKFLOWS: $WORKFLOWS"
+  echo -e "WORKFLOW_CPU_LIMIT: $WORKFLOW_CPU_LIMIT"
+  echo -e "WORKFLOW_MEMORY_LIMIT: $WORKFLOW_MEMORY_LIMIT"
   echo -e "K6_ITERATIONS: $K6_ITERATIONS"
   echo -e "K6_VUS: $K6_VUS"
   echo -e "CONTINUE_ON_ERROR: $CONTINUE_ON_ERROR"
@@ -727,11 +860,11 @@ print_benchmark_configs() {
   echo -e "\nPROFILE\tPLATFORM\tWORKFLOW\tRUN_DIR\tSTACK_PATH"
   local profile platform workflow profile_name workflow_name stack run_dir
   for profile in "${RESOLVED_PROFILES[@]}"; do
-    profile_name="$(profile_name_for "$profile")"
+    profile_name="$(get_profile_name "$profile")"
     for platform in $PLATFORMS; do
       for workflow in $WORKFLOWS; do
         workflow_name="$(get_k6_workflow_name "$workflow")"
-        stack="$(stack_path_for "$platform" "$workflow")"
+        stack="$(get_stack_file_path "$platform" "$workflow")"
         run_dir="$(get_run_dir "$profile_name" "$platform" "$workflow_name")"
         printf '%s\t%s\t%s\t%s\t%s\n' "$profile_name" "$platform" "$workflow_name" "$run_dir" "$stack"
       done
@@ -761,35 +894,22 @@ main() {
   terraform_init
   write_manifest
 
-  local profile platform workflow run_failed
+  local profile run_failed
   for profile in "${RESOLVED_PROFILES[@]}"; do
-    for platform in $PLATFORMS; do
-      for workflow in $WORKFLOWS; do
-        run_failed="false"
-        if ! run_benchmark "$profile" "$platform" "$workflow"; then
-          run_failed="true"
-          CURRENT_RUN_FAILED="true"
-          log "run failed: $(profile_name_for "$profile")/$platform/$(get_k6_workflow_name "$workflow")"
-          if [[ -n "$CURRENT_RUN_DIR" ]]; then
-            if [[ "$INTERRUPTED" == "true" ]]; then
-              write_status "$CURRENT_RUN_DIR/status.json" "interrupted" "benchmark interrupted" || true
-            else
-              write_status "$CURRENT_RUN_DIR/status.json" "failed" "see run logs for details" || true
-            fi
-          fi
-          cleanup_current_infra
-        fi
+    run_failed="false"
+    if ! run_profiles_parallel "$profile"; then
+      run_failed="true"
+      log "platform benchmark failed for profile: $(get_profile_name "$profile")"
+    fi
 
-        if [[ "$INTERRUPTED" == "true" ]]; then
-          EXIT_STATUS=130
-          fatal "stopping after interrupt"
-        fi
+    if [[ "$INTERRUPTED" == "true" ]]; then
+      EXIT_STATUS=130
+      fatal "stopping after interrupt"
+    fi
 
-        if [[ "$run_failed" == "true" ]] && ! bool_true "$CONTINUE_ON_ERROR"; then
-          fatal "stopping after failed run"
-        fi
-      done
-    done
+    if [[ "$run_failed" == "true" ]] && ! bool_true "$CONTINUE_ON_ERROR"; then
+      fatal "stopping after failed run"
+    fi
   done
 }
 
