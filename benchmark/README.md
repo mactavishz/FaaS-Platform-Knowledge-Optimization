@@ -44,7 +44,7 @@ For authenticated faasd gateways, set:
 - `EXPECTED_STATUS` (default: `200`)
 
 - `INVOKE_TIMEOUT_MS` (default: `60000`)
-- `POLL_INTERVAL_MS` (default: `500`)
+- `POLL_INTERVAL_MS` (default: `15000`)
 - `SCALE_DOWN_TIMEOUT_MS` (default: `900000`)
 - `STRICT_FUNCTIONS` (default: `true`)
 
@@ -63,13 +63,14 @@ For the faasd IoT workflow, use `PLATFORM=faasd` and include `BASIC_AUTH_USER` /
 
 Note: the IoT workflow includes async fan-out. This benchmark measures the entry invocation latency, not the full end-to-end completion across async branches.
 
-## Webshop cold-sensitive user journey benchmark
+## Webshop cold-sensitive user journey benchmarks
 
-This benchmark drives the `webshop-frontend` function as a shopping session:
+These benchmarks drive the `webshop-frontend` function as shopping sessions:
 
-1. browse products (`operation=get`)
-2. add products to cart (`operation=addcart`)
-3. checkout (`operation=checkout`)
+- `webshop-browse-addcart-checkout`: browse products (`operation=get`), add a product to cart (`operation=addcart`), then checkout (`operation=checkout`)
+- `webshop-addcart-checkout`: add a product to cart (`operation=addcart`), then checkout (`operation=checkout`)
+
+Each k6 iteration waits for all webshop functions to scale down once before the first operation. The scripts do not wait for scale-down between operations in the same journey.
 
 It is designed to compare `CALLGRAPH_ENABLED=false|true` while keeping autoscaler enabled.
 
@@ -79,7 +80,13 @@ for every VU iteration, so there is no separate cart cleanup step.
 
 ### Script
 
-- `benchmark/scripts/webshop_user_journey.js`
+- `benchmark/scripts/webshop_browse_addcart_checkout.js`
+- `benchmark/scripts/webshop_addcart_checkout.js`
+
+In `benchmark/run.sh`, the two webshop journeys are separate workflow identifiers. Each gets a fresh provisioned VM and its own normal per-workflow output directory:
+
+- `webshop-browse-addcart-checkout`
+- `webshop-addcart-checkout`
 
 ### Environment variables
 
@@ -87,22 +94,20 @@ Required/important:
 
 - `PLATFORM` (default: `tinyfaas`; supported: `tinyfaas`, `faasd`)
 - `GATEWAY_URL` (default: `http://127.0.0.1:8080`)
-- `WORKFLOW` (default: `webshop`; only `webshop` is supported by this script)
+- `WORKFLOW` (default: `webshop`; only `webshop` is supported by these scripts)
 - `RUN_ID` (default: `webshop-bench`)
 
 Traffic and iteration:
 
 - `ITERATIONS` (default: `10`)
 - `VUS` (default: `1`)
-- `IDLE_WAIT_MS` (default: `35000`)
 - `MAX_DURATION` (default: `60m`)
 - `GRACEFUL_STOP` (default: `30s`)
 
 Timeout and polling:
 
 - `INVOKE_TIMEOUT_MS` (default: `60000`)
-- `POLL_INTERVAL_MS` (default: `500`)
-- `CLEANUP_TIMEOUT_MS` (default: `60000`)
+- `POLL_INTERVAL_MS` (default: `15000`)
 - `SCALE_DOWN_TIMEOUT_MS` (default: `120000`)
 - `STRICT_FUNCTIONS` (default: `true`)
 
@@ -129,10 +134,9 @@ For authenticated faasd gateways, set:
 
 ### Metrics emitted
 
-- `browse_latency_ms`
+- `browse_latency_ms` (`webshop_browse_addcart_checkout.js` only)
 - `addcart_latency_ms`
 - `checkout_latency_ms`
-- `user_journey_latency_ms`
 - `invoke_failures`
 - `list_failures`
 - `state_validation_failures`
@@ -155,9 +159,8 @@ RUN_ID=webshop-off-train \
 GATEWAY_URL=http://127.0.0.1:8080 \
 ITERATIONS=3 \
 VUS=1 \
-IDLE_WAIT_MS=35000 \
 MAX_DURATION=60m \
-k6 run benchmark/scripts/webshop_user_journey.js
+k6 run benchmark/scripts/webshop_browse_addcart_checkout.js
 ```
 
 ### Example: measured pass (callgraph disabled)
@@ -168,9 +171,8 @@ RUN_ID=webshop-off-measure \
 GATEWAY_URL=http://127.0.0.1:8080 \
 ITERATIONS=10 \
 VUS=1 \
-IDLE_WAIT_MS=35000 \
 MAX_DURATION=60m \
-k6 run benchmark/scripts/webshop_user_journey.js
+k6 run benchmark/scripts/webshop_browse_addcart_checkout.js
 ```
 
 ### Example: measured pass (callgraph enabled)
@@ -181,9 +183,8 @@ RUN_ID=webshop-on-measure \
 GATEWAY_URL=http://127.0.0.1:8080 \
 ITERATIONS=10 \
 VUS=1 \
-IDLE_WAIT_MS=35000 \
 MAX_DURATION=60m \
-k6 run benchmark/scripts/webshop_user_journey.js
+k6 run benchmark/scripts/webshop_addcart_checkout.js
 ```
 
 Note: callgraph on/off is controlled by tinyFaaS runtime env (`CALLGRAPH_ENABLED`), not by the k6 script.
