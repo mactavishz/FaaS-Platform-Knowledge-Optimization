@@ -7,7 +7,8 @@
   "author": "",
   "scripts": {
     "run:workflow-cold": "k6 run scripts/workflow_cold_latency.js",
-    "run:webshop-journey": "k6 run scripts/webshop_user_journey.js"
+    "run:webshop-browse-addcart-checkout": "k6 run scripts/webshop_browse_addcart_checkout.js",
+    "run:webshop-addcart-checkout": "k6 run scripts/webshop_addcart_checkout.js"
   },
   "devDependencies": {
     "@types/k6": "^2.0.0"

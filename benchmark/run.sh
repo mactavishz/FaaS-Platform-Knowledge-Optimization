@@ -12,7 +12,7 @@ RUN_TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_NAME="${RUN_NAME:-$RUN_TIMESTAMP}"
 PROFILES="${PROFILES:-}"
 PLATFORMS="${PLATFORMS:-faasd tinyfaas}"
-WORKFLOWS="${WORKFLOWS:-iot tree webshop}"
+WORKFLOWS="${WORKFLOWS:-iot tree webshop-browse-addcart-checkout webshop-addcart-checkout}"
 WORKFLOW_CPU_LIMIT=${WORKFLOW_CPU_LIMIT:-0.5}
 WORKFLOW_MEMORY_LIMIT=${WORKFLOW_MEMORY_LIMIT:-1024Mi}
 OUTPUT_ROOT="${OUTPUT_ROOT:-$BENCHMARK_DIR/results/$RUN_NAME}"
@@ -95,7 +95,8 @@ get_workflow_dir_name() {
   case "$(lowercase "$1")" in
     iot) printf 'IoT\n' ;;
     tree) printf 'tree\n' ;;
-    webshop) printf 'webshop\n' ;;
+    webshop-browse-addcart-checkout | webshop-addcart-checkout) printf 'webshop\n' ;;
+    webshop) fatal "workflow 'webshop' has been split; use webshop-browse-addcart-checkout and/or webshop-addcart-checkout" ;;
     linear3) fatal "linear3 is intentionally excluded from benchmark runs" ;;
     *) fatal "unsupported workflow: $1" ;;
   esac
@@ -105,7 +106,9 @@ get_k6_workflow_name() {
   case "$(lowercase "$1")" in
     iot) printf 'iot\n' ;;
     tree) printf 'tree\n' ;;
-    webshop) printf 'webshop\n' ;;
+    webshop-browse-addcart-checkout) printf 'webshop-browse-addcart-checkout\n' ;;
+    webshop-addcart-checkout) printf 'webshop-addcart-checkout\n' ;;
+    webshop) fatal "workflow 'webshop' has been split; use webshop-browse-addcart-checkout and/or webshop-addcart-checkout" ;;
     *) fatal "unsupported workflow: $1" ;;
   esac
 }
@@ -113,7 +116,19 @@ get_k6_workflow_name() {
 get_workflow_k6_script() {
   case "$(lowercase "$1")" in
     iot | tree) printf '%s\n' "$BENCHMARK_DIR/scripts/workflow_cold_latency.js" ;;
-    webshop) printf '%s\n' "$BENCHMARK_DIR/scripts/webshop_user_journey.js" ;;
+    webshop-browse-addcart-checkout) printf '%s\n' "$BENCHMARK_DIR/scripts/webshop_browse_addcart_checkout.js" ;;
+    webshop-addcart-checkout) printf '%s\n' "$BENCHMARK_DIR/scripts/webshop_addcart_checkout.js" ;;
+    webshop) fatal "workflow 'webshop' has been split; use webshop-browse-addcart-checkout and/or webshop-addcart-checkout" ;;
+    *) fatal "unsupported workflow: $1" ;;
+  esac
+}
+
+get_k6_env_workflow_name() {
+  case "$(lowercase "$1")" in
+    iot) printf 'iot\n' ;;
+    tree) printf 'tree\n' ;;
+    webshop-browse-addcart-checkout | webshop-addcart-checkout) printf 'webshop\n' ;;
+    webshop) fatal "workflow 'webshop' has been split; use webshop-browse-addcart-checkout and/or webshop-addcart-checkout" ;;
     *) fatal "unsupported workflow: $1" ;;
   esac
 }
@@ -511,7 +526,7 @@ run_k6() {
 
   local -a env_args=(
     -e "PLATFORM=$platform"
-    -e "WORKFLOW=$(get_k6_workflow_name "$workflow")"
+    -e "WORKFLOW=$(get_k6_env_workflow_name "$workflow")"
     -e "GATEWAY_URL=$gateway_url"
     -e "ITERATIONS=$K6_ITERATIONS"
     -e "VUS=$K6_VUS"
