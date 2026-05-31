@@ -1,10 +1,9 @@
 package callgraph
 
 import (
+	"log/slog"
 	"sync"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 // AveragingMethod defines the method used for calculating execution time averages
@@ -74,7 +73,7 @@ type Option func(*CallGraphTracker)
 type CallGraphTracker struct {
 	config *Config
 
-	logger *zap.Logger
+	logger *slog.Logger
 
 	averagingMethod AveragingMethod
 

@@ -3,10 +3,10 @@ package callgraph
 import (
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"sort"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 const (
@@ -71,15 +71,16 @@ func WithEMA(emaConfig *EMAConfig) Option {
 	}
 }
 
-func WithLogger(logger *zap.Logger) Option {
+func WithLogger(logger *slog.Logger) Option {
 	return func(tracker *CallGraphTracker) {
-		tracker.logger = logger
+		if logger != nil {
+			tracker.logger = logger
+		}
 	}
 }
 
-func DefaultLogger() *zap.Logger {
-	logger, _ := zap.NewProduction()
-	return logger
+func DefaultLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 // DefaultConfig returns the default configuration
@@ -160,9 +161,9 @@ func (t *CallGraphTracker) StartExecution(functionName string, requestID string,
 
 	if functionName == "" || requestID == "" || executionID == "" {
 		t.logger.Warn("functionName, requestID, or executionID is empty",
-			zap.String("function", functionName),
-			zap.String("requestID", requestID),
-			zap.String("executionID", executionID))
+			"function", functionName,
+			"requestID", requestID,
+			"executionID", executionID)
 		return
 	}
 
@@ -185,10 +186,10 @@ func (t *CallGraphTracker) StartExecution(functionName string, requestID string,
 	t.contextLastAccess[requestID] = time.Now()
 
 	t.logger.Debug("started execution",
-		zap.String("function", functionName),
-		zap.String("requestID", requestID),
-		zap.String("executionID", executionID),
-		zap.Time("timestamp", timestamp))
+		"function", functionName,
+		"requestID", requestID,
+		"executionID", executionID,
+		"timestamp", timestamp)
 }
 
 // RecordEdge records an edge in the call graph when caller invokes callee
@@ -221,44 +222,44 @@ func (t *CallGraphTracker) RecordEdge(caller, callee string, requestID string, c
 		if requestCtx, ok := t.executionContexts[requestID]; ok {
 			if callerExecutionID == "" {
 				t.logger.Warn("caller executionID is empty",
-					zap.String("caller", caller),
-					zap.String("callee", callee),
-					zap.String("requestID", requestID))
+					"caller", caller,
+					"callee", callee,
+					"requestID", requestID)
 				// Can't calculate edge time, skip recording
 				return
 			}
 			if ctx, ok := requestCtx[callerExecutionID]; ok {
 				if ctx.functionName != caller {
 					t.logger.Warn("caller executionID does not match caller",
-						zap.String("caller", caller),
-						zap.String("callee", callee),
-						zap.String("requestID", requestID),
-						zap.String("executionID", callerExecutionID))
+						"caller", caller,
+						"callee", callee,
+						"requestID", requestID,
+						"executionID", callerExecutionID)
 					// Can't calculate edge time, skip recording
 					return
 				}
 				executionTime = timestamp.Sub(ctx.startTime)
 				t.logger.Debug("calculated edge execution time",
-					zap.String("caller", caller),
-					zap.String("callee", callee),
-					zap.String("requestID", requestID),
-					zap.String("executionID", callerExecutionID),
-					zap.Duration("executionTime", executionTime))
+					"caller", caller,
+					"callee", callee,
+					"requestID", requestID,
+					"executionID", callerExecutionID,
+					"executionTime", executionTime)
 			} else {
 				t.logger.Warn("caller execution context not found",
-					zap.String("caller", caller),
-					zap.String("callee", callee),
-					zap.String("requestID", requestID),
-					zap.String("executionID", callerExecutionID))
+					"caller", caller,
+					"callee", callee,
+					"requestID", requestID,
+					"executionID", callerExecutionID)
 				// Can't calculate edge time, skip recording
 				return
 			}
 		} else {
 			// Can't calculate edge time, skip recording
 			t.logger.Warn("request context not found",
-				zap.String("requestID", requestID),
-				zap.String("caller", caller),
-				zap.String("callee", callee))
+				"requestID", requestID,
+				"caller", caller,
+				"callee", callee)
 			return
 		}
 	}
@@ -300,11 +301,11 @@ func (t *CallGraphTracker) RecordEdge(caller, callee string, requestID string, c
 	t.calleeToCallers[callee][caller] = true
 
 	t.logger.Debug("recorded edge",
-		zap.String("caller", caller),
-		zap.String("callee", callee),
-		zap.String("requestID", requestID),
-		zap.String("executionID", callerExecutionID),
-		zap.Duration("edgeExecutionTime", executionTime))
+		"caller", caller,
+		"callee", callee,
+		"requestID", requestID,
+		"executionID", callerExecutionID,
+		"edgeExecutionTime", executionTime)
 }
 
 // GetExecutionContextFunction resolves the function name for a request-scoped execution ID.
@@ -337,9 +338,9 @@ func (t *CallGraphTracker) EndExecution(functionName string, requestID string, e
 
 	if functionName == "" || requestID == "" || executionID == "" {
 		t.logger.Warn("functionName, requestID, or executionID is empty",
-			zap.String("function", functionName),
-			zap.String("requestID", requestID),
-			zap.String("executionID", executionID))
+			"function", functionName,
+			"requestID", requestID,
+			"executionID", executionID)
 		return
 	}
 
@@ -353,22 +354,22 @@ func (t *CallGraphTracker) EndExecution(functionName string, requestID string, e
 		if ctx, ok := requestCtx[executionID]; ok {
 			if ctx.functionName != functionName {
 				t.logger.Warn("execution context function mismatch",
-					zap.String("function", functionName),
-					zap.String("requestID", requestID),
-					zap.String("executionID", executionID))
+					"function", functionName,
+					"requestID", requestID,
+					"executionID", executionID)
 				return
 			}
 			startTime = ctx.startTime
 			execTime = timestamp.Sub(startTime)
 		} else {
 			t.logger.Warn("execution context not found for function",
-				zap.String("function", functionName),
-				zap.String("requestID", requestID),
-				zap.String("executionID", executionID))
+				"function", functionName,
+				"requestID", requestID,
+				"executionID", executionID)
 			return
 		}
 	} else {
-		t.logger.Warn("request context not found for requestID", zap.String("requestID", requestID))
+		t.logger.Warn("request context not found for requestID", "requestID", requestID)
 		return
 	}
 
@@ -400,9 +401,9 @@ func (t *CallGraphTracker) EndExecution(functionName string, requestID string, e
 		}
 
 		t.logger.Debug("recorded function execution",
-			zap.String("function", functionName),
-			zap.String("requestID", requestID),
-			zap.Duration("executionTime", execTime))
+			"function", functionName,
+			"requestID", requestID,
+			"executionTime", execTime)
 	}
 
 	// Keep completed execution contexts until TTL cleanup so queued async descendants
@@ -416,10 +417,10 @@ func (t *CallGraphTracker) EndExecution(functionName string, requestID string, e
 	t.contextLastAccess[requestID] = time.Now()
 
 	t.logger.Debug("ended execution",
-		zap.String("function", functionName),
-		zap.String("requestID", requestID),
-		zap.String("executionID", executionID),
-		zap.Time("timestamp", timestamp))
+		"function", functionName,
+		"requestID", requestID,
+		"executionID", executionID,
+		"timestamp", timestamp)
 }
 
 // contextCleanupLoop runs periodically to clean up stale execution contexts
@@ -468,8 +469,8 @@ func (t *CallGraphTracker) cleanupStaleContexts() {
 
 	if cleanedCount > 0 {
 		t.logger.Debug("cleaned up stale execution contexts",
-			zap.Int("count", cleanedCount),
-			zap.Duration("ttl", ttl))
+			"count", cleanedCount,
+			"ttl", ttl)
 	}
 }
 
@@ -506,7 +507,7 @@ func (t *CallGraphTracker) RecordScaleDown(functionName string, timestamp time.T
 
 	stats, exists := t.functionStats[functionName]
 	if !exists {
-		t.logger.Warn("function stats not found for scale down", zap.String("function", functionName))
+		t.logger.Warn("function stats not found for scale down", "function", functionName)
 		return
 	}
 
@@ -744,8 +745,8 @@ func (t *CallGraphTracker) ResetFunctionStats(functionName string) {
 
 	stats, exists := t.functionStats[functionName]
 	if !exists {
-		t.logger.Debug("function stats not found for reset, skipping",
-			zap.String("function", functionName))
+		t.logger.Info("function stats not found for reset, skipping",
+			"function", functionName)
 		return
 	}
 
@@ -775,9 +776,7 @@ func (t *CallGraphTracker) ResetFunctionStats(functionName string) {
 	stats.avgExecCalculator = NewAveragingCalculator(t.averagingMethod, t.GetAverageMethodConfig())
 	stats.avgScaleUpCalculator = NewAveragingCalculator(t.averagingMethod, t.GetAverageMethodConfig())
 
-	t.logger.Info("reset function stats for redeployment",
-		zap.String("function", functionName),
-		zap.Int("totalResets", stats.TotalResets))
+	t.logger.Info("reset function stats", "function", functionName)
 }
 
 // ClearFunctionData removes all callgraph data for a deleted function.
@@ -833,8 +832,7 @@ func (t *CallGraphTracker) ClearFunctionData(functionName string) {
 		}
 	}
 
-	t.logger.Info("cleared function data for deletion",
-		zap.String("function", functionName))
+	t.logger.Info("cleared function data", "function", functionName)
 }
 
 // EdgeCount returns the number of unique edges

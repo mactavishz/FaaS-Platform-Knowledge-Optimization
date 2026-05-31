@@ -3,16 +3,21 @@ package callgraph
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 var testRequestCounter int64
+
+func nopLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
 // Test helper: simulates a complete edge recording with full API flow
 // This records an edge from caller to callee with the specified edge time,
@@ -70,7 +75,7 @@ func simulateFuncExec(t *CallGraphTracker, functionName string, execTime time.Du
 }
 
 func TestNewTracker(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 	assert.Equal(t, 0, tracker.EdgeCount())
@@ -89,7 +94,7 @@ func TestNewTrackerWithConfig(t *testing.T) {
 	}
 	tracker := New(
 		WithConfig(config),
-		WithLogger(zap.NewNop()),
+		WithLogger(nopLogger()),
 	)
 	tracker.Start()
 	defer tracker.Stop()
@@ -110,7 +115,7 @@ func TestNewTrackerWithConfigEMA(t *testing.T) {
 
 	tracker := New(
 		WithConfig(config),
-		WithLogger(zap.NewNop()),
+		WithLogger(nopLogger()),
 	)
 	tracker.Start()
 	defer tracker.Stop()
@@ -134,7 +139,7 @@ func TestNewTrackerWithConfigInvalidMethodFallsBackToSMA(t *testing.T) {
 
 	tracker := New(
 		WithConfig(config),
-		WithLogger(zap.NewNop()),
+		WithLogger(nopLogger()),
 	)
 	tracker.Start()
 	defer tracker.Stop()
@@ -146,7 +151,7 @@ func TestNewTrackerWithConfigInvalidMethodFallsBackToSMA(t *testing.T) {
 }
 
 func TestRecord(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -169,7 +174,7 @@ func TestRecord(t *testing.T) {
 }
 
 func TestRecordExternalCall(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -182,7 +187,7 @@ func TestRecordExternalCall(t *testing.T) {
 }
 
 func TestGetFunctionStats(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -201,7 +206,7 @@ func TestGetFunctionStats(t *testing.T) {
 }
 
 func TestGetEdgeStats(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -216,7 +221,7 @@ func TestGetEdgeStats(t *testing.T) {
 }
 
 func TestGetCallGraph(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -232,7 +237,7 @@ func TestGetCallGraph(t *testing.T) {
 }
 
 func TestClear(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -246,7 +251,7 @@ func TestClear(t *testing.T) {
 }
 
 func TestToJSON(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -264,7 +269,7 @@ func TestToJSON(t *testing.T) {
 }
 
 func TestFromJSON(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -275,7 +280,7 @@ func TestFromJSON(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create new tracker and load from JSON
-	newTracker := New(WithLogger(zap.NewNop()))
+	newTracker := New(WithLogger(nopLogger()))
 	newTracker.Start()
 	defer newTracker.Stop()
 	err = newTracker.FromJSON(data)
@@ -287,7 +292,7 @@ func TestFromJSON(t *testing.T) {
 }
 
 func TestGetAverageExecutionTime(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -303,7 +308,7 @@ func TestGetAverageExecutionTime(t *testing.T) {
 }
 
 func TestConcurrentAccess(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 	done := make(chan bool)
@@ -349,18 +354,18 @@ func TestInterfaceCompliance(t *testing.T) {
 }
 
 func TestPrewarmEnabledAccessor(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	assert.False(t, tracker.PrewarmEnabled())
 
 	config := DefaultConfig()
 	config.Prewarm.Enabled = true
-	tracker = New(WithConfig(config), WithLogger(zap.NewNop()))
+	tracker = New(WithConfig(config), WithLogger(nopLogger()))
 	assert.True(t, tracker.PrewarmEnabled())
 }
 
 // TestSelfLoopPrevention tests that self-loops are prevented
 func TestSelfLoopPrevention(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -383,7 +388,7 @@ func TestSelfLoopPrevention(t *testing.T) {
 
 // TestEmptyCalleeValidation tests that empty callee is rejected
 func TestEmptyCalleeValidation(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -406,7 +411,7 @@ func TestEmptyCalleeValidation(t *testing.T) {
 
 // TestRecordScaleUp tests cold start tracking
 func TestRecordScaleUp(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 	now := time.Now()
@@ -448,7 +453,7 @@ func TestRecordScaleUp(t *testing.T) {
 
 // TestGetColdStartAverage tests cold start average calculation
 func TestGetColdStartAverage(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 	now := time.Now()
@@ -476,7 +481,7 @@ func TestGetColdStartAverage(t *testing.T) {
 
 // TestColdStartEmptyFunctionName tests that empty function names are rejected
 func TestColdStartEmptyFunctionName(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -489,7 +494,7 @@ func TestColdStartEmptyFunctionName(t *testing.T) {
 
 // TestColdStartInFunctionStats tests that cold start info appears in function stats
 func TestColdStartInFunctionStats(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 	now := time.Now()
@@ -511,7 +516,7 @@ func TestColdStartInFunctionStats(t *testing.T) {
 // TestColdStartAutoCreatesFunctionStats tests that RecordScaleUp creates function stats
 // if they don't exist (e.g., for newly deployed functions)
 func TestColdStartAutoCreatesFunctionStats(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 	now := time.Now()
@@ -535,7 +540,7 @@ func TestColdStartAutoCreatesFunctionStats(t *testing.T) {
 
 // TestResetFunctionStats tests resetting function stats on redeployment
 func TestResetFunctionStats(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -611,7 +616,7 @@ func TestResetFunctionStats(t *testing.T) {
 // TestResetFunctionStatsAndRecordNewColdStart tests that after reset,
 // new cold start data is properly recorded (simulating redeployment flow)
 func TestResetFunctionStatsAndRecordNewColdStart(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -657,7 +662,7 @@ func TestResetFunctionStatsAndRecordNewColdStart(t *testing.T) {
 
 // TestResetFunctionStatsNonExistent tests that resetting non-existent function is safe
 func TestResetFunctionStatsNonExistent(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -669,7 +674,7 @@ func TestResetFunctionStatsNonExistent(t *testing.T) {
 
 // TestResetFunctionStatsEmptyName tests that resetting with empty name is handled
 func TestResetFunctionStatsEmptyName(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -686,7 +691,7 @@ func TestResetFunctionStatsEmptyName(t *testing.T) {
 
 // TestResetFunctionStatsMultipleTimes tests multiple resets
 func TestResetFunctionStatsMultipleTimes(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -714,7 +719,7 @@ func TestResetFunctionStatsMultipleTimes(t *testing.T) {
 
 // TestClearFunctionData tests full removal of function data on deletion
 func TestClearFunctionData(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -766,7 +771,7 @@ func TestClearFunctionData(t *testing.T) {
 
 // TestClearFunctionDataPreservesOthers tests that clearing one function doesn't affect others
 func TestClearFunctionDataPreservesOthers(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -802,7 +807,7 @@ func TestClearFunctionDataPreservesOthers(t *testing.T) {
 
 // TestClearFunctionDataEdgeCleanup tests bidirectional edge cleanup
 func TestClearFunctionDataEdgeCleanup(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -850,7 +855,7 @@ func TestClearFunctionDataEdgeCleanup(t *testing.T) {
 
 // TestClearFunctionDataNonExistent tests that clearing non-existent function is safe
 func TestClearFunctionDataNonExistent(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -868,7 +873,7 @@ func TestClearFunctionDataNonExistent(t *testing.T) {
 
 // TestClearFunctionDataEmptyName tests that empty name is handled
 func TestClearFunctionDataEmptyName(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -883,7 +888,7 @@ func TestClearFunctionDataEmptyName(t *testing.T) {
 
 // TestClearFunctionDataWithActiveContexts tests cleanup of in-flight execution contexts
 func TestClearFunctionDataWithActiveContexts(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -916,7 +921,7 @@ func TestClearFunctionDataPrewarmNoLongerTargets(t *testing.T) {
 	config := DefaultConfig()
 	config.Prewarm.Enabled = true
 
-	tracker := New(WithConfig(config), WithLogger(zap.NewNop()))
+	tracker := New(WithConfig(config), WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -945,7 +950,7 @@ func TestClearFunctionDataPrewarmNoLongerTargets(t *testing.T) {
 
 // TestStartExecutionAndRecordEdge tests the requestID-based API
 func TestStartExecutionAndRecordEdge(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -972,7 +977,7 @@ func TestStartExecutionAndRecordEdge(t *testing.T) {
 
 // TestRecordEdgeExternalEntry tests external calls (no caller)
 func TestRecordEdgeExternalEntry(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -994,7 +999,7 @@ func TestRecordEdgeExternalEntry(t *testing.T) {
 
 // TestRecordEdgeChain tests multiple calls in a chain
 func TestRecordEdgeChain(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -1031,7 +1036,7 @@ func TestRecordEdgeChain(t *testing.T) {
 
 // TestConcurrentRequestsWithRequestID tests multiple concurrent workflows
 func TestConcurrentRequestsWithRequestID(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -1071,7 +1076,7 @@ func TestConcurrentRequestsWithRequestID(t *testing.T) {
 
 // TestEndExecution tests completion tracking and function stats recording
 func TestEndExecution(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -1106,7 +1111,7 @@ func TestEndExecution(t *testing.T) {
 
 // TestRecordEdgeWithoutStartExecution tests error handling
 func TestRecordEdgeWithoutStartExecution(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -1122,7 +1127,7 @@ func TestRecordEdgeWithoutStartExecution(t *testing.T) {
 
 // TestConcurrentSameFunctionExecutionIDIsolation ensures concurrent invocations under same requestID do not collide
 func TestConcurrentSameFunctionExecutionIDIsolation(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -1153,7 +1158,7 @@ func TestConcurrentSameFunctionExecutionIDIsolation(t *testing.T) {
 
 // TestMultipleFunctionsInSameRequest tests complex workflow
 func TestMultipleFunctionsInSameRequest(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -1202,7 +1207,7 @@ func TestContextCleanup(t *testing.T) {
 	config.ContextTTL = 100 * time.Millisecond
 	config.ContextCleanupInterval = 50 * time.Millisecond
 
-	tracker := New(WithConfig(config), WithLogger(zap.NewNop()))
+	tracker := New(WithConfig(config), WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -1233,7 +1238,7 @@ func TestContextCleanup(t *testing.T) {
 
 // TestTrackerStop tests graceful shutdown of the tracker
 func TestTrackerStop(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 
 	// Stop should complete without hanging
@@ -1256,7 +1261,7 @@ func TestGetPrewarmTargets(t *testing.T) {
 	config := DefaultConfig()
 	config.Prewarm.Enabled = true
 
-	tracker := New(WithConfig(config), WithLogger(zap.NewNop()))
+	tracker := New(WithConfig(config), WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -1313,7 +1318,7 @@ func TestPrewarmDisabled(t *testing.T) {
 	config := DefaultConfig()
 	config.Prewarm.Enabled = false
 
-	tracker := New(WithConfig(config), WithLogger(zap.NewNop()))
+	tracker := New(WithConfig(config), WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
@@ -1332,7 +1337,7 @@ func TestPrewarmDisabled(t *testing.T) {
 }
 
 func TestRecordPrewarmInFunctionStats(t *testing.T) {
-	tracker := New(WithLogger(zap.NewNop()))
+	tracker := New(WithLogger(nopLogger()))
 	tracker.Start()
 	defer tracker.Stop()
 
