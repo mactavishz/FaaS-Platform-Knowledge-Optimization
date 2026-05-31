@@ -3,10 +3,10 @@ package autoscaler
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"sync"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 // ScaleOperation defines the interface for scaling operations.
@@ -38,7 +38,7 @@ type AutoScaler struct {
 
 	stopChan chan struct{}
 	doneChan chan struct{}
-	logger   *zap.Logger
+	logger   *slog.Logger
 }
 
 type FunctionState struct {
@@ -59,13 +59,13 @@ type functionEntry struct {
 }
 
 // New creates a new AutoScaler instance.
-func New(config Config, scaleOp ScaleOperation, logger *zap.Logger) *AutoScaler {
+func New(config Config, scaleOp ScaleOperation, logger *slog.Logger) *AutoScaler {
 	if config.CheckInterval == 0 {
 		config.CheckInterval = DEFAULT_CHECK_INTERVAL_SECONDS * time.Second
 	}
 
 	if logger == nil {
-		logger = zap.NewNop()
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 
 	return &AutoScaler{
@@ -143,11 +143,7 @@ func (as *AutoScaler) RegisterFunctionWithState(name string, labels map[string]s
 	entry.cond = sync.NewCond(&entry.mu)
 
 	as.functions[name] = entry
-	as.logger.Info("registered function",
-		zap.String("function", name),
-		zap.Bool("scale_to_zero", scaleToZeroEnabled),
-		zap.Duration("idle_duration", idleDuration),
-		zap.String("state", string(initial)))
+	as.logger.Info("registered function", "function", name)
 }
 
 // UnregisterFunction removes a function from the autoscaler.
@@ -169,7 +165,7 @@ func (as *AutoScaler) UnregisterFunction(name string) {
 		entry.mu.Unlock()
 	}
 
-	as.logger.Info("unregistered function", zap.String("function", name))
+	as.logger.Info("unregistered function", "function", name)
 }
 
 func (as *AutoScaler) getFunctionEntry(name string) (*functionEntry, bool) {
@@ -317,7 +313,7 @@ func (as *AutoScaler) ScaleUpWhenReady(ctx context.Context, name string) error {
 	}
 }
 
-// ScaleDownWhenIdle performs a safe blocking scale-down transition.
+// ScaleDownWhenIdle performs a safe blocking scale-down transition once no request is in flight.
 func (as *AutoScaler) ScaleDownWhenIdle(ctx context.Context, name string) error {
 	if !as.config.Enabled {
 		return nil
@@ -444,7 +440,6 @@ func (as *AutoScaler) RecordActivityBatch(names []string) {
 		}
 		entry.mu.Unlock()
 	}
-	as.logger.Debug("recorded batch activity", zap.Int("count", len(names)))
 }
 
 // IsScaledDown checks if a function is currently scaled down.
@@ -560,15 +555,11 @@ func (as *AutoScaler) checkIdleFunctions() {
 		entry.mu.Unlock()
 
 		if idleTime > idleDuration {
-			as.logger.Info("function idle, scaling down",
-				zap.String("function", name),
-				zap.Duration("idle_time", idleTime),
-				zap.Duration("threshold", idleDuration))
-
+			as.logger.Info("function idle, scaling down", "function", name)
 			if err := as.ScaleDownWhenIdle(context.Background(), name); err != nil {
-				as.logger.Error("error scaling down function", zap.String("function", name), zap.Error(err))
+				as.logger.Error("error scaling down function", "function", name, "err", err)
 			} else {
-				as.logger.Info("successfully scaled down function", zap.String("function", name))
+				as.logger.Info("function scaled down", "function", name)
 			}
 		}
 	}
@@ -605,10 +596,7 @@ func (as *AutoScaler) parseScaleConfig(labels map[string]string, defaultDuration
 		if parsed, err := time.ParseDuration(idleDurationLabel); err == nil {
 			idleDuration = parsed
 		} else {
-			as.logger.Warn("invalid idle_duration label, using default",
-				zap.String("label_value", idleDurationLabel),
-				zap.Duration("default_duration", defaultDuration),
-				zap.Error(err))
+			as.logger.Error("invalid idle_duration label, using default", "label", idleDurationLabel, "err", err)
 		}
 	}
 

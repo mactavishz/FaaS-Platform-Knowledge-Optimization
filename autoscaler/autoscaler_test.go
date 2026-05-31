@@ -3,13 +3,18 @@ package autoscaler
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
+
+func nopLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
 type mockScaleOperation struct {
 	mu            sync.Mutex
@@ -83,7 +88,7 @@ func markFunctionIdle(t *testing.T, as *AutoScaler, name string) {
 }
 
 func TestRegisterFunctionInitialState(t *testing.T) {
-	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, zap.NewNop())
+	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, nopLogger())
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
 	state, ok := as.GetState("fn")
@@ -92,7 +97,7 @@ func TestRegisterFunctionInitialState(t *testing.T) {
 }
 
 func TestBlockedTransitions(t *testing.T) {
-	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, zap.NewNop())
+	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, nopLogger())
 	as.RegisterFunction("fn", nil)
 
 	err := as.StartInvocation("fn")
@@ -105,9 +110,9 @@ func TestBlockedTransitions(t *testing.T) {
 	assert.Equal(t, StateActive, state)
 }
 
-func TestScaleDownWhenIdleAbortsWhenBlockedInvocationRefreshesActivity(t *testing.T) {
+func TestScaleDownWhenIdleWaitsForBlockedInvocation(t *testing.T) {
 	m := &mockScaleOperation{}
-	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
+	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunction("fn", nil)
 	markFunctionIdle(t, as, "fn")
 
@@ -130,7 +135,7 @@ func TestScaleDownWhenIdleAbortsWhenBlockedInvocationRefreshesActivity(t *testin
 
 func TestEnsureActiveFromScaledDown(t *testing.T) {
 	m := &mockScaleOperation{}
-	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
+	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
 	err := as.ScaleUpWhenReady(context.TODO(), "fn")
@@ -142,7 +147,7 @@ func TestEnsureActiveFromScaledDown(t *testing.T) {
 
 func TestEnsureActiveConcurrentCollapsesScaleUp(t *testing.T) {
 	m := &mockScaleOperation{upDelay: 80 * time.Millisecond}
-	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
+	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
 	err1 := make(chan error, 1)
@@ -157,7 +162,7 @@ func TestEnsureActiveConcurrentCollapsesScaleUp(t *testing.T) {
 
 func TestScaleDownFailureReturnsActive(t *testing.T) {
 	m := &mockScaleOperation{downErr: errors.New("boom")}
-	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
+	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunction("fn", nil)
 	markFunctionIdle(t, as, "fn")
 
@@ -169,7 +174,7 @@ func TestScaleDownFailureReturnsActive(t *testing.T) {
 
 func TestScaleUpFailureReturnsScaledDown(t *testing.T) {
 	m := &mockScaleOperation{upErr: errors.New("boom")}
-	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
+	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
 	err := as.ScaleUpWhenReady(context.TODO(), "fn")
@@ -180,7 +185,7 @@ func TestScaleUpFailureReturnsScaledDown(t *testing.T) {
 
 func TestScaleUpWhenReadyBlockedReturnsImmediately(t *testing.T) {
 	m := &mockScaleOperation{}
-	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
+	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunction("fn", nil)
 
 	assert.NoError(t, as.StartInvocation("fn"))
@@ -193,7 +198,7 @@ func TestScaleUpWhenReadyBlockedReturnsImmediately(t *testing.T) {
 
 func TestScaleUpWhenReadyRefreshesActiveFunctionActivity(t *testing.T) {
 	m := &mockScaleOperation{}
-	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
+	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunction("fn", nil)
 	markFunctionIdle(t, as, "fn")
 
@@ -209,7 +214,7 @@ func TestScaleUpWhenReadyRefreshesActiveFunctionActivity(t *testing.T) {
 }
 
 func TestConcurrentInvocationAccounting(t *testing.T) {
-	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, zap.NewNop())
+	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, nopLogger())
 	as.RegisterFunction("fn", nil)
 
 	assert.NoError(t, as.StartInvocation("fn"))
@@ -236,7 +241,7 @@ func TestScaleUpWhenReadyWaitsForScalingDown(t *testing.T) {
 	downStarted := make(chan struct{})
 	downRelease := make(chan struct{})
 	m := &mockScaleOperation{downCh: downStarted, downReleaseCh: downRelease}
-	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, zap.NewNop())
+	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunction("fn", nil)
 	markFunctionIdle(t, as, "fn")
 
@@ -268,7 +273,7 @@ func TestScaleUpWhenReadyWaitsForScalingDown(t *testing.T) {
 }
 
 func TestBeginInvocationDone(t *testing.T) {
-	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, zap.NewNop())
+	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, nopLogger())
 	as.RegisterFunction("fn", nil)
 
 	done, err := as.BeginInvocation("fn")
@@ -283,7 +288,7 @@ func TestBeginInvocationDone(t *testing.T) {
 
 func TestMonitorScalesDownIdleActiveOnly(t *testing.T) {
 	m := &mockScaleOperation{}
-	as := New(Config{Enabled: true, Platform: "tinyfaas", CheckInterval: 20 * time.Millisecond, DefaultIdleDuration: 30 * time.Millisecond}, m, zap.NewNop())
+	as := New(Config{Enabled: true, Platform: "tinyfaas", CheckInterval: 20 * time.Millisecond, DefaultIdleDuration: 30 * time.Millisecond}, m, nopLogger())
 	as.RegisterFunction("fn", nil)
 
 	as.Start()
