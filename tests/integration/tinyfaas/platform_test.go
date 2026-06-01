@@ -523,7 +523,29 @@ func (s *PlatformIntegrationSuite) assertFunctionStats(expected []functionStatsE
 	t.Helper()
 
 	for _, fn := range expected {
-		stats := integrationhelpers.GetFunctionCallGraphStats(t, fn.Name)
+		var stats integrationhelpers.FunctionCallGraphStats
+		// Async descendants can still be finishing after the caller returns,
+		// so wait until their callgraph stats settle before asserting.
+		integrationhelpers.Eventually(t, tinyCallgraphWaitTimeout, tinyCallgraphPollInterval, func() bool {
+			stats = integrationhelpers.GetFunctionCallGraphStats(t, fn.Name)
+			if stats.Name != fn.Name {
+				return false
+			}
+			if fn.ExactCalls > 0 && stats.TotalCalls != fn.ExactCalls {
+				return false
+			}
+			if fn.ExactCalls == 0 && stats.TotalCalls < fn.MinCalls {
+				return false
+			}
+			if stats.TotalColdStarts < 1 {
+				return false
+			}
+			if stats.TotalPrewarms != 0 {
+				return false
+			}
+			return true
+		})
+
 		assert.Equal(t, fn.Name, stats.Name, "expected %s stats name to match", fn.Name)
 		if fn.ExactCalls > 0 {
 			assert.Equal(t, fn.ExactCalls, stats.TotalCalls, "expected %s total calls to be %d, got %d", fn.Name, fn.ExactCalls, stats.TotalCalls)
