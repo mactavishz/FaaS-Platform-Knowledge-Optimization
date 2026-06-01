@@ -1,7 +1,6 @@
 package autoscaler
 
 import (
-	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -142,7 +141,7 @@ func (as *AutoScaler) scaleDownIfStillIdleByName(name string) (bool, *functionEn
 	if !ok {
 		return false, nil, ErrFunctionNotFound
 	}
-	scaled, err := as.scaleDownIfStillIdle(context.Background(), name, entry)
+	scaled, err := as.scaleDownIfStillIdle(name, entry)
 	return scaled, entry, err
 }
 
@@ -188,7 +187,7 @@ func TestBlockedTransitions(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, nopLogger())
 	as.RegisterFunction("fn", nil)
 
-	err := as.StartInvocation(context.Background(), "fn")
+	err := as.StartInvocation("fn")
 	assert.NoError(t, err)
 	state, _ := as.GetState("fn")
 	assert.Equal(t, StateBlocked, state)
@@ -203,11 +202,11 @@ func TestScaleDownWhenIdleWaitsForBlockedInvocation(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunction("fn", nil)
 
-	require.NoError(t, as.StartInvocation(context.Background(), "fn"))
+	require.NoError(t, as.StartInvocation("fn"))
 
 	done := make(chan error, 1)
 	go func() {
-		done <- as.ScaleDownWhenIdle(context.Background(), "fn")
+		done <- as.ScaleDownWhenIdle("fn")
 	}()
 
 	// Spin briefly to confirm scale-down hasn't fired while we're Blocked.
@@ -228,7 +227,7 @@ func TestEnsureActiveFromScaledDown(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
-	err := as.ScaleUpWhenReady(context.Background(), "fn")
+	err := as.ScaleUpWhenReady("fn")
 	assert.NoError(t, err)
 	assert.Equal(t, 1, m.UpCalls())
 	state, _ := as.GetState("fn")
@@ -242,8 +241,8 @@ func TestEnsureActiveConcurrentCollapsesScaleUp(t *testing.T) {
 
 	err1 := make(chan error, 1)
 	err2 := make(chan error, 1)
-	go func() { err1 <- as.ScaleUpWhenReady(context.Background(), "fn") }()
-	go func() { err2 <- as.ScaleUpWhenReady(context.Background(), "fn") }()
+	go func() { err1 <- as.ScaleUpWhenReady("fn") }()
+	go func() { err2 <- as.ScaleUpWhenReady("fn") }()
 
 	assert.NoError(t, <-err1)
 	assert.NoError(t, <-err2)
@@ -256,7 +255,7 @@ func TestScaleDownFailureReturnsActive(t *testing.T) {
 	as.RegisterFunction("fn", nil)
 	markFunctionIdle(t, as, "fn")
 
-	err := as.ScaleDownWhenIdle(context.Background(), "fn")
+	err := as.ScaleDownWhenIdle("fn")
 	assert.Error(t, err)
 	state, _ := as.GetState("fn")
 	assert.Equal(t, StateActive, state)
@@ -267,7 +266,7 @@ func TestScaleUpFailureReturnsScaledDown(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
-	err := as.ScaleUpWhenReady(context.Background(), "fn")
+	err := as.ScaleUpWhenReady("fn")
 	assert.Error(t, err)
 	state, _ := as.GetState("fn")
 	assert.Equal(t, StateScaledDown, state)
@@ -278,8 +277,8 @@ func TestScaleUpWhenReadyBlockedReturnsImmediately(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunction("fn", nil)
 
-	require.NoError(t, as.StartInvocation(context.Background(), "fn"))
-	err := as.ScaleUpWhenReady(context.Background(), "fn")
+	require.NoError(t, as.StartInvocation("fn"))
+	err := as.ScaleUpWhenReady("fn")
 	assert.NoError(t, err)
 	assert.Equal(t, 0, m.UpCalls())
 
@@ -294,7 +293,7 @@ func TestScaleUpWhenReadyRefreshesActiveFunctionActivity(t *testing.T) {
 
 	// ScaleUpWhenReady on an Active function refreshes LastActiveTime
 	// without triggering a scale operation.
-	err := as.ScaleUpWhenReady(context.Background(), "fn")
+	err := as.ScaleUpWhenReady("fn")
 	assert.NoError(t, err)
 	assert.Equal(t, 0, m.UpCalls())
 
@@ -313,9 +312,9 @@ func TestConcurrentInvocationAccounting(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, nopLogger())
 	as.RegisterFunction("fn", nil)
 
-	require.NoError(t, as.StartInvocation(context.Background(), "fn"))
-	require.NoError(t, as.StartInvocation(context.Background(), "fn"))
-	require.NoError(t, as.StartInvocation(context.Background(), "fn"))
+	require.NoError(t, as.StartInvocation("fn"))
+	require.NoError(t, as.StartInvocation("fn"))
+	require.NoError(t, as.StartInvocation("fn"))
 
 	status := as.GetFunctionStatus()["fn"]
 	assert.Equal(t, StateBlocked, status.State)
@@ -343,14 +342,14 @@ func TestScaleUpWhenReadyWaitsForScalingDown(t *testing.T) {
 
 	downDone := make(chan error, 1)
 	go func() {
-		downDone <- as.ScaleDownWhenIdle(context.Background(), "fn")
+		downDone <- as.ScaleDownWhenIdle("fn")
 	}()
 
 	<-downStarted
 
 	upDone := make(chan error, 1)
 	go func() {
-		upDone <- as.ScaleUpWhenReady(context.Background(), "fn")
+		upDone <- as.ScaleUpWhenReady("fn")
 	}()
 
 	select {
@@ -372,7 +371,7 @@ func TestBeginInvocationDone(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, nopLogger())
 	as.RegisterFunction("fn", nil)
 
-	done, err := as.BeginInvocation(context.Background(), "fn")
+	done, err := as.BeginInvocation("fn")
 	require.NoError(t, err)
 	state, _ := as.GetState("fn")
 	assert.Equal(t, StateBlocked, state)
@@ -452,13 +451,13 @@ func TestStopUnblocksStartInvocationWaiters(t *testing.T) {
 
 	// Drive the function into ScalingUp via a backgrounded ScaleUp.
 	scaleUpDone := make(chan error, 1)
-	go func() { scaleUpDone <- as.ScaleUpWhenReady(context.Background(), "fn") }()
+	go func() { scaleUpDone <- as.ScaleUpWhenReady("fn") }()
 	<-upStarted
 
 	// A subsequent StartInvocation should now block waiting for the
 	// transient ScalingUp state to clear.
 	startDone := make(chan error, 1)
-	go func() { startDone <- as.StartInvocation(context.Background(), "fn") }()
+	go func() { startDone <- as.StartInvocation("fn") }()
 
 	// Confirm it's actually blocked (not yet returned).
 	select {
@@ -498,10 +497,10 @@ func TestStopUnblocksScaleDownWaiters(t *testing.T) {
 	markFunctionIdle(t, as, "fn")
 
 	// Block scale-down by holding an in-flight invocation.
-	require.NoError(t, as.StartInvocation(context.Background(), "fn"))
+	require.NoError(t, as.StartInvocation("fn"))
 
 	scaleDownDone := make(chan error, 1)
-	go func() { scaleDownDone <- as.ScaleDownWhenIdle(context.Background(), "fn") }()
+	go func() { scaleDownDone <- as.ScaleDownWhenIdle("fn") }()
 
 	// Confirm it's blocked.
 	select {
@@ -523,117 +522,6 @@ func TestStopUnblocksScaleDownWaiters(t *testing.T) {
 	as.EndInvocation("fn")
 }
 
-func TestStartInvocationCtxCancel(t *testing.T) {
-	upStarted := make(chan struct{})
-	upRelease := make(chan struct{})
-	m := &mockScaleOperation{upCh: upStarted, upReleaseCh: upRelease}
-	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute, CheckInterval: time.Hour}, m, nopLogger())
-	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
-
-	scaleUpDone := make(chan error, 1)
-	go func() { scaleUpDone <- as.ScaleUpWhenReady(context.Background(), "fn") }()
-	<-upStarted
-
-	ctx, cancel := context.WithCancel(context.Background())
-	startDone := make(chan error, 1)
-	go func() { startDone <- as.StartInvocation(ctx, "fn") }()
-
-	// Ensure StartInvocation has actually entered the wait.
-	time.Sleep(20 * time.Millisecond)
-	cancel()
-
-	select {
-	case err := <-startDone:
-		require.ErrorIs(t, err, context.Canceled)
-	case <-time.After(time.Second):
-		t.Fatal("StartInvocation did not return after ctx cancel")
-	}
-
-	// Cleanup.
-	close(upRelease)
-	<-scaleUpDone
-}
-
-func TestScaleUpWhenReadyCtxAlreadyCanceled(t *testing.T) {
-	upStarted := make(chan struct{})
-	upRelease := make(chan struct{})
-	m := &mockScaleOperation{upCh: upStarted, upReleaseCh: upRelease}
-	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute, CheckInterval: time.Hour}, m, nopLogger())
-	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
-
-	// Hold the function in ScalingUp.
-	first := make(chan error, 1)
-	go func() { first <- as.ScaleUpWhenReady(context.Background(), "fn") }()
-	<-upStarted
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	err := as.ScaleUpWhenReady(ctx, "fn")
-	require.ErrorIs(t, err, context.Canceled)
-
-	// Cleanup.
-	close(upRelease)
-	<-first
-}
-
-func TestScaleUpWhenReadyCtxCancelDuringWait(t *testing.T) {
-	downStarted := make(chan struct{})
-	downRelease := make(chan struct{})
-	m := &mockScaleOperation{downCh: downStarted, downReleaseCh: downRelease}
-	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute, CheckInterval: time.Hour}, m, nopLogger())
-	as.RegisterFunction("fn", nil)
-	markFunctionIdle(t, as, "fn")
-
-	// Drive into ScalingDown.
-	downDone := make(chan error, 1)
-	go func() { downDone <- as.ScaleDownWhenIdle(context.Background(), "fn") }()
-	<-downStarted
-
-	// Now ScaleUpWhenReady will block waiting for ScalingDown to clear.
-	ctx, cancel := context.WithCancel(context.Background())
-	upDone := make(chan error, 1)
-	go func() { upDone <- as.ScaleUpWhenReady(ctx, "fn") }()
-
-	time.Sleep(20 * time.Millisecond)
-	cancel()
-
-	select {
-	case err := <-upDone:
-		require.ErrorIs(t, err, context.Canceled)
-	case <-time.After(time.Second):
-		t.Fatal("ScaleUpWhenReady did not return after ctx cancel")
-	}
-
-	// Cleanup.
-	close(downRelease)
-	require.NoError(t, <-downDone)
-}
-
-func TestScaleDownWhenIdleCtxCancel(t *testing.T) {
-	m := &mockScaleOperation{}
-	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute, CheckInterval: time.Hour}, m, nopLogger())
-	as.RegisterFunction("fn", nil)
-	markFunctionIdle(t, as, "fn")
-	require.NoError(t, as.StartInvocation(context.Background(), "fn"))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- as.ScaleDownWhenIdle(ctx, "fn") }()
-
-	time.Sleep(20 * time.Millisecond)
-	cancel()
-
-	select {
-	case err := <-done:
-		require.ErrorIs(t, err, context.Canceled)
-	case <-time.After(time.Second):
-		t.Fatal("ScaleDownWhenIdle did not return after ctx cancel")
-	}
-
-	// Cleanup.
-	as.EndInvocation("fn")
-}
-
 func TestUnregisterReleasesStartInvocationWaiter(t *testing.T) {
 	upStarted := make(chan struct{})
 	upRelease := make(chan struct{})
@@ -642,11 +530,11 @@ func TestUnregisterReleasesStartInvocationWaiter(t *testing.T) {
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
 	first := make(chan error, 1)
-	go func() { first <- as.ScaleUpWhenReady(context.Background(), "fn") }()
+	go func() { first <- as.ScaleUpWhenReady("fn") }()
 	<-upStarted
 
 	startDone := make(chan error, 1)
-	go func() { startDone <- as.StartInvocation(context.Background(), "fn") }()
+	go func() { startDone <- as.StartInvocation("fn") }()
 
 	time.Sleep(20 * time.Millisecond)
 	as.UnregisterFunction("fn")
@@ -668,10 +556,10 @@ func TestUnregisterReleasesScaleDownWaiter(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute, CheckInterval: time.Hour}, m, nopLogger())
 	as.RegisterFunction("fn", nil)
 	markFunctionIdle(t, as, "fn")
-	require.NoError(t, as.StartInvocation(context.Background(), "fn"))
+	require.NoError(t, as.StartInvocation("fn"))
 
 	done := make(chan error, 1)
-	go func() { done <- as.ScaleDownWhenIdle(context.Background(), "fn") }()
+	go func() { done <- as.ScaleDownWhenIdle("fn") }()
 
 	time.Sleep(20 * time.Millisecond)
 	as.UnregisterFunction("fn")
@@ -692,11 +580,11 @@ func TestReRegisterReleasesOldWaiters(t *testing.T) {
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
 	first := make(chan error, 1)
-	go func() { first <- as.ScaleUpWhenReady(context.Background(), "fn") }()
+	go func() { first <- as.ScaleUpWhenReady("fn") }()
 	<-upStarted
 
 	waitDone := make(chan error, 1)
-	go func() { waitDone <- as.StartInvocation(context.Background(), "fn") }()
+	go func() { waitDone <- as.StartInvocation("fn") }()
 
 	time.Sleep(20 * time.Millisecond)
 
@@ -717,7 +605,7 @@ func TestReRegisterReleasesOldWaiters(t *testing.T) {
 
 func TestStartInvocationOnUnregisteredFunction(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, nopLogger())
-	err := as.StartInvocation(context.Background(), "missing")
+	err := as.StartInvocation("missing")
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrFunctionNotFound)
 }
@@ -726,7 +614,7 @@ func TestStartInvocationOnScaledDown(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, nopLogger())
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
-	err := as.StartInvocation(context.Background(), "fn")
+	err := as.StartInvocation("fn")
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrFunctionScaledDown)
 }
@@ -743,7 +631,7 @@ func TestBeginInvocationDoneCalledTwice(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, &mockScaleOperation{}, nopLogger())
 	as.RegisterFunction("fn", nil)
 
-	done, err := as.BeginInvocation(context.Background(), "fn")
+	done, err := as.BeginInvocation("fn")
 	require.NoError(t, err)
 
 	done()
@@ -760,9 +648,9 @@ func TestBeginInvocationDoneFromMultipleGoroutines(t *testing.T) {
 	as.RegisterFunction("fn", nil)
 
 	// Start two invocations: each returns its own done callback.
-	done1, err := as.BeginInvocation(context.Background(), "fn")
+	done1, err := as.BeginInvocation("fn")
 	require.NoError(t, err)
-	done2, err := as.BeginInvocation(context.Background(), "fn")
+	done2, err := as.BeginInvocation("fn")
 	require.NoError(t, err)
 
 	// Spawn many goroutines hammering both done callbacks. All must
@@ -792,7 +680,7 @@ func TestMonitorDoesNotStallOnBlockedFunction(t *testing.T) {
 	// in-flight invocation that never ends. The monitor must NOT block
 	// indefinitely waiting for it.
 	as.RegisterFunction("stuck", nil)
-	require.NoError(t, as.StartInvocation(context.Background(), "stuck"))
+	require.NoError(t, as.StartInvocation("stuck"))
 	markFunctionIdle(t, as, "stuck")
 
 	// "idle" is just sitting active, due to be scaled down on the next tick.
@@ -823,10 +711,10 @@ func TestNewWithNilScaleOpDisabledIsSafe(t *testing.T) {
 
 	// All methods should be no-op safe when disabled.
 	as.RegisterFunction("fn", nil)
-	require.NoError(t, as.StartInvocation(context.Background(), "fn"))
+	require.NoError(t, as.StartInvocation("fn"))
 	as.EndInvocation("fn")
-	require.NoError(t, as.ScaleUpWhenReady(context.Background(), "fn"))
-	require.NoError(t, as.ScaleDownWhenIdle(context.Background(), "fn"))
+	require.NoError(t, as.ScaleUpWhenReady("fn"))
+	require.NoError(t, as.ScaleDownWhenIdle("fn"))
 	as.RecordActivity("fn")
 	as.UnregisterFunction("fn")
 	as.Start()
@@ -858,7 +746,7 @@ func TestStressConcurrentInvocations(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < itersPerG; j++ {
-				if err := as.StartInvocation(context.Background(), "fn"); err != nil {
+				if err := as.StartInvocation("fn"); err != nil {
 					t.Errorf("StartInvocation: %v", err)
 					return
 				}
@@ -889,7 +777,7 @@ func TestStressConcurrentScaleUpAndInvocations(t *testing.T) {
 	for i := 0; i < goroutines/2; i++ {
 		go func() {
 			defer wg.Done()
-			if err := as.ScaleUpWhenReady(context.Background(), "fn"); err != nil {
+			if err := as.ScaleUpWhenReady("fn"); err != nil {
 				t.Errorf("ScaleUpWhenReady: %v", err)
 			}
 		}()
@@ -903,7 +791,7 @@ func TestStressConcurrentScaleUpAndInvocations(t *testing.T) {
 			// Retry briefly to give the scale-up time to win the race.
 			deadline := time.Now().Add(500 * time.Millisecond)
 			for time.Now().Before(deadline) {
-				err := as.StartInvocation(context.Background(), "fn")
+				err := as.StartInvocation("fn")
 				if err == nil {
 					startSuccess.Add(1)
 					as.EndInvocation("fn")
@@ -941,7 +829,7 @@ func TestStressConcurrentScaleDownAndInvocations(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 10; j++ {
-				if err := as.StartInvocation(context.Background(), "fn"); err == nil {
+				if err := as.StartInvocation("fn"); err == nil {
 					time.Sleep(time.Millisecond)
 					as.EndInvocation("fn")
 				}
@@ -949,17 +837,13 @@ func TestStressConcurrentScaleDownAndInvocations(t *testing.T) {
 		}()
 	}
 
-	// One goroutine repeatedly tries ScaleDown with a short ctx so it
-	// never wedges the test if Blocked persists.
+	// One goroutine attempts a scale-down concurrently with the invocation
+	// churn. Without ctx, ScaleDownWhenIdle parks until the function
+	// returns to Active and then fires exactly once.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 10; i++ {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
-			_ = as.ScaleDownWhenIdle(ctx, "fn")
-			cancel()
-			time.Sleep(2 * time.Millisecond)
-		}
+		_ = as.ScaleDownWhenIdle("fn")
 	}()
 
 	wg.Wait()
@@ -989,13 +873,13 @@ func TestNoGoroutineLeakOnUnregister(t *testing.T) {
 
 	// Drive into ScalingUp (held by upRelease).
 	scaleUpDone := make(chan error, 1)
-	go func() { scaleUpDone <- as.ScaleUpWhenReady(context.Background(), "fn") }()
+	go func() { scaleUpDone <- as.ScaleUpWhenReady("fn") }()
 	<-upStarted
 
 	const waiters = 20
 	errs := make(chan error, waiters)
 	for i := 0; i < waiters; i++ {
-		go func() { errs <- as.StartInvocation(context.Background(), "fn") }()
+		go func() { errs <- as.StartInvocation("fn") }()
 	}
 
 	// Give goroutines time to enter the wait state.
@@ -1116,7 +1000,7 @@ func TestScaleDownWhenIdleIsUnconditional(t *testing.T) {
 	as.RegisterFunction("fn", map[string]string{"com.tinyfaas.scale.zero": "true"})
 
 	// Function has fresh activity (just registered).
-	require.NoError(t, as.ScaleDownWhenIdle(context.Background(), "fn"))
+	require.NoError(t, as.ScaleDownWhenIdle("fn"))
 	assert.Equal(t, 1, m.DownCalls())
 	state, _ := as.GetState("fn")
 	assert.Equal(t, StateScaledDown, state)
@@ -1131,10 +1015,10 @@ func TestScaleDownWhenIdleAfterEndInvocation(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Hour}, m, nopLogger())
 	as.RegisterFunction("fn", map[string]string{"com.tinyfaas.scale.zero": "true"})
 
-	require.NoError(t, as.StartInvocation(context.Background(), "fn"))
+	require.NoError(t, as.StartInvocation("fn"))
 
 	done := make(chan error, 1)
-	go func() { done <- as.ScaleDownWhenIdle(context.Background(), "fn") }()
+	go func() { done <- as.ScaleDownWhenIdle("fn") }()
 
 	// Confirm the scale-down is parked while we hold the invocation.
 	time.Sleep(20 * time.Millisecond)
@@ -1180,7 +1064,7 @@ func TestMonitorSkipsBlockedFunctions(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: 30 * time.Millisecond}, m, nopLogger())
 	as.RegisterFunction("fn", map[string]string{"com.tinyfaas.scale.zero": "true"})
 	markFunctionIdle(t, as, "fn")
-	require.NoError(t, as.StartInvocation(context.Background(), "fn"))
+	require.NoError(t, as.StartInvocation("fn"))
 
 	// Drive the monitor's idle-aware scale-down primitive directly. With
 	// the function in Blocked, it must return immediately with
@@ -1209,7 +1093,7 @@ func TestMonitorRespectsActivityRefreshAfterUnblock(t *testing.T) {
 
 	// Simulate "request just landed and finished": Active -> Blocked -> Active
 	// with a fresh LastActiveTime.
-	require.NoError(t, as.StartInvocation(context.Background(), "fn"))
+	require.NoError(t, as.StartInvocation("fn"))
 	as.EndInvocation("fn")
 
 	scaled, _, err := as.scaleDownIfStillIdleByName("fn")

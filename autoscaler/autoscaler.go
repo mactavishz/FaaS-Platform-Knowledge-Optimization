@@ -1,7 +1,6 @@
 package autoscaler
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -44,12 +43,6 @@ var (
 	// ErrInvalidState is returned when an operation encounters an unexpected lifecycle state.
 	ErrInvalidState = errors.New("autoscaler: invalid lifecycle state")
 )
-
-// scaleDownCallTimeout bounds how long the monitor will wait inside a single
-// ScaleDownWhenIdle invocation. It prevents a stuck Blocked function from
-// starving other functions of their idle checks. Sized for production where
-// scale-down can be slow under load.
-const scaleDownCallTimeout = 60 * time.Second
 
 // AutoScaler manages automatic scaling of functions based on activity.
 type AutoScaler struct {
@@ -142,17 +135,11 @@ func (e *functionEntry) closeUnregistered() {
 //	nil                       -> state changed, caller should re-evaluate.
 //	ErrFunctionUnregistered  -> entry was removed.
 //	ErrAutoscalerStopped     -> AutoScaler.Stop() was called.
-//	ctx.Err()                -> caller's context was canceled.
-func (e *functionEntry) waitForChange(ctx context.Context, stopCh <-chan struct{}) error {
+func (e *functionEntry) waitForChange(stopCh <-chan struct{}) error {
 	ch := e.changed
 	unreg := e.unregistered
 	e.mu.Unlock()
 	defer e.mu.Lock()
-
-	var ctxDone <-chan struct{}
-	if ctx != nil {
-		ctxDone = ctx.Done()
-	}
 
 	select {
 	case <-ch:
@@ -161,8 +148,6 @@ func (e *functionEntry) waitForChange(ctx context.Context, stopCh <-chan struct{
 		return ErrFunctionUnregistered
 	case <-stopCh:
 		return ErrAutoscalerStopped
-	case <-ctxDone:
-		return ctx.Err()
 	}
 }
 
@@ -222,9 +207,8 @@ func (as *AutoScaler) Start() {
 //
 // Stop waits for the monitor goroutine to exit and then for any workers it
 // spawned (concurrent scale-down operations) to also return. Cancellation
-// propagates via stopChan into each worker's per-call ctx, so well-behaved
-// hosts return promptly; in the worst case Stop is bounded by
-// scaleDownCallTimeout.
+// propagates via stopChan into each worker, so well-behaved hosts return
+// promptly.
 func (as *AutoScaler) Stop() {
 	if !as.config.Enabled {
 		return
@@ -335,11 +319,11 @@ func (as *AutoScaler) getFunctionEntry(name string) (*functionEntry, bool) {
 // BeginInvocation marks a function invocation start and returns a completion
 // callback. The callback may be invoked from any goroutine and is idempotent
 // (only the first call has an effect).
-func (as *AutoScaler) BeginInvocation(ctx context.Context, name string) (func(), error) {
+func (as *AutoScaler) BeginInvocation(name string) (func(), error) {
 	if !as.config.Enabled {
 		return func() {}, nil
 	}
-	if err := as.StartInvocation(ctx, name); err != nil {
+	if err := as.StartInvocation(name); err != nil {
 		return nil, err
 	}
 
@@ -352,10 +336,8 @@ func (as *AutoScaler) BeginInvocation(ctx context.Context, name string) (func(),
 }
 
 // StartInvocation marks that a function started handling a request. It blocks
-// while the function is in a transient state (ScalingUp/ScalingDown). The
-// supplied ctx (which may be context.Background()) can be used to cancel the
-// wait.
-func (as *AutoScaler) StartInvocation(ctx context.Context, name string) error {
+// while the function is in a transient state (ScalingUp/ScalingDown).
+func (as *AutoScaler) StartInvocation(name string) error {
 	if !as.config.Enabled {
 		return nil
 	}
@@ -371,7 +353,7 @@ func (as *AutoScaler) StartInvocation(ctx context.Context, name string) error {
 	for {
 		switch entry.state.State {
 		case StateScalingDown, StateScalingUp:
-			if err := entry.waitForChange(ctx, as.stopChan); err != nil {
+			if err := entry.waitForChange(as.stopChan); err != nil {
 				return err
 			}
 			// re-evaluate
@@ -418,7 +400,7 @@ func (as *AutoScaler) EndInvocation(name string) {
 
 // ScaleUpWhenReady ensures function runtime is available. StateBlocked is
 // treated as ready because runtime is present and handling in-flight requests.
-func (as *AutoScaler) ScaleUpWhenReady(ctx context.Context, name string) error {
+func (as *AutoScaler) ScaleUpWhenReady(name string) error {
 	if !as.config.Enabled {
 		return nil
 	}
@@ -443,7 +425,7 @@ func (as *AutoScaler) ScaleUpWhenReady(ctx context.Context, name string) error {
 			entry.mu.Unlock()
 			return nil
 		case StateScalingUp, StateScalingDown:
-			if err := entry.waitForChange(ctx, as.stopChan); err != nil {
+			if err := entry.waitForChange(as.stopChan); err != nil {
 				entry.mu.Unlock()
 				return err
 			}
@@ -484,9 +466,7 @@ func (as *AutoScaler) ScaleUpWhenReady(ctx context.Context, name string) error {
 // own freshness check before calling this method; consequently we do NOT
 // short-circuit on a recent activity timestamp here, since that would silently
 // drop forced scale-down requests issued by other code paths.
-//
-// The supplied ctx can be used to bound the wait while a request is in flight.
-func (as *AutoScaler) ScaleDownWhenIdle(ctx context.Context, name string) error {
+func (as *AutoScaler) ScaleDownWhenIdle(name string) error {
 	if !as.config.Enabled {
 		return nil
 	}
@@ -504,7 +484,7 @@ func (as *AutoScaler) ScaleDownWhenIdle(ctx context.Context, name string) error 
 			entry.mu.Unlock()
 			return nil
 		case StateBlocked, StateScalingUp, StateScalingDown:
-			if err := entry.waitForChange(ctx, as.stopChan); err != nil {
+			if err := entry.waitForChange(as.stopChan); err != nil {
 				entry.mu.Unlock()
 				return err
 			}
@@ -537,16 +517,6 @@ func (as *AutoScaler) ScaleDownWhenIdle(ctx context.Context, name string) error 
 			return fmt.Errorf("%w: %s state=%s", ErrInvalidState, name, state)
 		}
 	}
-}
-
-// ScaleDown is a context.Background() shortcut for ScaleDownWhenIdle.
-func (as *AutoScaler) ScaleDown(functionName string) error {
-	return as.ScaleDownWhenIdle(context.Background(), functionName)
-}
-
-// ScaleUp is a context.Background() shortcut for ScaleUpWhenReady.
-func (as *AutoScaler) ScaleUp(functionName string) error {
-	return as.ScaleUpWhenReady(context.Background(), functionName)
 }
 
 // RecordActivity refreshes activity timestamps for a function. No-op if the
@@ -739,18 +709,14 @@ func (as *AutoScaler) checkIdleFunctions() {
 				default:
 				}
 
-				ctx, cancel := contextWithStop(scaleDownCallTimeout, as.stopChan)
-				scaledDown, err := as.scaleDownIfStillIdle(ctx, j.name, j.entry)
-				cancel()
+				scaledDown, err := as.scaleDownIfStillIdle(j.name, j.entry)
 
 				switch {
 				case err == nil:
 					if scaledDown {
 						as.logger.Info("function scaled down", "function", j.name)
 					}
-				case errors.Is(err, context.DeadlineExceeded),
-					errors.Is(err, context.Canceled),
-					errors.Is(err, ErrAutoscalerStopped),
+				case errors.Is(err, ErrAutoscalerStopped),
 					errors.Is(err, ErrFunctionUnregistered):
 					// Not actionable; will retry next tick (if applicable).
 					as.logger.Warn("scale-down skipped", "function", j.name, "err", err)
@@ -776,7 +742,7 @@ func (as *AutoScaler) checkIdleFunctions() {
 //  3. only commits StateScalingDown when the function is Active AND still idle.
 //
 // The boolean return indicates whether a scale-down actually fired.
-func (as *AutoScaler) scaleDownIfStillIdle(ctx context.Context, name string, entry *functionEntry) (bool, error) {
+func (as *AutoScaler) scaleDownIfStillIdle(name string, entry *functionEntry) (bool, error) {
 	entry.mu.Lock()
 
 	if !entry.state.ScaleToZeroEnabled {
@@ -808,14 +774,16 @@ func (as *AutoScaler) scaleDownIfStillIdle(ctx context.Context, name string, ent
 	entry.notifyLocked()
 	entry.mu.Unlock()
 
-	// Honor ctx (timeout / shutdown) by not even starting the scale-down
-	// if it has already fired. This keeps tick-to-tick latency tight.
-	if err := ctx.Err(); err != nil {
+	// Bail before invoking the host if shutdown was requested between
+	// dispatching this job and us picking it up.
+	select {
+	case <-as.stopChan:
 		entry.mu.Lock()
 		entry.state.State = StateActive
 		entry.notifyLocked()
 		entry.mu.Unlock()
-		return false, err
+		return false, ErrAutoscalerStopped
+	default:
 	}
 
 	scaleErr := as.scaleOperation.ScaleDown(name)
@@ -834,23 +802,6 @@ func (as *AutoScaler) scaleDownIfStillIdle(ctx context.Context, name string, ent
 	entry.notifyLocked()
 	entry.mu.Unlock()
 	return true, nil
-}
-
-// contextWithStop returns a context that is canceled either after timeout, or
-// when stopCh is closed, whichever happens first.
-func contextWithStop(timeout time.Duration, stopCh <-chan struct{}) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	// Watcher goroutine: cancels ctx if stopCh is closed before timeout.
-	// Exits once ctx is done (either via timeout/cancel or via the stop
-	// signal we just propagated). No leak.
-	go func() {
-		select {
-		case <-stopCh:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-	return ctx, cancel
 }
 
 func (as *AutoScaler) parseScaleConfig(labels map[string]string, defaultDuration time.Duration) (bool, time.Duration) {
