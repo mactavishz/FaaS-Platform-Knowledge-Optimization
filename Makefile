@@ -10,23 +10,10 @@ faasd-passwd:
 	@vagrant ssh faasd -c "sudo cat $(FAASD_SECRETES_PATH)/basic-auth-password"
 
 .PHONY: build-faasd
-build-faasd: registry-up
+build-faasd:
 	vagrant suspend tinyfaas && vagrant up faasd
 	vagrant provision faasd --provision-with build
 	make faasd-login
-
-.PHONY: registry-up
-registry-up:
-	docker compose -f faasd.compose.yaml up -d
-
-.PHONY: registry-down
-registry-down:
-	docker compose -f faasd.compose.yaml down
-
-.PHONY: registry-clean
-registry-clean: registry-down
-	rm -rf ./registry/data/*
-	make registry-up
 
 .PHONY: build-tinyfaas
 build-tinyfaas:

@@ -10,25 +10,6 @@ Optimize FaaS platform cold starts using platform knowledge
 
 We suggest setting up your Go environment with [mise](https://github.com/jdx/mise).
 
-## Environment Setup
-
-If you run faasd tests in local-registry mode, a local registry must be running and accessible. You need to ensure that:
-
-- Ensure `registry.local` resolves to the local registry IP (e.g., via `/etc/hosts` or DNS).
-- Ensure Docker proxies and insecure registries are configured in your Docker daemon configuration (e.g., `$HOME/.docker/daemonjson` or `/etc/docker/daemon.json`) to allow pushing to `registry.local:5050` without TLS and bypassing proxies:
-
-```json
-"insecure-registries": [
-  "registry.local:5050",
-  "127.0.0.1:5050"
-],
-"proxies": {
-  "no-proxy": "registry.local,localhost,127.0.0.0/8"
-}
-```
-
-> Note: Proxy configurations specified in the daemon.json are ignored by Docker Desktop. If you use Docker Desktop, you can configure proxies using the Docker Desktop UI under Settings > Resources > Proxies.
-
 ## Submodules Initialization
 
 This repository contains several git submodules for the faasd and tinyFaaS platforms. You need to initialize and update these submodules after cloning the repository:
@@ -39,27 +20,10 @@ git submodule update --init --recursive
 
 ## Integration Test Image Source (faasd)
 
-The faasd integration helpers support two image source modes:
-
-- `REGISTRY_TYPE=remote` (default): tests use pre-published images.
-- `REGISTRY_TYPE=local`: tests build/push images to a local registry (for example `registry.local:5050`).
-
-The stack files use a prefix template like `${REGISTRY_PREFIX:-registry.local:5050/faasd/}`. To override image prefixes for remote images, set `REGISTRY_PREFIX`.
-
-You can use the following prefixes for public remote images for free:
+The faasd integration stacks use local multi-arch OCI image archives. In these stacks, the `image` field points to the output tar path relative to the stack file, for example `./dist/linear3-a.tar`.
 
 ```bash
-export REGISTRY_PREFIX="ghcr.io/mactavishz/faasd-"
-# or
-export REGISTRY_PREFIX="macsalvation/faasd-"
-```
-
-By default, remote mode uses `macsalvation/faasd-`. Set `REGISTRY_PREFIX` if you want a different registry/namespace.
-
-You can also publish your own multi-arch images and point tests to them:
-
-```bash
-REGISTRY_PREFIX="<prefix>" faas-cli publish --platforms linux/amd64,linux/arm64 -f ./<path-to-function>/stack.yaml
+faas-cli publish --platforms linux/amd64,linux/arm64 -f ./<path-to-function>/stack.yaml
 ```
 
 ## Building the Project
