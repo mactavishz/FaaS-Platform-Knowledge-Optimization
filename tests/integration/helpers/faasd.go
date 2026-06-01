@@ -3,7 +3,6 @@ package helpers
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,21 +13,16 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	sdkstack "github.com/openfaas/go-sdk/stack"
-	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 const (
 	DEFAULT_FAASD_GATEWAY_URL = "http://127.0.0.1:8080"
 	FAASD_VM_NAME             = "faasd"
-	registryTypeEnvVar        = "REGISTRY_TYPE"
-	registryTypeLocal         = "local"
-	registryTypeRemote        = "remote"
 )
 
 type FaasdGatewayAuth struct {
@@ -170,41 +164,6 @@ func vagrantSSH(t *testing.T, vmName string, command string) string {
 	return VagrantSSH(t, vmName, command)
 }
 
-func RequireLocalRegistryReachable(t *testing.T) {
-	t.Helper()
-
-	repo := RepoRoot(t)
-	if _, err := tryRunCommand(t, 20*time.Second, repo, "docker", "ps"); err != nil {
-		t.Skip("docker is not available on host; local build/push integration test requires docker")
-	}
-
-	statusHost, hostErr := tryRunCommand(t, 20*time.Second, repo, "sh", "-c", "curl -s -o /dev/null -w '%{http_code}' http://registry.local:5050/v2/")
-	if hostErr != nil {
-		t.Skipf("registry.local:5050 is not reachable from host: %v", hostErr)
-	}
-	hostCode := strings.TrimSpace(statusHost)
-	if hostCode != "200" && hostCode != "401" {
-		t.Skipf("registry.local:5050 returned unexpected status from host: %q", hostCode)
-	}
-}
-
-func registryType(t *testing.T) string {
-	t.Helper()
-
-	v := strings.ToLower(strings.TrimSpace(os.Getenv(registryTypeEnvVar)))
-	if v == "" {
-		return registryTypeRemote
-	}
-
-	switch v {
-	case registryTypeLocal, registryTypeRemote:
-		return v
-	default:
-		t.Fatalf("invalid %s=%q, expected %q or %q", registryTypeEnvVar, v, registryTypeLocal, registryTypeRemote)
-		return ""
-	}
-}
-
 func parseFaasdStack(t *testing.T, stackPath string, envsubst bool) *sdkstack.Services {
 	t.Helper()
 
@@ -263,128 +222,12 @@ func BuildFaasdWorkflowStack(t *testing.T, stackPath string) {
 
 func PrepareFaasdWorkflowStack(t *testing.T, stackPath string) {
 	t.Helper()
-
-	if registryType(t) != registryTypeLocal {
-		prefix := os.Getenv("REGISTRY_PREFIX")
-		require.NotEmpty(t, prefix, "REGISTRY_PREFIX must be set for remote registry")
-		t.Logf("Using remote registry, remote registry prefix=%s", prefix)
-		return
-	}
-
-	t.Log("Using local registry, ensuring local registry is reachable")
-	RequireLocalRegistryReachable(t)
 	BuildFaasdWorkflowStack(t, stackPath)
-
-	parallelism := FaasdStackFunctionCount(t, stackPath)
-	if parallelism <= 0 {
-		parallelism = 1
-	}
-	PushFaasdWorkflowStack(t, stackPath, parallelism)
-}
-
-func pushImageWithRetries(t *testing.T, workdir string, image string) error {
-	t.Helper()
-
-	var lastErr error
-	var output string
-	for attempt := 1; attempt <= 3; attempt++ {
-		output, lastErr = tryRunCommand(t, 30*time.Minute, workdir, "docker", "push", "-q", image)
-		if lastErr == nil {
-			return nil
-		}
-
-		t.Logf("docker push attempt %d/3 failed for %s: %v", attempt, image, lastErr)
-		if strings.TrimSpace(output) != "" {
-			t.Logf("docker push output (attempt %d):\n%s", attempt, output)
-		}
-
-		if attempt < 3 {
-			time.Sleep(2 * time.Second)
-		}
-	}
-
-	return fmt.Errorf("docker push failed after 3 attempts for %s: %w\noutput:\n%s", image, lastErr, output)
-}
-
-func PushFaasdWorkflowStack(t *testing.T, stackPath string, parallelism int) {
-	t.Helper()
-	if parallelism <= 0 {
-		t.Fatalf("parallelism must be > 0, got %d", parallelism)
-	}
-
-	services := parseFaasdStack(t, stackPath, true)
-	imagesByName := make(map[string]struct{})
-	for _, fn := range services.Functions {
-		if fn.SkipBuild {
-			continue
-		}
-		img := strings.TrimSpace(fn.Image)
-		if img == "" {
-			continue
-		}
-		imagesByName[img] = struct{}{}
-	}
-
-	images := make([]string, 0, len(imagesByName))
-	for img := range imagesByName {
-		images = append(images, img)
-	}
-	sort.Strings(images)
-
-	if len(images) == 0 {
-		t.Fatalf("no pushable function images found in stack: %s", stackPath)
-	}
-
-	workdir := filepath.Dir(stackPath)
-	jobs := make(chan string)
-	errCh := make(chan error, len(images))
-
-	workers := parallelism
-	if workers > len(images) {
-		workers = len(images)
-	}
-
-	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for image := range jobs {
-				if err := pushImageWithRetries(t, workdir, image); err != nil {
-					errCh <- err
-				}
-			}
-		}()
-	}
-
-	for _, image := range images {
-		jobs <- image
-	}
-	close(jobs)
-	wg.Wait()
-	close(errCh)
-
-	if len(errCh) > 0 {
-		var errs []error
-		for err := range errCh {
-			errs = append(errs, err)
-		}
-		t.Fatal(errors.Join(errs...))
-	}
 }
 
 func BuildStack(t *testing.T, stackPath string) {
 	t.Helper()
 	BuildFaasdWorkflowStack(t, stackPath)
-}
-
-func PushStack(t *testing.T, stackPath string) {
-	t.Helper()
-	parallelism := FaasdStackFunctionCount(t, stackPath)
-	if parallelism <= 0 {
-		parallelism = 1
-	}
-	PushFaasdWorkflowStack(t, stackPath, parallelism)
 }
 
 func DeployStack(t *testing.T, stackPath string, gateway string) {
