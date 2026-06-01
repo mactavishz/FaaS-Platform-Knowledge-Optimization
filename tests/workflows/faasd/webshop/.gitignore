@@ -1,5 +1,6 @@
 template
 build
+dist
 .secrets
 
 # node_modules
