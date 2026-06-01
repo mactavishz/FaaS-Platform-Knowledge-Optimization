@@ -63,13 +63,7 @@ I (AnalyzeSensor)
 
 ## Setup
 
-Before `faas-cli build` / `faas-cli push` with local faasd workflows:
-
-- Keep the default image prefix `registry.local:5050/faasd/...`.
-- Ensure `registry.local` resolves on the host running Docker push.
-- Ensure Docker proxy bypass is configured for local registries.
-- Ensure `NO_PROXY`/`no_proxy` includes at least: `registry.local,localhost,127.0.0.1,host.docker.internal`.
-- Docker push probes registries with HTTPS `HEAD` by default. If your local registry serves plain HTTP, configure Docker insecure registries for `registry.local:5050`.
+Build local faasd workflow images as multi-arch OCI archives with `faas-cli build` or `faas-cli publish`. The stack `image` values point to archive paths under `./dist/`.
 
 ### Required runtime env vars
 

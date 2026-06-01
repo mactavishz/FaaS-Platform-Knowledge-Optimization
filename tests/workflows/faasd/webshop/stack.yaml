@@ -6,42 +6,48 @@ functions:
   webshop-frontend:
     lang: node24
     handler: ./frontend
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-frontend:latest
+    image: ./dist/webshop-frontend.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-checkout:
     lang: node24
     handler: ./checkout
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-checkout:latest
+    image: ./dist/webshop-checkout.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-addcartitem:
     lang: node24
     handler: ./addcartitem
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-addcartitem:latest
+    image: ./dist/webshop-addcartitem.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-emptycart:
     lang: node24
     handler: ./emptycart
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-emptycart:latest
+    image: ./dist/webshop-emptycart.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-getcart:
     lang: node24
     handler: ./getcart
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-getcart:latest
+    image: ./dist/webshop-getcart.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-cartstorage:
     lang: node24
     handler: ./cartstorage
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-cartstorage:latest
+    image: ./dist/webshop-cartstorage.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
@@ -50,77 +56,88 @@ functions:
   webshop-listproducts:
     lang: node24
     handler: ./listproducts
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-listproducts:latest
+    image: ./dist/webshop-listproducts.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-getproduct:
     lang: node24
     handler: ./getproduct
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-getproduct:latest
+    image: ./dist/webshop-getproduct.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-searchproducts:
     lang: node24
     handler: ./searchproducts
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-searchproducts:latest
+    image: ./dist/webshop-searchproducts.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-listrecommendations:
     lang: node24
     handler: ./listrecommendations
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-listrecommendations:latest
+    image: ./dist/webshop-listrecommendations.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-currency:
     lang: node24
     handler: ./currency
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-currency:latest
+    image: ./dist/webshop-currency.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-supportedcurrencies:
     lang: node24
     handler: ./supportedcurrencies
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-supportedcurrencies:latest
+    image: ./dist/webshop-supportedcurrencies.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-getads:
     lang: node24
     handler: ./getads
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-getads:latest
+    image: ./dist/webshop-getads.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-shipmentquote:
     lang: node24
     handler: ./shipmentquote
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-shipmentquote:latest
+    image: ./dist/webshop-shipmentquote.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-shiporder:
     lang: node24
     handler: ./shiporder
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-shiporder:latest
+    image: ./dist/webshop-shiporder.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-payment:
     lang: node24
     handler: ./payment
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-payment:latest
+    image: ./dist/webshop-payment.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
   webshop-email:
     lang: node24
     handler: ./email
-    image: ${REGISTRY_PREFIX:-registry.local:5050/faasd/}webshop-email:latest
+    image: ./dist/webshop-email.tar
+    platforms: linux/amd64,linux/arm64
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
