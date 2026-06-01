@@ -2,10 +2,13 @@ package autoscaler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,6 +20,7 @@ type ScaleOperation interface {
 	ScaleUp(functionName string) error
 }
 
+// LifecycleState represents the lifecycle state of a registered function.
 type LifecycleState string
 
 const (
@@ -27,6 +31,26 @@ const (
 	StateScalingDown LifecycleState = "scaling-down"
 )
 
+var (
+	// ErrFunctionNotFound is returned when an operation targets a function that is not registered.
+	ErrFunctionNotFound = errors.New("autoscaler: function not registered")
+	// ErrFunctionUnregistered is returned to operations that were waiting on a function
+	// when it was unregistered (or replaced via a re-register of the same name).
+	ErrFunctionUnregistered = errors.New("autoscaler: function unregistered while waiting")
+	// ErrFunctionScaledDown is returned by StartInvocation when the function is currently scaled down.
+	ErrFunctionScaledDown = errors.New("autoscaler: function is scaled down")
+	// ErrAutoscalerStopped is returned to waiters that are unblocked because Stop() was called.
+	ErrAutoscalerStopped = errors.New("autoscaler: stopped")
+	// ErrInvalidState is returned when an operation encounters an unexpected lifecycle state.
+	ErrInvalidState = errors.New("autoscaler: invalid lifecycle state")
+)
+
+// scaleDownCallTimeout bounds how long the monitor will wait inside a single
+// ScaleDownWhenIdle invocation. It prevents a stuck Blocked function from
+// starving other functions of their idle checks. Sized for production where
+// scale-down can be slow under load.
+const scaleDownCallTimeout = 60 * time.Second
+
 // AutoScaler manages automatic scaling of functions based on activity.
 type AutoScaler struct {
 	config *Config
@@ -36,11 +60,28 @@ type AutoScaler struct {
 
 	scaleOperation ScaleOperation
 
-	stopChan chan struct{}
-	doneChan chan struct{}
-	logger   *slog.Logger
+	// Lifecycle: started/stopOnce protect Start() and Stop() from being
+	// invoked multiple times concurrently.
+	started  atomic.Bool
+	stopOnce sync.Once
+	stopChan chan struct{} // closed by Stop()
+	doneChan chan struct{} // closed when monitor exits, or by Stop() if monitor never ran
+
+	// scaleDownWG tracks workers spawned by the monitor's idle scan so that
+	// Stop() can wait for them to actually exit (cancellation propagates
+	// via stopChan -> per-call ctx, but we still need to join them).
+	scaleDownWG sync.WaitGroup
+
+	// tickInProgress prevents overlapping idle scans: if a tick's worker
+	// pool is still draining when the next tick fires, the new tick is
+	// skipped. The flag is reset by checkIdleFunctions just before
+	// returning.
+	tickInProgress atomic.Bool
+
+	logger *slog.Logger
 }
 
+// FunctionState represents the externally visible state for a single function.
 type FunctionState struct {
 	Name               string
 	LastAccessTime     time.Time
@@ -52,16 +93,97 @@ type FunctionState struct {
 	Labels             map[string]string
 }
 
+// functionEntry is the per-function bookkeeping. State mutations and channel
+// rotations always happen under mu.
 type functionEntry struct {
-	state FunctionState
 	mu    sync.Mutex
-	cond  *sync.Cond
+	state FunctionState
+
+	// changed is closed and replaced every time the state mutates. Waiters
+	// capture the current channel under mu, drop mu, then select on it.
+	// Replacing the channel after close means a future close represents a
+	// future event - no spurious wakeups across rotations.
+	changed chan struct{}
+
+	// unregistered is closed exactly once when this entry is removed from
+	// the AutoScaler. It is never replaced - waiters that captured it can
+	// rely on it staying closed forever.
+	unregistered chan struct{}
+}
+
+// notifyLocked publishes a state change to any goroutine waiting on the entry.
+// Caller must hold e.mu.
+func (e *functionEntry) notifyLocked() {
+	close(e.changed)
+	e.changed = make(chan struct{})
+}
+
+// closeUnregistered marks the entry as removed. Idempotent. Caller must NOT
+// hold e.mu (this only manipulates the unregistered channel, which is one-shot
+// and does not require the mutex).
+func (e *functionEntry) closeUnregistered() {
+	// Use a select on a closed channel pattern to make close() idempotent
+	// without an extra atomic flag.
+	select {
+	case <-e.unregistered:
+		// already closed
+	default:
+		close(e.unregistered)
+	}
+}
+
+// waitForChange releases mu, blocks until the next state change, the entry's
+// unregistration, autoscaler shutdown, or ctx cancellation. It re-acquires mu
+// before returning so callers can keep using the standard for/switch pattern
+// without juggling lock state across return paths.
+//
+// Returns:
+//
+//	nil                       -> state changed, caller should re-evaluate.
+//	ErrFunctionUnregistered  -> entry was removed.
+//	ErrAutoscalerStopped     -> AutoScaler.Stop() was called.
+//	ctx.Err()                -> caller's context was canceled.
+func (e *functionEntry) waitForChange(ctx context.Context, stopCh <-chan struct{}) error {
+	ch := e.changed
+	unreg := e.unregistered
+	e.mu.Unlock()
+	defer e.mu.Lock()
+
+	var ctxDone <-chan struct{}
+	if ctx != nil {
+		ctxDone = ctx.Done()
+	}
+
+	select {
+	case <-ch:
+		return nil
+	case <-unreg:
+		return ErrFunctionUnregistered
+	case <-stopCh:
+		return ErrAutoscalerStopped
+	case <-ctxDone:
+		return ctx.Err()
+	}
 }
 
 // New creates a new AutoScaler instance.
+//
+// scaleOp may be nil only when config.Enabled is false; otherwise New panics.
+// config.Platform is normalized to lowercase so callers can supply either case.
 func New(config Config, scaleOp ScaleOperation, logger *slog.Logger) *AutoScaler {
 	if config.CheckInterval == 0 {
 		config.CheckInterval = DEFAULT_CHECK_INTERVAL_SECONDS * time.Second
+	}
+	if config.MaxConcurrentScaleDowns <= 0 {
+		config.MaxConcurrentScaleDowns = DEFAULT_MAX_CONCURRENT_SCALE_DOWNS
+	}
+
+	// Normalize platform once so parseScaleConfig's switch always matches,
+	// regardless of how callers built the Config struct.
+	config.Platform = strings.ToLower(config.Platform)
+
+	if config.Enabled && scaleOp == nil {
+		panic("autoscaler: New called with nil ScaleOperation while Enabled=true")
 	}
 
 	if logger == nil {
@@ -78,10 +200,15 @@ func New(config Config, scaleOp ScaleOperation, logger *slog.Logger) *AutoScaler
 	}
 }
 
-// Start begins the autoscaler monitoring loop.
+// Start begins the autoscaler monitoring loop. Idempotent and safe to call
+// from multiple goroutines.
 func (as *AutoScaler) Start() {
 	if !as.config.Enabled {
 		as.logger.Info("autoscaler disabled, not starting monitor")
+		return
+	}
+	if !as.started.CompareAndSwap(false, true) {
+		// already started
 		return
 	}
 
@@ -89,16 +216,35 @@ func (as *AutoScaler) Start() {
 	go as.startMonitor()
 }
 
-// Stop gracefully shuts down the autoscaler.
+// Stop gracefully shuts down the autoscaler. Idempotent and safe to call
+// without a preceding Start(). Any goroutines blocked inside StartInvocation,
+// ScaleUpWhenReady, or ScaleDownWhenIdle will return ErrAutoscalerStopped.
+//
+// Stop waits for the monitor goroutine to exit and then for any workers it
+// spawned (concurrent scale-down operations) to also return. Cancellation
+// propagates via stopChan into each worker's per-call ctx, so well-behaved
+// hosts return promptly; in the worst case Stop is bounded by
+// scaleDownCallTimeout.
 func (as *AutoScaler) Stop() {
 	if !as.config.Enabled {
 		return
 	}
 
-	as.logger.Info("stopping monitor loop")
-	close(as.stopChan)
+	as.stopOnce.Do(func() {
+		as.logger.Info("stopping autoscaler")
+		close(as.stopChan)
+		// If the monitor goroutine never ran (Start was not called), close
+		// doneChan eagerly so the wait below does not deadlock.
+		if !as.started.Load() {
+			close(as.doneChan)
+		}
+	})
+
 	<-as.doneChan
-	as.logger.Info("monitor loop stopped")
+	// Workers spawned by the most recent idle scan may still be returning.
+	// Wait for them so the host runtime sees a clean shutdown sequence.
+	as.scaleDownWG.Wait()
+	as.logger.Info("autoscaler stopped")
 }
 
 // RegisterFunction registers a function with initial active state.
@@ -107,19 +253,18 @@ func (as *AutoScaler) RegisterFunction(name string, labels map[string]string) {
 }
 
 // RegisterFunctionWithState registers a function with an explicit initial state.
+// If a function with the same name was previously registered, its waiters are
+// released with ErrFunctionUnregistered before the new entry is installed.
 func (as *AutoScaler) RegisterFunctionWithState(name string, labels map[string]string, initial LifecycleState) {
 	if !as.config.Enabled {
 		return
 	}
 
-	// As registering a function is typically done during deployment
-	// The initial state should be either active or scaled-down.
+	// As registering a function is typically done during deployment, the
+	// initial state should be either active or scaled-down.
 	if initial != StateActive && initial != StateScaledDown {
 		initial = StateActive
 	}
-
-	as.functionsMutex.Lock()
-	defer as.functionsMutex.Unlock()
 
 	scaleToZeroEnabled, idleDuration := as.parseScaleConfig(labels, as.config.DefaultIdleDuration)
 	now := time.Now()
@@ -129,24 +274,38 @@ func (as *AutoScaler) RegisterFunctionWithState(name string, labels map[string]s
 		labelCopy[k] = v
 	}
 
-	entry := &functionEntry{}
-	entry.state = FunctionState{
-		Name:               name,
-		LastAccessTime:     now,
-		LastActiveTime:     now,
-		IdleDuration:       idleDuration,
-		ScaleToZeroEnabled: scaleToZeroEnabled,
-		State:              initial,
-		InFlight:           0,
-		Labels:             labelCopy,
+	entry := &functionEntry{
+		changed:      make(chan struct{}),
+		unregistered: make(chan struct{}),
+		state: FunctionState{
+			Name:               name,
+			LastAccessTime:     now,
+			LastActiveTime:     now,
+			IdleDuration:       idleDuration,
+			ScaleToZeroEnabled: scaleToZeroEnabled,
+			State:              initial,
+			InFlight:           0,
+			Labels:             labelCopy,
+		},
 	}
-	entry.cond = sync.NewCond(&entry.mu)
 
+	as.functionsMutex.Lock()
+	old, hadOld := as.functions[name]
 	as.functions[name] = entry
+	as.functionsMutex.Unlock()
+
+	if hadOld {
+		// Release waiters on the old entry so they don't observe a stale
+		// state machine. They'll see ErrFunctionUnregistered.
+		old.closeUnregistered()
+	}
+
 	as.logger.Info("registered function", "function", name)
 }
 
-// UnregisterFunction removes a function from the autoscaler.
+// UnregisterFunction removes a function from the autoscaler. Goroutines
+// currently blocked on the function's lifecycle (StartInvocation,
+// ScaleUpWhenReady, ScaleDownWhenIdle) will return with ErrFunctionUnregistered.
 func (as *AutoScaler) UnregisterFunction(name string) {
 	if !as.config.Enabled {
 		return
@@ -160,9 +319,7 @@ func (as *AutoScaler) UnregisterFunction(name string) {
 	as.functionsMutex.Unlock()
 
 	if ok {
-		entry.mu.Lock()
-		entry.cond.Broadcast()
-		entry.mu.Unlock()
+		entry.closeUnregistered()
 	}
 
 	as.logger.Info("unregistered function", "function", name)
@@ -175,34 +332,37 @@ func (as *AutoScaler) getFunctionEntry(name string) (*functionEntry, bool) {
 	return entry, ok
 }
 
-// BeginInvocation marks a function invocation start and returns a completion callback.
-func (as *AutoScaler) BeginInvocation(name string) (func(), error) {
+// BeginInvocation marks a function invocation start and returns a completion
+// callback. The callback may be invoked from any goroutine and is idempotent
+// (only the first call has an effect).
+func (as *AutoScaler) BeginInvocation(ctx context.Context, name string) (func(), error) {
 	if !as.config.Enabled {
 		return func() {}, nil
 	}
-	if err := as.StartInvocation(name); err != nil {
+	if err := as.StartInvocation(ctx, name); err != nil {
 		return nil, err
 	}
 
-	called := false
+	var done atomic.Bool
 	return func() {
-		if called {
-			return
+		if done.CompareAndSwap(false, true) {
+			as.EndInvocation(name)
 		}
-		called = true
-		as.EndInvocation(name)
 	}, nil
 }
 
-// StartInvocation marks that a function started handling a request.
-func (as *AutoScaler) StartInvocation(name string) error {
+// StartInvocation marks that a function started handling a request. It blocks
+// while the function is in a transient state (ScalingUp/ScalingDown). The
+// supplied ctx (which may be context.Background()) can be used to cancel the
+// wait.
+func (as *AutoScaler) StartInvocation(ctx context.Context, name string) error {
 	if !as.config.Enabled {
 		return nil
 	}
 
 	entry, ok := as.getFunctionEntry(name)
 	if !ok {
-		return fmt.Errorf("function %s not registered", name)
+		return fmt.Errorf("%w: %s", ErrFunctionNotFound, name)
 	}
 
 	entry.mu.Lock()
@@ -211,19 +371,22 @@ func (as *AutoScaler) StartInvocation(name string) error {
 	for {
 		switch entry.state.State {
 		case StateScalingDown, StateScalingUp:
-			entry.cond.Wait()
+			if err := entry.waitForChange(ctx, as.stopChan); err != nil {
+				return err
+			}
+			// re-evaluate
 		case StateScaledDown:
-			return fmt.Errorf("function %s is scaled down", name)
+			return fmt.Errorf("%w: %s", ErrFunctionScaledDown, name)
 		case StateActive, StateBlocked:
 			entry.state.InFlight++
 			entry.state.LastAccessTime = time.Now()
 			if entry.state.State == StateActive {
 				entry.state.State = StateBlocked
 			}
-			entry.cond.Broadcast()
+			entry.notifyLocked()
 			return nil
 		default:
-			return fmt.Errorf("function %s has invalid state %s", name, entry.state.State)
+			return fmt.Errorf("%w: %s state=%s", ErrInvalidState, name, entry.state.State)
 		}
 	}
 }
@@ -250,11 +413,11 @@ func (as *AutoScaler) EndInvocation(name string) {
 		entry.state.State = StateActive
 		entry.state.LastActiveTime = now
 	}
-	entry.cond.Broadcast()
+	entry.notifyLocked()
 }
 
-// ScaleUpWhenReady ensures function runtime is available.
-// StateBlocked is treated as ready because runtime is present and handling in-flight requests
+// ScaleUpWhenReady ensures function runtime is available. StateBlocked is
+// treated as ready because runtime is present and handling in-flight requests.
 func (as *AutoScaler) ScaleUpWhenReady(ctx context.Context, name string) error {
 	if !as.config.Enabled {
 		return nil
@@ -262,7 +425,7 @@ func (as *AutoScaler) ScaleUpWhenReady(ctx context.Context, name string) error {
 
 	entry, ok := as.getFunctionEntry(name)
 	if !ok {
-		return fmt.Errorf("function %s not registered", name)
+		return fmt.Errorf("%w: %s", ErrFunctionNotFound, name)
 	}
 
 	for {
@@ -275,11 +438,12 @@ func (as *AutoScaler) ScaleUpWhenReady(ctx context.Context, name string) error {
 			if state == StateActive {
 				entry.state.LastActiveTime = now
 			}
-			entry.cond.Broadcast()
+			// No state transition, but record the access. We do not need
+			// to notify anyone - timestamp updates are not waited on.
 			entry.mu.Unlock()
 			return nil
 		case StateScalingUp, StateScalingDown:
-			if err := waitWithContext(ctx, entry.cond, &entry.mu); err != nil {
+			if err := entry.waitForChange(ctx, as.stopChan); err != nil {
 				entry.mu.Unlock()
 				return err
 			}
@@ -287,7 +451,7 @@ func (as *AutoScaler) ScaleUpWhenReady(ctx context.Context, name string) error {
 			continue
 		case StateScaledDown:
 			entry.state.State = StateScalingUp
-			entry.cond.Broadcast()
+			entry.notifyLocked()
 			entry.mu.Unlock()
 
 			err := as.scaleOperation.ScaleUp(name)
@@ -295,7 +459,7 @@ func (as *AutoScaler) ScaleUpWhenReady(ctx context.Context, name string) error {
 			entry.mu.Lock()
 			if err != nil {
 				entry.state.State = StateScaledDown
-				entry.cond.Broadcast()
+				entry.notifyLocked()
 				entry.mu.Unlock()
 				return err
 			}
@@ -303,17 +467,25 @@ func (as *AutoScaler) ScaleUpWhenReady(ctx context.Context, name string) error {
 			entry.state.State = StateActive
 			entry.state.LastAccessTime = now
 			entry.state.LastActiveTime = now
-			entry.cond.Broadcast()
+			entry.notifyLocked()
 			entry.mu.Unlock()
 			return nil
 		default:
 			entry.mu.Unlock()
-			return fmt.Errorf("function %s has invalid state %s", name, state)
+			return fmt.Errorf("%w: %s state=%s", ErrInvalidState, name, state)
 		}
 	}
 }
 
-// ScaleDownWhenIdle performs a safe blocking scale-down transition once no request is in flight.
+// ScaleDownWhenIdle performs a blocking scale-down transition once no request
+// is in flight. The function is scaled down unconditionally - callers are
+// expected to be the authority on the decision (e.g. a redeploy, an explicit
+// replicas=0 request, or the monitor's idle check). The monitor performs its
+// own freshness check before calling this method; consequently we do NOT
+// short-circuit on a recent activity timestamp here, since that would silently
+// drop forced scale-down requests issued by other code paths.
+//
+// The supplied ctx can be used to bound the wait while a request is in flight.
 func (as *AutoScaler) ScaleDownWhenIdle(ctx context.Context, name string) error {
 	if !as.config.Enabled {
 		return nil
@@ -321,7 +493,7 @@ func (as *AutoScaler) ScaleDownWhenIdle(ctx context.Context, name string) error 
 
 	entry, ok := as.getFunctionEntry(name)
 	if !ok {
-		return fmt.Errorf("function %s not registered", name)
+		return fmt.Errorf("%w: %s", ErrFunctionNotFound, name)
 	}
 
 	for {
@@ -332,21 +504,15 @@ func (as *AutoScaler) ScaleDownWhenIdle(ctx context.Context, name string) error 
 			entry.mu.Unlock()
 			return nil
 		case StateBlocked, StateScalingUp, StateScalingDown:
-			if err := waitWithContext(ctx, entry.cond, &entry.mu); err != nil {
+			if err := entry.waitForChange(ctx, as.stopChan); err != nil {
 				entry.mu.Unlock()
 				return err
 			}
 			entry.mu.Unlock()
 			continue
 		case StateActive:
-			now := time.Now()
-			if entry.state.ScaleToZeroEnabled && now.Sub(entry.state.LastActiveTime) <= entry.state.IdleDuration {
-				entry.state.LastAccessTime = now
-				entry.mu.Unlock()
-				return nil
-			}
 			entry.state.State = StateScalingDown
-			entry.cond.Broadcast()
+			entry.notifyLocked()
 			entry.mu.Unlock()
 
 			err := as.scaleOperation.ScaleDown(name)
@@ -355,53 +521,36 @@ func (as *AutoScaler) ScaleDownWhenIdle(ctx context.Context, name string) error 
 			if err != nil {
 				entry.state.State = StateActive
 				entry.state.LastActiveTime = time.Now()
-				entry.cond.Broadcast()
+				entry.notifyLocked()
 				entry.mu.Unlock()
 				return err
 			}
 			entry.state.State = StateScaledDown
+			// Defensive: by FSM invariant InFlight is already 0 here.
 			entry.state.InFlight = 0
 			entry.state.LastAccessTime = time.Now()
-			entry.cond.Broadcast()
+			entry.notifyLocked()
 			entry.mu.Unlock()
 			return nil
 		default:
 			entry.mu.Unlock()
-			return fmt.Errorf("function %s has invalid state %s", name, state)
+			return fmt.Errorf("%w: %s state=%s", ErrInvalidState, name, state)
 		}
 	}
 }
 
-func waitWithContext(ctx context.Context, cond *sync.Cond, mu *sync.Mutex) error {
-	if ctx == nil {
-		cond.Wait()
-		return nil
-	}
-
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			mu.Lock()
-			cond.Broadcast()
-			mu.Unlock()
-		case <-done:
-		}
-	}()
-	cond.Wait()
-	close(done)
-	return ctx.Err()
-}
-
+// ScaleDown is a context.Background() shortcut for ScaleDownWhenIdle.
 func (as *AutoScaler) ScaleDown(functionName string) error {
 	return as.ScaleDownWhenIdle(context.Background(), functionName)
 }
 
+// ScaleUp is a context.Background() shortcut for ScaleUpWhenReady.
 func (as *AutoScaler) ScaleUp(functionName string) error {
 	return as.ScaleUpWhenReady(context.Background(), functionName)
 }
 
-// RecordActivity keeps compatibility and refreshes activity timestamps.
+// RecordActivity refreshes activity timestamps for a function. No-op if the
+// function is not registered.
 func (as *AutoScaler) RecordActivity(name string) {
 	if !as.config.Enabled {
 		return
@@ -519,13 +668,25 @@ func (as *AutoScaler) startMonitor() {
 	for {
 		select {
 		case <-ticker.C:
+			// If the previous tick's worker pool is still draining, skip
+			// this tick rather than stack up overlapping batches. The
+			// next tick will see the latest state.
+			if !as.tickInProgress.CompareAndSwap(false, true) {
+				as.logger.Debug("previous idle scan still in progress, skipping tick")
+				continue
+			}
 			as.checkIdleFunctions()
+			as.tickInProgress.Store(false)
 		case <-as.stopChan:
 			return
 		}
 	}
 }
 
+// checkIdleFunctions runs the monitor's idle scan: snapshots the registered
+// functions and dispatches scale-down attempts to a bounded worker pool. It
+// returns only after every worker has exited, so the caller (the monitor
+// goroutine) can safely use as.tickInProgress as a serialization gate.
 func (as *AutoScaler) checkIdleFunctions() {
 	if !as.config.Enabled {
 		return
@@ -538,31 +699,158 @@ func (as *AutoScaler) checkIdleFunctions() {
 	}
 	as.functionsMutex.RUnlock()
 
-	now := time.Now()
-	for name, entry := range entries {
-		entry.mu.Lock()
-		if !entry.state.ScaleToZeroEnabled {
-			entry.mu.Unlock()
-			continue
-		}
-		if entry.state.State != StateActive {
-			entry.mu.Unlock()
-			continue
-		}
-
-		idleTime := now.Sub(entry.state.LastActiveTime)
-		idleDuration := entry.state.IdleDuration
-		entry.mu.Unlock()
-
-		if idleTime > idleDuration {
-			as.logger.Info("function idle, scaling down", "function", name)
-			if err := as.ScaleDownWhenIdle(context.Background(), name); err != nil {
-				as.logger.Error("error scaling down function", "function", name, "err", err)
-			} else {
-				as.logger.Info("function scaled down", "function", name)
-			}
-		}
+	if len(entries) == 0 {
+		return
 	}
+
+	type job struct {
+		name  string
+		entry *functionEntry
+	}
+	jobs := make(chan job, len(entries))
+	for name, entry := range entries {
+		jobs <- job{name, entry}
+	}
+	close(jobs)
+
+	workers := as.config.MaxConcurrentScaleDowns
+	if workers > len(entries) {
+		workers = len(entries)
+	}
+	if workers < 1 {
+		workers = 1
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		// Track via the autoscaler-level WG too, so Stop() can wait
+		// for outstanding work even if the monitor loop has exited.
+		as.scaleDownWG.Add(1)
+		go func() {
+			defer wg.Done()
+			defer as.scaleDownWG.Done()
+
+			for j := range jobs {
+				// Bail promptly on shutdown; abandon remaining jobs.
+				select {
+				case <-as.stopChan:
+					return
+				default:
+				}
+
+				ctx, cancel := contextWithStop(scaleDownCallTimeout, as.stopChan)
+				scaledDown, err := as.scaleDownIfStillIdle(ctx, j.name, j.entry)
+				cancel()
+
+				switch {
+				case err == nil:
+					if scaledDown {
+						as.logger.Info("function scaled down", "function", j.name)
+					}
+				case errors.Is(err, context.DeadlineExceeded),
+					errors.Is(err, context.Canceled),
+					errors.Is(err, ErrAutoscalerStopped),
+					errors.Is(err, ErrFunctionUnregistered):
+					// Not actionable; will retry next tick (if applicable).
+					as.logger.Warn("scale-down skipped", "function", j.name, "err", err)
+				default:
+					as.logger.Error("error scaling down function", "function", j.name, "err", err)
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+// scaleDownIfStillIdle is the monitor-side scale-down primitive. Unlike the
+// public ScaleDownWhenIdle (which is unconditional and used by callers that
+// have already decided to scale down), this method:
+//
+//  1. checks ScaleToZeroEnabled and the idle window under the entry lock,
+//  2. SKIPS functions that are in any transient state (Blocked / ScalingUp /
+//     ScalingDown). The monitor's job is opportunistic - the next tick will
+//     re-evaluate. This avoids stalling the monitor goroutine on a single
+//     function when many are registered,
+//  3. only commits StateScalingDown when the function is Active AND still idle.
+//
+// The boolean return indicates whether a scale-down actually fired.
+func (as *AutoScaler) scaleDownIfStillIdle(ctx context.Context, name string, entry *functionEntry) (bool, error) {
+	entry.mu.Lock()
+
+	if !entry.state.ScaleToZeroEnabled {
+		entry.mu.Unlock()
+		return false, nil
+	}
+
+	switch entry.state.State {
+	case StateActive:
+		// fall through
+	case StateScaledDown, StateBlocked, StateScalingUp, StateScalingDown:
+		// Not eligible for scale-down right now. Try again next tick.
+		entry.mu.Unlock()
+		return false, nil
+	default:
+		state := entry.state.State
+		entry.mu.Unlock()
+		return false, fmt.Errorf("%w: %s state=%s", ErrInvalidState, name, state)
+	}
+
+	now := time.Now()
+	if now.Sub(entry.state.LastActiveTime) <= entry.state.IdleDuration {
+		// Activity is fresh - leave it alone.
+		entry.mu.Unlock()
+		return false, nil
+	}
+
+	entry.state.State = StateScalingDown
+	entry.notifyLocked()
+	entry.mu.Unlock()
+
+	// Honor ctx (timeout / shutdown) by not even starting the scale-down
+	// if it has already fired. This keeps tick-to-tick latency tight.
+	if err := ctx.Err(); err != nil {
+		entry.mu.Lock()
+		entry.state.State = StateActive
+		entry.notifyLocked()
+		entry.mu.Unlock()
+		return false, err
+	}
+
+	scaleErr := as.scaleOperation.ScaleDown(name)
+
+	entry.mu.Lock()
+	if scaleErr != nil {
+		entry.state.State = StateActive
+		entry.state.LastActiveTime = time.Now()
+		entry.notifyLocked()
+		entry.mu.Unlock()
+		return false, scaleErr
+	}
+	entry.state.State = StateScaledDown
+	entry.state.InFlight = 0
+	entry.state.LastAccessTime = time.Now()
+	entry.notifyLocked()
+	entry.mu.Unlock()
+	return true, nil
+}
+
+// contextWithStop returns a context that is canceled either after timeout, or
+// when stopCh is closed, whichever happens first.
+func contextWithStop(timeout time.Duration, stopCh <-chan struct{}) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	// Watcher goroutine: cancels ctx if stopCh is closed before timeout.
+	// Exits once ctx is done (either via timeout/cancel or via the stop
+	// signal we just propagated). No leak.
+	go func() {
+		select {
+		case <-stopCh:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
 }
 
 func (as *AutoScaler) parseScaleConfig(labels map[string]string, defaultDuration time.Duration) (bool, time.Duration) {
