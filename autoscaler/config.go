@@ -9,6 +9,7 @@ import (
 
 const DEFAULT_IDLE_DURATION_MINUTES = 15
 const DEFAULT_CHECK_INTERVAL_SECONDS = 10
+const DEFAULT_MAX_CONCURRENT_SCALE_DOWNS = 4
 
 // Config holds the autoscaler configuration
 type Config struct {
@@ -16,6 +17,13 @@ type Config struct {
 	Enabled             bool
 	DefaultIdleDuration time.Duration
 	CheckInterval       time.Duration
+
+	// MaxConcurrentScaleDowns bounds the worker pool used by the monitor's
+	// idle scan. Each idle function's scale-down is dispatched to a worker
+	// from this pool. Values <= 0 are coerced to DEFAULT_MAX_CONCURRENT_SCALE_DOWNS.
+	// Set to 1 for sequential behavior; set higher for deployments with
+	// many functions that can become idle simultaneously.
+	MaxConcurrentScaleDowns int
 }
 
 // NewConfigFromEnv loads autoscaler configuration from environment variables.
