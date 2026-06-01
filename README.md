@@ -29,6 +29,14 @@ If you run faasd tests in local-registry mode, a local registry must be running 
 
 > Note: Proxy configurations specified in the daemon.json are ignored by Docker Desktop. If you use Docker Desktop, you can configure proxies using the Docker Desktop UI under Settings > Resources > Proxies.
 
+## Submodules Initialization
+
+This repository contains several git submodules for the faasd and tinyFaaS platforms. You need to initialize and update these submodules after cloning the repository:
+
+```bash
+git submodule update --init --recursive
+```
+
 ## Integration Test Image Source (faasd)
 
 The faasd integration helpers support two image source modes:
