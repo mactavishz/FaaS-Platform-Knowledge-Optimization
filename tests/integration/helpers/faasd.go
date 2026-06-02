@@ -767,11 +767,6 @@ func FaasdFunctionLogs(t *testing.T, baseURL string, auth FaasdGatewayAuth, func
 	return string(body)
 }
 
-func tryRunCommand(t *testing.T, timeout time.Duration, workdir string, name string, args ...string) (string, error) {
-	t.Helper()
-	return TryRunCommand(t, CommandOptions{Timeout: timeout, Dir: workdir}, name, args...)
-}
-
 func ListFaasdFunctions(t *testing.T, baseURL string, auth FaasdGatewayAuth) []FaasdFunctionStatus {
 	t.Helper()
 
