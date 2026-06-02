@@ -249,6 +249,28 @@ func TestEnsureActiveConcurrentCollapsesScaleUp(t *testing.T) {
 	assert.Equal(t, 1, m.UpCalls())
 }
 
+func TestConcurrentScaleDownWhenIdleCollapsesScaleDown(t *testing.T) {
+	m := &mockScaleOperation{downDelay: 20 * time.Millisecond}
+	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, nopLogger())
+	as.RegisterFunction("fn", nil)
+
+	const callers = 20
+	errs := make(chan error, callers)
+	for i := 0; i < callers; i++ {
+		go func() {
+			errs <- as.ScaleDownWhenIdle("fn")
+		}()
+	}
+
+	for i := 0; i < callers; i++ {
+		require.NoError(t, <-errs)
+	}
+
+	assert.Equal(t, 1, m.DownCalls(), "concurrent scale-down requests should share one runtime stop")
+	state, _ := as.GetState("fn")
+	assert.Equal(t, StateScaledDown, state)
+}
+
 func TestScaleDownFailureReturnsActive(t *testing.T) {
 	m := &mockScaleOperation{downErr: errors.New("boom")}
 	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, nopLogger())
