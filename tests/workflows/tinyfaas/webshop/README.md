@@ -144,30 +144,30 @@ bash tests/supabase/scripts/db_webshop_down.sh
 
 ### 2. Configure environment variables
 
-Create `.env.yaml` from the example template:
+Export the Supabase credentials before deploying the stack:
 
 ```bash
-cd tests/workflows/tinyfaas/webshop
-cp .env.yaml.example .env.yaml
+export SUPABASE_URL="https://<project-ref>.supabase.co"
+export SUPABASE_KEY="<your-supabase-anon-or-service-role-key>"
 ```
 
-Fill in your Supabase credentials in `.env.yaml`:
+Or use `.envrc` with [direnv](https://direnv.net/):
 
-```yaml
-environment:
-  SUPABASE_URL: "https://<project-ref>.supabase.co"
-  SUPABASE_KEY: "<your-supabase-anon-or-service-role-key>"
+```bash
+echo 'export SUPABASE_URL="https://<project-ref>.supabase.co"' >> .envrc
+echo 'export SUPABASE_KEY="<your-supabase-anon-or-service-role-key>"' >> .envrc
+direnv allow
 ```
 
-`.env.yaml` is git-ignored and must never be committed.
+The stack reads both variables from the current environment and defaults them to empty strings if unset.
 
-Only the `cartstorage` function needs these credentials. The `environment_file` field in `stack.yml` injects them only for that function.
+Only the `cartstorage` function needs these credentials. The stack `environment` field injects them only for that function.
 
 ### 3. Deploy
 
 ```bash
 # From repo root:
-faas-cli deploy --platform tinyfaas -f ./tests/workflows/tinyfaas/webshop/stack.yml
+faas-cli deploy --platform tinyfaas -f ./tests/workflows/tinyfaas/webshop/stack.yaml
 ```
 
 ### 4. Invoke the workflow

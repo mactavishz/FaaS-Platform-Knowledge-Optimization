@@ -19,8 +19,9 @@ functions:
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
-    environment_file:
-      - .env.yaml
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_KEY: ${SUPABASE_KEY:-}
   iot-ca:
     lang: node24
     handler: ./CA
@@ -45,8 +46,9 @@ functions:
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
-    environment_file:
-      - .env.yaml
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_KEY: ${SUPABASE_KEY:-}
   iot-csl:
     lang: node24
     handler: ./CSL
@@ -55,8 +57,9 @@ functions:
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
-    environment_file:
-      - .env.yaml
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_KEY: ${SUPABASE_KEY:-}
   iot-ct:
     lang: node24
     handler: ./CT
@@ -81,8 +84,9 @@ functions:
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
-    environment_file:
-      - .env.yaml
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_KEY: ${SUPABASE_KEY:-}
   iot-se:
     lang: node24
     handler: ./SE
@@ -91,8 +95,9 @@ functions:
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
-    environment_file:
-      - .env.yaml
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_KEY: ${SUPABASE_KEY:-}
 configuration:
   templates:
     - name: node24

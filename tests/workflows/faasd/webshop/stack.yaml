@@ -51,8 +51,9 @@ functions:
     limits:
       cpu: ${WORKFLOW_CPU_LIMIT:-0.25}
       memory: ${WORKFLOW_MEMORY_LIMIT:-256Mi}
-    environment_file:
-      - .env.yaml
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_KEY: ${SUPABASE_KEY:-}
   webshop-listproducts:
     lang: node24
     handler: ./listproducts

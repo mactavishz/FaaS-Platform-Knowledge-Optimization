@@ -67,18 +67,24 @@ Build local faasd workflow images as multi-arch OCI archives with `faas-cli buil
 
 ### Required runtime env vars
 
-Set runtime configuration through an OpenFaaS YAML `environment_file`.
+Set runtime configuration through shell environment variables before deploying the stack.
 
-1) Create `tests/workflows/faasd/IoT/.env.yaml` from the example:
+1. Export:
 
 ```bash
-cd tests/workflows/faasd/IoT
-cp .env.yaml.example .env.yaml
+export SUPABASE_URL="https://<project-ref>.supabase.co"
+export SUPABASE_KEY="<your-supabase-anon-or-service-role-key>"
 ```
 
-`.env.yaml` is git-ignored.
+Or use `.envrc` with [direnv](https://direnv.net/):
 
-2) Fill in:
+```bash
+echo 'export SUPABASE_URL="https://<project-ref>.supabase.co"' >> .envrc
+echo 'export SUPABASE_KEY="<your-supabase-anon-or-service-role-key>"' >> .envrc
+direnv allow
+```
+
+The stack reads both variables from the current environment and defaults them to empty strings if unset.
 
 - `SUPABASE_URL`
 - `SUPABASE_KEY`
@@ -88,7 +94,7 @@ Table/schema names are hardcoded in the handlers:
 - `public.sensor_data`
 - `public.use_case`
 
-3) Deploy:
+2. Deploy:
 
 ```bash
 # From repo root:
