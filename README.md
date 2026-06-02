@@ -1,218 +1,113 @@
 # FaaS-Platform-Knowledge-Optimization
 
-Optimize FaaS platform cold starts using platform knowledge
+Optimize FaaS platform cold starts using platform knowledge.
 
-## Prerequisites
+This repository contains the platform code, local development workflows, and evaluation tooling for `faasd`, `tinyFaaS`, `faas-cli`, autoscaling, and callgraph-based prewarming experiments.
 
-- [golang](https://go.dev/doc/install)
+## Quickstart
+
+### Prerequisites
+
+- [Go](https://go.dev/doc/install)
 - [make](https://www.gnu.org/software/make/)
-- [vagrant](https://www.vagrantup.com/docs/installation)
+- [Vagrant](https://www.vagrantup.com/docs/installation)
+- [VirtualBox](https://www.virtualbox.org/)
+- [A Supabase Project](https://supabase.com/)
 
-We suggest setting up your Go environment with [mise](https://github.com/jdx/mise).
+We suggest managing the Go toolchain with [mise](https://github.com/jdx/mise).
 
-## Submodules Initialization
-
-This repository contains several git submodules for the faasd and tinyFaaS platforms. You need to initialize and update these submodules after cloning the repository:
+### Setup
 
 ```bash
 git submodule update --init --recursive
+cp .env.example .env
 ```
 
-## Integration Test Image Source (faasd)
+The local platform build scripts read `.env` and install that configuration into `faasd` or `tinyFaaS`.
 
-The faasd integration stacks use local multi-arch OCI image archives. In these stacks, the `image` field points to the output tar path relative to the stack file, for example `./dist/linear3-a.tar`.
+Both Vagrant VMs forward guest port `8080` to host `127.0.0.1:8080`, so only one platform should be active locally at a time.
 
-```bash
-faas-cli publish --platforms linux/amd64,linux/arm64 -f ./<path-to-function>/stack.yaml
-```
-
-## Building the Project
-
-### Start the VMs
+### Build And Start A Platform
 
 ```bash
-# Start the Vagrant VMs
-vagrant up faasd
-vagrant up tinyfaas
-```
-
-### Build Individual Components
-
-```bash
-# Build only faas-cli
+# Build the local faas-cli binary
 make build-faas-cli
 
-# Build only faasd
+# Build and start one platform
 make build-faasd
-
-# Build only tinyFaaS
+# or
 make build-tinyfaas
 ```
 
-The built `faas-cli` binary will be placed in `$GOBIN` (typically `~/go/bin` or your configured Go bin directory).
-
-## Running the Platform
-
-### Start faasd (OpenFaaS)
-
-Faasd needs a local registry to be configured and running before it can start.
+`make build-faasd` also performs the `faas-cli` login step. If needed, you can rerun:
 
 ```bash
-# Start the faasd VM
-vagrant up faasd
+make faasd-login
+make faasd-passwd
+```
 
-# Start the local registry, build faasd, and start faasd
+Workflow stack files live under `tests/workflows/<platform>/`. Use the workflow READMEs there for deploy and invocation details.
+
+## Common Commands
+
+```bash
+make build-faas-cli
 make build-faasd
+make build-tinyfaas
+make test-faas-cli
+make test-faasd
+make test-tinyfaas
+make integration-test
+make unit-test
 ```
 
-The faasd gateway will be available at `http://127.0.0.1:8080` by default.
+`make unit-test` covers the repo-root `autoscaler` and `callgraph` modules only. This repository is multi-module, so it is not a full-repo test sweep.
 
-### Deploy faasd/tinyfaas to a Remote Host
+## Testing
 
-You can deploy faasd/tinyfaas to a remote Linux host over SSH with the helper script below:
+Use these entry points from the repository root:
 
 ```bash
-# for faasd
-GITHUB_TOKEN=<github-pat> ./scripts/deploy-faasd.sh \
-  --host user@server \
-  --env-file .env
+# Fast local checks
+make unit-test
+make test-faas-cli
 
-# for tinyfaas
-GITHUB_TOKEN=<github-pat> ./scripts/deploy-tinyfaas.sh \
-  --host user@server \
-  --env-file .env
+# Platform-specific test runs
+make test-faasd
+make test-tinyfaas
+
+# Repo-level integration suites
+make integration-test
 ```
 
-The script installs faasd/tinyfaas prerequisites, clones or updates this repository on the target host, uploads the provided env file, and runs the remote build/install flow.
+Testing notes:
 
-### Start tinyFaaS
+- Integration tests require Vagrant and VirtualBox.
+- Integration tests for `IoT` and `webshop` workflow require a running [Supabase](https://supabase.com/) project.
+- `faas-cli` must be installed or built and available on `PATH` for integration flows.
+- Some workflow tests, especially `IoT` and `webshop`, require setting `SUPABASE_URL` and `SUPABASE_KEY` in the environment variables.
+- For live command output while running integration tests, set `INTEGRATION_DEBUG=1`.
 
-```bash
-# Start the tinyFaaS VM
-vagrant up tinyfaas
+See `tests/integration/README.md` for suite details and `tests/supabase/README.md` for database setup used by the workflow tests.
 
-# Build and start tinyFaaS
-make tinyfaas-up
-```
+## Repository Map
 
-The tinyFaaS gateway will be available at: `http://127.0.0.1:8080`
+- `faasd/`: faasd platform source
+- `tinyFaaS/`: tinyFaaS platform source
+- `faas-cli/`: CLI used to deploy and invoke functions
+- `autoscaler/`: autoscaling logic
+- `callgraph/`: callgraph tracking and prewarming logic
+- `tests/integration/`: repo-level integration suites
+- `tests/workflows/`: example workflows and stack files for each platform
+- `benchmark/`: k6-based benchmarking tools
+- `terraform/`: remote benchmarking infrastructure
+- `scripts/`: local build and remote deployment helpers
 
-## Using the Local faas-cli
+## Further Reading
 
-Once you've built `faas-cli` with `make build-faas-cli`, you can use it to deploy and invoke functions.
-
-### Deploy a Function to OpenFaaS (faasd)
-
-You can deploy functions using the provided stack file or specify handler and language directly.
-
-```bash
-# Deploy using the faasd stack file
-faas-cli deploy -f faasd-stack.yml
-
-# Deploy a single function specifying handler and language
-faas-cli deploy --image=my_image --name=my_fn --handler=/path/to/fn/ \
-  --gateway=http://remote-site.com:8080 --lang=python \
-  --env=MYVAR=myval
-```
-
-### Deploy a Function to tinyFaaS
-
-We have extended `faas-cli` to support tinyFaaS. You can deploy functions using the provided stack file or specify handler and language directly.
-
-You should always use the `--platform tinyfaas` flag and specify the tinyFaaS gateway URL via the `--gateway` flag. when working with tinyFaaS.
-
-```bash
-# Deploy using the tinyFaaS stack file, you don't need the --gateway flag here if the gateway is specified in the stack file
-faas-cli deploy -f tinyfaas-stack.yml --platform tinyfaas
-
-# Deploy a single function specifying handler and language
-faas-cli deploy --platform tinyfaas --gateway http://localhost:8080 \
-  --name echo --handler ./tinyFaaS/test/fns/echo --lang python3
-```
-
-### Invoke a Function
-
-```bash
-# Invoke a function on OpenFaaS
-echo "Hello World" | faas-cli invoke <function-name>
-
-# Invoke a function on tinyFaaS
-echo "Hello World" | faas-cli invoke hellopy --platform tinyfaas -g http://localhost:8080
-```
-
-### List Functions
-
-```bash
-# List functions on OpenFaaS
-faas-cli list
-
-# List functions on tinyFaaS
-faas-cli list --gateway http://127.0.0.1:8080 --platform tinyfaas
-```
-
-### Remove a Function
-
-```bash
-# Remove from OpenFaaS
-faas-cli remove <function-name>
-
-# Remove from tinyFaaS
-faas-cli remove hellopy --platform tinyfaas --gateway http://localhost:8080
-```
-
-## Example Stack Files
-
-### For faasd (OpenFaaS)
-
-You can use the stack file as described in the [OpenFaaS documentation](https://docs.openfaas.com/reference/yaml/)
-
-Here is an example:
-
-```yaml
-# faasd-stack.yml
-provider:
-  name: openfaas
-  gateway: http://127.0.0.1:8080
-functions:
-  env:
-    image: ghcr.io/openfaas/alpine:latest
-    fprocess: env
-  nodeinfo:
-    image: ghcr.io/openfaas/nodeinfo:latest
-```
-
-Then deploy with:
-
-```bash
-faas-cli deploy -f faasd-stack.yml
-```
-
-### For tinyFaaS
-
-For tinyFaaS, you don't have to specify the image. Instead, you provide the handler path and language.
-
-```yaml
-# tinyfaas-stack.yml
-provider:
-  name: tinyfaas
-  gateway: http://127.0.0.1:8080
-functions:
-  hellopy:
-    lang: python3
-    handler: ./tinyFaaS/test/fns/echo
-  hellonode:
-    lang: nodejs
-    handler: ./tinyFaaS/test/fns/echo-js
-```
-
-Then deploy with:
-
-```bash
-faas-cli deploy -f tinyfaas-stack.yml
-```
-
-## Troubleshooting
-
-- If `faas-cli` is not in your PATH, make sure `$GOBIN` is added to your PATH or use the full path to the binary
-- For faasd authentication issues, run `make faasd-login` again
-- To restart the VMs: `vagrant halt <vm-name> && vagrant up <vm-name>`
+- `tests/integration/README.md`
+- `tests/supabase/README.md`
+- `benchmark/README.md`
+- `terraform/README.md`
+- `tests/workflows/faasd/*/README.md`
+- `tests/workflows/tinyfaas/*/README.md`
