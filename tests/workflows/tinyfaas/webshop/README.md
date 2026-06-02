@@ -123,23 +123,36 @@ public.webshop_cart (
 From the repository root:
 
 ```bash
-export SUPABASE_DB_URL="<your-supabase-db-host>"
-bash tests/supabase/scripts/db_webshop_up.sh
+export SUPABASE_DB_HOST="<your-session-pooler-host>"
+export SUPABASE_DB_USER="postgres.<project-ref>"
+export SUPABASE_DB_PORT="5432"
+export SUPABASE_DB_PASSWORD="<your-supabase-db-password>"
+bash tests/supabase/scripts/db.sh create webshop
 ```
 
-This creates `public.webshop_cart` with the composite primary key, index, RLS policy,
+For IPv4-only networks, prefer the Supabase Session pooler host from the project's Connect page.
+Use the direct `db.<project-ref>.supabase.co` host only when your machine can reach Supabase over IPv6,
+or when your project has the Supabase IPv4 add-on.
+
+This creates `public.webshop_cart` with the composite primary key, indexes, RLS enabled,
 and the `updated_at` trigger.
 
 To reset data between test runs:
 
 ```bash
-bash tests/supabase/scripts/db_webshop_truncate.sh
+bash tests/supabase/scripts/db.sh reset webshop
+```
+
+To inspect all stored cart rows:
+
+```bash
+bash tests/supabase/scripts/db.sh get webshop
 ```
 
 To drop the table entirely:
 
 ```bash
-bash tests/supabase/scripts/db_webshop_down.sh
+bash tests/supabase/scripts/db.sh destroy webshop
 ```
 
 ### 2. Configure environment variables
