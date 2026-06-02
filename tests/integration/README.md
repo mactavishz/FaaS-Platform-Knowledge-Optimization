@@ -49,19 +49,28 @@ All workflow functionality tests rebuild tinyFaaS with:
 
 ### External prerequisites
 
-`IoT` and `webshop` workflow tests require local env files and Supabase-backed state:
+`IoT` and `webshop` workflow tests require Supabase-backed state and these variables in the current environment:
 
-- `tests/workflows/tinyfaas/IoT/.env.yaml`
-- `tests/workflows/tinyfaas/webshop/.env.yaml`
+- `SUPABASE_URL`
+- `SUPABASE_KEY`
 
-Missing/unconfigured env files are treated as test failures.
+The affected stack files read both values from the current shell and default them to empty strings when unset.
+The integration helpers fail fast before deploy if either variable is missing.
+
+Recommended local setup uses `.envrc` with [direnv](https://direnv.net/):
+
+```bash
+echo 'export SUPABASE_URL="https://<project-ref>.supabase.co"' >> .envrc
+echo 'export SUPABASE_KEY="<your-supabase-key>"' >> .envrc
+direnv allow
+```
 
 ## Run Integration Tests for tinyFaaS
 
 Run all integration tests for both faasd and tinyFaaS:
 
 ```bash
-make test-integration
+make integration-test
 ```
 
 ### For tinyFaaS
@@ -90,6 +99,4 @@ The faasd workflow suite uses remote images for the deployment of the workflow f
 
 Additional prerequisites for faasd workflow tests:
 
-- Configured env files when required:
-  - `tests/workflows/faasd/IoT/.env.yaml`
-  - `tests/workflows/faasd/webshop/.env.yaml`
+- `SUPABASE_URL` and `SUPABASE_KEY` exported in the current environment for `IoT` and `webshop`

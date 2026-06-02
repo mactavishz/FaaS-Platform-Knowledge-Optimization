@@ -118,7 +118,7 @@ func (s *WorkflowIntegrationSuite) runTreeBatch() {
 
 func (s *WorkflowIntegrationSuite) runIoTBatch() {
 	t := s.T()
-	integrationhelpers.RequireWorkflowEnvFile(t, "tests/workflows/tinyfaas/IoT/.env.yaml")
+	integrationhelpers.RequireWorkflowSupabaseEnv(t)
 	integrationhelpers.WipeFunctions(t)
 	integrationhelpers.DeployWorkflow(t, "tests/workflows/tinyfaas/IoT/stack.yaml")
 	integrationhelpers.WaitForFunctionsRunningState(t, []string{"iot-i", "iot-as", "iot-ca", "iot-cs", "iot-csa", "iot-csl", "iot-ct", "iot-cw", "iot-dj", "iot-se"}, true, 90*time.Second)
@@ -184,7 +184,7 @@ func (s *WorkflowIntegrationSuite) runIoTBatch() {
 
 func (s *WorkflowIntegrationSuite) runWebshopBatch() {
 	t := s.T()
-	integrationhelpers.RequireWorkflowEnvFile(t, "tests/workflows/tinyfaas/webshop/.env.yaml")
+	integrationhelpers.RequireWorkflowSupabaseEnv(t)
 	integrationhelpers.WipeFunctions(t)
 	integrationhelpers.DeployWorkflow(t, "tests/workflows/tinyfaas/webshop/stack.yaml")
 	integrationhelpers.WaitForFunctionsRunningState(t, []string{

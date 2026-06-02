@@ -15,9 +15,7 @@ import (
 const (
 	tinyFaaSTreeStackPath       = "tests/workflows/tinyfaas/tree/stack.yaml"
 	tinyFaaSIoTStackPath        = "tests/workflows/tinyfaas/IoT/stack.yaml"
-	tinyFaaSIoTEnvPath          = "tests/workflows/tinyfaas/IoT/.env.yaml"
 	tinyFaaSWebshopStackPath    = "tests/workflows/tinyfaas/webshop/stack.yaml"
-	tinyFaaSWebshopEnvPath      = "tests/workflows/tinyfaas/webshop/.env.yaml"
 	tinyCallgraphWaitTimeout    = 120 * time.Second
 	tinyCallgraphPollInterval   = 1 * time.Second
 	tinyWorkflowTimeout         = 120 * time.Second
@@ -162,7 +160,7 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarmTree() {
 func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarmIoT() {
 	t := s.T()
 	t.Log("[scenario] autoscaler + callgraph + prewarm disabled iot")
-	integrationhelpers.RequireWorkflowEnvFile(t, tinyFaaSIoTEnvPath)
+	integrationhelpers.RequireWorkflowSupabaseEnv(t)
 	s.setupScenario(
 		"autoscaler-and-callgraph-no-prewarm.env",
 		tinyFaaSIoTStackPath,
@@ -201,7 +199,7 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarmIoT() {
 func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarmWebshop() {
 	t := s.T()
 	t.Log("[scenario] autoscaler + callgraph + prewarm disabled webshop")
-	integrationhelpers.RequireWorkflowEnvFile(t, tinyFaaSWebshopEnvPath)
+	integrationhelpers.RequireWorkflowSupabaseEnv(t)
 	s.setupScenario(
 		"autoscaler-and-callgraph-no-prewarm.env",
 		tinyFaaSWebshopStackPath,

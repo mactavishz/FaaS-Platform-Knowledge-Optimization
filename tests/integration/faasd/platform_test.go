@@ -17,9 +17,7 @@ const (
 	faasdLinear3StackRelPath  = "tests/workflows/faasd/linear3/stack.yaml"
 	faasdTreeStackRelPath     = "tests/workflows/faasd/tree/stack.yaml"
 	faasdIoTStackRelPath      = "tests/workflows/faasd/IoT/stack.yaml"
-	faasdIoTEnvRelPath        = "tests/workflows/faasd/IoT/.env.yaml"
 	faasdWebshopStackRelPath  = "tests/workflows/faasd/webshop/stack.yaml"
-	faasdWebshopEnvRelPath    = "tests/workflows/faasd/webshop/.env.yaml"
 	callgraphWaitTimeout      = 120 * time.Second
 	callgraphPollInterval     = 1 * time.Second
 	webshopCheckoutTimeout    = 180 * time.Second
@@ -184,7 +182,7 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarmTree() {
 
 func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarmIoT() {
 	t := s.T()
-	integrationhelpers.RequireWorkflowEnvFile(t, faasdIoTEnvRelPath)
+	integrationhelpers.RequireWorkflowSupabaseEnv(t)
 	s.setupScenario("autoscaler-and-callgraph-no-prewarm.env", faasdIoTStackRelPath, nil)
 
 	body := integrationhelpers.InvokeFaasdJSONWithTimeout(t, s.baseURL, s.auth, "iot-i", map[string]any{}, workflowInvocationTimeout)
@@ -217,7 +215,7 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarmIoT() {
 
 func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarmWebshop() {
 	t := s.T()
-	integrationhelpers.RequireWorkflowEnvFile(t, faasdWebshopEnvRelPath)
+	integrationhelpers.RequireWorkflowSupabaseEnv(t)
 	s.setupScenario("autoscaler-and-callgraph-no-prewarm.env", faasdWebshopStackRelPath, nil)
 
 	userID := uniqueTestUserID("platform-webshop")

@@ -136,7 +136,7 @@ func (s *WorkflowIntegrationSuite) runTreeBatch() {
 
 func (s *WorkflowIntegrationSuite) runIoTBatch() {
 	t := s.T()
-	integrationhelpers.RequireWorkflowEnvFile(t, "tests/workflows/faasd/IoT/.env.yaml")
+	integrationhelpers.RequireWorkflowSupabaseEnv(t)
 	s.deployFaasdWorkflow(t, "tests/workflows/faasd/IoT/stack.yaml")
 	entryBody := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "iot-i", map[string]any{})
 	var entry struct {
@@ -197,7 +197,7 @@ func (s *WorkflowIntegrationSuite) runIoTBatch() {
 
 func (s *WorkflowIntegrationSuite) runWebshopBatch() {
 	t := s.T()
-	integrationhelpers.RequireWorkflowEnvFile(t, "tests/workflows/faasd/webshop/.env.yaml")
+	integrationhelpers.RequireWorkflowSupabaseEnv(t)
 	s.deployFaasdWorkflow(t, "tests/workflows/faasd/webshop/stack.yaml")
 	t.Run("get", func(t *testing.T) {
 		body := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "webshop-frontend", map[string]any{
