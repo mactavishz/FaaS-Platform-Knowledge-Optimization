@@ -14,7 +14,7 @@ const { createClient } = require("@supabase/supabase-js");
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 
-const CART_TABLE = "webshop_cart";
+const CART_TABLE = "faasd_webshop_cart";
 const SUPABASE_SCHEMA = "public";
 
 let supabase;

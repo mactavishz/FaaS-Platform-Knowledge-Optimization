@@ -11,7 +11,7 @@ const { createClient } = require("@supabase/supabase-js");
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 
-const USE_CASE_TABLE = "use_case";
+const USE_CASE_TABLE = "faasd_use_case";
 const SUPABASE_SCHEMA = "public";
 
 let supabase;

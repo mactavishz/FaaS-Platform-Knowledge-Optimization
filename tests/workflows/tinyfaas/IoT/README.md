@@ -38,27 +38,27 @@ I (AnalyzeSensor)
 
 ### Tables
 
-- `sensor_data`
-- `use_case`
+- `tinyfaas_sensor_data`
+- `tinyfaas_use_case`
 
 ### Reads
 
-- `CSL` reads `use_case`:
+- `CSL` reads `tinyfaas_use_case`:
   - select row for `sensor_id = sensorID + 1`
   - select row for `sensor_id = sensorID - 1`
 
 ### Writes
 
-- `SE` upserts `sensor_data`:
+- `SE` upserts `tinyfaas_sensor_data`:
   - key `sensor_id = event.sensorID`
   - payload `message = event`
-- `CSA` upserts `use_case`:
+- `CSA` upserts `tinyfaas_use_case`:
   - key `sensor_id = 1001`
-- `CSL` upserts `use_case` (alert):
+- `CSL` upserts `tinyfaas_use_case` (alert):
   - key `sensor_id = 1500`
-- `DJ` upserts `use_case`:
+- `DJ` upserts `tinyfaas_use_case`:
   - key `sensor_id = 998`
-- `AS` upserts `use_case` across a range:
+- `AS` upserts `tinyfaas_use_case` across a range:
   - key `sensor_id` for each ID in the computed range
 
 ## Setup
@@ -89,8 +89,21 @@ The stack reads both variables from the current environment and defaults them to
 
 Table/schema names are hardcoded in the handlers:
 
-- `public.sensor_data`
-- `public.use_case`
+- `public.tinyfaas_sensor_data`
+- `public.tinyfaas_use_case`
+
+Create the tinyfaas IoT tables before deploying:
+
+```bash
+bash tests/supabase/scripts/db.sh create iot tinyfaas
+```
+
+To reset or inspect only the tinyfaas IoT tables:
+
+```bash
+bash tests/supabase/scripts/db.sh reset iot tinyfaas
+bash tests/supabase/scripts/db.sh get iot tinyfaas
+```
 
 2. Deploy:
 

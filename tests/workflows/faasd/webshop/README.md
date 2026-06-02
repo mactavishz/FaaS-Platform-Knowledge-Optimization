@@ -13,7 +13,7 @@ This document describes the webshop workflow deployed under `webshop/` for the f
 | `addcartitem`         | `addcartitem/`         | Adds a single product to a user's cart                          |
 | `emptycart`           | `emptycart/`           | Removes all items from a user's cart                            |
 | `getcart`             | `getcart/`             | Retrieves all cart items for a user                             |
-| `cartstorage`         | `cartstorage/`         | Cart key-value store backed by Supabase (`webshop_cart` table)  |
+| `cartstorage`         | `cartstorage/`         | Cart key-value store backed by Supabase (`faasd_webshop_cart` table) |
 | `listproducts`        | `listproducts/`        | Returns the full hardcoded product catalogue (11 items)         |
 | `getproduct`          | `getproduct/`          | Retrieves a single product by ID                                |
 | `searchproducts`      | `searchproducts/`      | Searches product names and descriptions for a query string      |
@@ -50,48 +50,48 @@ frontend (entry, dispatches by operation)
     |-sync-> currency          (once per product for price conversion)
     |-sync-> getads
     |-sync-> getcart
-    |          |-sync-> cartstorage  [Supabase: SELECT webshop_cart WHERE user_id=?]
+    |          |-sync-> cartstorage  [Supabase: SELECT faasd_webshop_cart WHERE user_id=?]
     |-sync-> listrecommendations
                  |-sync-> listproducts
 
   operation="cart"
     |-sync-> getcart
-    |          |-sync-> cartstorage  [Supabase: SELECT webshop_cart WHERE user_id=?]
+    |          |-sync-> cartstorage  [Supabase: SELECT faasd_webshop_cart WHERE user_id=?]
     |-sync-> shipmentquote
 
   operation="addcart"
     |-sync->  addcartitem
-    |           |-sync->  cartstorage  [Supabase: UPSERT INTO webshop_cart]
+    |           |-sync->  cartstorage  [Supabase: UPSERT INTO faasd_webshop_cart]
     |-sync->  getcart
-                |-sync-> cartstorage  [Supabase: SELECT webshop_cart WHERE user_id=?]
+                |-sync-> cartstorage  [Supabase: SELECT faasd_webshop_cart WHERE user_id=?]
 
   operation="checkout"
     |-sync->  checkout
                 |-sync->  getcart
-                |           |-sync-> cartstorage  [Supabase: SELECT webshop_cart WHERE user_id=?]
+                |           |-sync-> cartstorage  [Supabase: SELECT faasd_webshop_cart WHERE user_id=?]
                 |-sync->  listproducts
                 |-sync->  currency  (once per cart item + once for shipment)
                 |-sync->  shipmentquote
                 |-async-> shiporder   (CPU sim: Sieve of Eratosthenes)
                 |-async-> email       (CPU sim: worker thread atan*tan loop)
                 |-async-> emptycart
-                            |-async-> cartstorage  [Supabase: DELETE FROM webshop_cart WHERE user_id=?]
+                            |-async-> cartstorage  [Supabase: DELETE FROM faasd_webshop_cart WHERE user_id=?]
 
   operation="emptycart"
     |-async-> emptycart
-                |-async-> cartstorage  [Supabase: DELETE FROM webshop_cart WHERE user_id=?]
+                |-async-> cartstorage  [Supabase: DELETE FROM faasd_webshop_cart WHERE user_id=?]
 ```
 
 ## Supabase I/O Summary
 
 ### Tables
 
-- `public.webshop_cart`
+- `public.faasd_webshop_cart`
 
 ### Schema
 
 ```sql
-public.webshop_cart (
+public.faasd_webshop_cart (
   user_id    text        not null,
   item_id    text        not null,
   quantity   integer     not null default 1,
@@ -115,7 +115,7 @@ public.webshop_cart (
 ### Prerequisites
 
 - A running faasd instance accessible at `http://faasd.com`
-- A Supabase project with the `webshop_cart` table created (see below)
+- A Supabase project with the `faasd_webshop_cart` table created (see below)
 - `faas-cli` installed and configured for the faasd platform
 
 Build local faasd workflow images as multi-arch OCI archives with `faas-cli build` or `faas-cli publish`. The stack `image` values point to archive paths under `./dist/`.
@@ -129,32 +129,34 @@ export SUPABASE_DB_HOST="<your-session-pooler-host>"
 export SUPABASE_DB_USER="postgres.<project-ref>"
 export SUPABASE_DB_PORT="5432"
 export SUPABASE_DB_PASSWORD="<your-supabase-db-password>"
-bash tests/supabase/scripts/db.sh create webshop
+bash tests/supabase/scripts/db.sh create webshop faasd
 ```
 
 For IPv4-only networks, prefer the Supabase Session pooler host from the project's Connect page.
 Use the direct `db.<project-ref>.supabase.co` host only when your machine can reach Supabase over IPv6,
 or when your project has the Supabase IPv4 add-on.
 
-This creates `public.webshop_cart` with the composite primary key, indexes, RLS enabled,
+This creates `public.faasd_webshop_cart` with the composite primary key, indexes, RLS enabled,
 and the `updated_at` trigger.
+
+Omit the third argument to create both faasd and tinyfaas webshop tables.
 
 To reset data between test runs:
 
 ```bash
-bash tests/supabase/scripts/db.sh reset webshop
+bash tests/supabase/scripts/db.sh reset webshop faasd
 ```
 
 To inspect all stored cart rows:
 
 ```bash
-bash tests/supabase/scripts/db.sh get webshop
+bash tests/supabase/scripts/db.sh get webshop faasd
 ```
 
 To drop the table entirely:
 
 ```bash
-bash tests/supabase/scripts/db.sh destroy webshop
+bash tests/supabase/scripts/db.sh destroy webshop faasd
 ```
 
 ### 2. Configure environment variables

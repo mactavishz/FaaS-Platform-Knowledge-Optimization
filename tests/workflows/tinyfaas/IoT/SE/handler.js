@@ -7,7 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 
-const SENSOR_DATA_TABLE = "sensor_data";
+const SENSOR_DATA_TABLE = "tinyfaas_sensor_data";
 const SUPABASE_SCHEMA = "public";
 
 let supabase;
