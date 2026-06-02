@@ -133,6 +133,14 @@ get_k6_env_workflow_name() {
   esac
 }
 
+get_supabase_reset_target() {
+  case "$(lowercase "$1")" in
+    iot) printf 'iot\n' ;;
+    webshop-browse-addcart-checkout | webshop-addcart-checkout) printf 'webshop\n' ;;
+    *) return 1 ;;
+  esac
+}
+
 get_stack_file_path() {
   local platform="$1"
   local workflow="$2"
@@ -513,6 +521,20 @@ deploy_workflow() {
       -f "$stack_path" >>"$log_file" 2>&1 || return
 }
 
+reset_supabase_tables() {
+  local platform="$1"
+  local workflow="$2"
+  local log_file="$3"
+  local reset_target
+
+  if ! reset_target="$(get_supabase_reset_target "$workflow")"; then
+    return 0
+  fi
+
+  log "resetting Supabase tables for $platform/$workflow"
+  bash "$ROOT_DIR/tests/supabase/scripts/db.sh" reset "$reset_target" "$platform" >"$log_file" 2>&1
+}
+
 run_k6() {
   local platform="$1"
   local workflow="$2"
@@ -790,6 +812,12 @@ run_benchmark() {
 
   if ! deploy_workflow "$platform" "$stack_path" "$gateway_url" "$auth_user" "$auth_password" "$run_dir/logs/workflow-deploy.log"; then
     mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "workflow deploy failed" "$public_ip"
+    CHILD_CLEANUP_DONE="true"
+    return 1
+  fi
+
+  if ! reset_supabase_tables "$platform" "$workflow" "$run_dir/logs/supabase-reset.log"; then
+    mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "supabase reset failed" "$public_ip"
     CHILD_CLEANUP_DONE="true"
     return 1
   fi
