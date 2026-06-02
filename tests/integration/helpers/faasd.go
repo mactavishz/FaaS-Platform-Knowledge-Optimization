@@ -220,9 +220,101 @@ func BuildFaasdWorkflowStack(t *testing.T, stackPath string) {
 	MustRunCommand(t, CommandOptions{Timeout: 20 * time.Minute, Dir: filepath.Dir(stackPath)}, "faas-cli", "build", "-f", stackPath)
 }
 
+func BuildFaasdWorkflowStackFunction(t *testing.T, stackPath string, functionName string) {
+	t.Helper()
+	MustRunCommand(t, CommandOptions{Timeout: 20 * time.Minute, Dir: filepath.Dir(stackPath)}, "faas-cli", "build", "-f", stackPath, "--filter", functionName)
+}
+
 func PrepareFaasdWorkflowStack(t *testing.T, stackPath string) {
 	t.Helper()
-	BuildFaasdWorkflowStack(t, stackPath)
+	if alwaysBuildFaasdArchives() {
+		t.Log("[step] ALWAYS_BUILD=true, rebuilding faasd workflow archives")
+		BuildFaasdWorkflowStack(t, stackPath)
+		return
+	}
+
+	archives := FaasdStackArchives(t, stackPath)
+	missingFunctions := make([]string, 0, len(archives))
+	for _, archive := range archives {
+		info, err := os.Stat(archive.Path)
+		if err == nil {
+			if info.IsDir() {
+				t.Fatalf("faasd workflow archive path is a directory: %s", archive.Path)
+			}
+			continue
+		}
+		if !os.IsNotExist(err) {
+			t.Fatalf("stat faasd workflow archive %s: %v", archive.Path, err)
+		}
+
+		missingFunctions = append(missingFunctions, archive.FunctionName)
+	}
+
+	if len(missingFunctions) == 0 {
+		if len(archives) > 0 {
+			t.Logf("[step] faasd workflow archives already exist, skipping build count=%d", len(archives))
+		}
+		return
+	}
+
+	if len(missingFunctions) == len(archives) {
+		t.Log("[step] all faasd workflow archives missing, building full stack")
+		BuildFaasdWorkflowStack(t, stackPath)
+		return
+	}
+
+	for _, functionName := range missingFunctions {
+		t.Logf("[step] faasd workflow archive missing, building function=%s", functionName)
+		BuildFaasdWorkflowStackFunction(t, stackPath, functionName)
+	}
+}
+
+func alwaysBuildFaasdArchives() bool {
+	value := strings.TrimSpace(os.Getenv("ALWAYS_BUILD"))
+	if value == "" {
+		return false
+	}
+	enabled, err := strconv.ParseBool(value)
+	return err == nil && enabled
+}
+
+type FaasdStackArchive struct {
+	FunctionName string
+	Path         string
+}
+
+func FaasdStackArchives(t *testing.T, stackPath string) []FaasdStackArchive {
+	t.Helper()
+	stack := parseFaasdStack(t, stackPath, true)
+	stackDir := filepath.Dir(stackPath)
+	archives := make([]FaasdStackArchive, 0, len(stack.Functions))
+	for name, fn := range stack.Functions {
+		image := strings.TrimSpace(fn.Image)
+		if !strings.HasSuffix(strings.ToLower(image), ".tar") {
+			continue
+		}
+		archivePath := image
+		if filepath.IsAbs(image) {
+			archivePath = image
+		} else {
+			archivePath = filepath.Join(stackDir, image)
+		}
+		archives = append(archives, FaasdStackArchive{FunctionName: name, Path: archivePath})
+	}
+	sort.Slice(archives, func(i, j int) bool {
+		return archives[i].FunctionName < archives[j].FunctionName
+	})
+	return archives
+}
+
+func FaasdStackArchivePaths(t *testing.T, stackPath string) []string {
+	t.Helper()
+	archives := FaasdStackArchives(t, stackPath)
+	archivePaths := make([]string, 0, len(archives))
+	for _, archive := range archives {
+		archivePaths = append(archivePaths, archive.Path)
+	}
+	return archivePaths
 }
 
 func BuildStack(t *testing.T, stackPath string) {
@@ -504,11 +596,11 @@ func InvokeFaasdJSON(t *testing.T, baseURL string, auth FaasdGatewayAuth, functi
 
 	status, body, err := InvokeFaasdJSONOnce(t, baseURL, auth, functionName, payload)
 	if err != nil {
-		t.Fatalf("invoke %s failed: %v", functionName, err)
+		t.Fatalf("invoke %s failed: %v%s", functionName, err, FaasdProviderDebugLogs(t))
 	}
 
 	if status != http.StatusOK {
-		t.Fatalf("invoke %s failed, expected status=%d got status=%d body=%s", functionName, http.StatusOK, status, string(body))
+		t.Fatalf("invoke %s failed, expected status=%d got status=%d body=%s%s", functionName, http.StatusOK, status, string(body), FaasdProviderDebugLogs(t))
 	}
 
 	return body
@@ -519,11 +611,11 @@ func InvokeFaasdJSONWithTimeout(t *testing.T, baseURL string, auth FaasdGatewayA
 
 	status, body, err := InvokeFaasdJSONOnceWithTimeout(t, baseURL, auth, functionName, payload, timeout)
 	if err != nil {
-		t.Fatalf("invoke %s failed: %v", functionName, err)
+		t.Fatalf("invoke %s failed: %v%s", functionName, err, FaasdProviderDebugLogs(t))
 	}
 
 	if status != http.StatusOK {
-		t.Fatalf("invoke %s failed, expected status=%d got status=%d body=%s", functionName, http.StatusOK, status, string(body))
+		t.Fatalf("invoke %s failed, expected status=%d got status=%d body=%s%s", functionName, http.StatusOK, status, string(body), FaasdProviderDebugLogs(t))
 	}
 
 	return body
@@ -567,6 +659,39 @@ func FaasdServiceLogs(t *testing.T, serviceName string, since string) string {
 	}
 
 	return vagrantSSH(t, FAASD_VM_NAME, query)
+}
+
+func FaasdSystemdLogs(t *testing.T, unitName string, since string) string {
+	t.Helper()
+
+	query := fmt.Sprintf("sudo journalctl -u %s -n 120 -o cat --no-pager", unitName)
+	if strings.TrimSpace(since) != "" {
+		query = fmt.Sprintf("sudo journalctl -u %s --since '%s' -o cat --no-pager", unitName, since)
+	}
+
+	return vagrantSSH(t, FAASD_VM_NAME, query)
+}
+
+func FaasdProviderDebugLogs(t *testing.T) string {
+	t.Helper()
+
+	provider := strings.TrimSpace(FaasdSystemdLogs(t, "faasd-provider", "5 minutes ago"))
+	gateway := strings.TrimSpace(FaasdSystemdLogs(t, "faasd-gateway", "5 minutes ago"))
+
+	if provider == "" && gateway == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	if provider != "" {
+		b.WriteString("\n[faasd-provider logs]\n")
+		b.WriteString(provider)
+	}
+	if gateway != "" {
+		b.WriteString("\n[faasd-gateway logs]\n")
+		b.WriteString(gateway)
+	}
+	return b.String()
 }
 
 func WaitForFaasdServiceLogMatch(t *testing.T, serviceName string, needle string, timeout time.Duration) {
