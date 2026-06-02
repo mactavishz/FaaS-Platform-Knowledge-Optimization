@@ -1,6 +1,6 @@
 \pset pager off
 
-\echo 'public.webshop_cart'
+select format('public.%I', :'cart_table') as table_name;
 select *
-from public.webshop_cart
+from public.:"cart_table"
 order by user_id, item_id;

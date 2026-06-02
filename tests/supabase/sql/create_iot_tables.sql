@@ -9,40 +9,44 @@ begin
 end;
 $$ language plpgsql;
 
-create table if not exists public.sensor_data (
+ create table if not exists public.:"sensor_data_table" (
   sensor_id bigint primary key,
   message jsonb not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
-alter table public.sensor_data
+alter table public.:"sensor_data_table"
 enable row level security;
 
-create index if not exists sensor_data_updated_at_idx
-  on public.sensor_data (updated_at);
+create index if not exists :"sensor_data_updated_at_idx"
+  on public.:"sensor_data_table" (updated_at);
 
 --  Create Trigger for 'sensor_data'
-create or replace trigger trg_sensor_data_updated_at
-  before update on public.sensor_data
+drop trigger if exists :"sensor_data_updated_at_trigger" on public.:"sensor_data_table";
+
+create trigger :"sensor_data_updated_at_trigger"
+  before update on public.:"sensor_data_table"
   for each row
   execute function public.set_updated_at();
 
-create table if not exists public.use_case (
+create table if not exists public.:"use_case_table" (
   sensor_id bigint primary key,
   message jsonb not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
-alter table public.use_case
+alter table public.:"use_case_table"
 enable row level security;
 
-create index if not exists use_case_updated_at_idx
-  on public.use_case (updated_at);
+create index if not exists :"use_case_updated_at_idx"
+  on public.:"use_case_table" (updated_at);
 
-create or replace trigger trg_use_case_updated_at
-  before update on public.use_case
+drop trigger if exists :"use_case_updated_at_trigger" on public.:"use_case_table";
+
+create trigger :"use_case_updated_at_trigger"
+  before update on public.:"use_case_table"
   for each row
   execute function public.set_updated_at();
 

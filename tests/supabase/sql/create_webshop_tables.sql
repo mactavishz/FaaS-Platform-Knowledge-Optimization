@@ -10,7 +10,7 @@ end;
 $$ language plpgsql;
 
 -- Webshop cart table: stores shopping cart items per user
-create table if not exists public.webshop_cart (
+create table if not exists public.:"cart_table" (
   user_id    text        not null,
   item_id    text        not null,
   quantity   integer     not null default 1,
@@ -19,18 +19,20 @@ create table if not exists public.webshop_cart (
   primary key (user_id, item_id)
 );
 
-alter table public.webshop_cart
+ alter table public.:"cart_table"
 enable row level security;
 
-create index if not exists webshop_cart_user_id_idx
-  on public.webshop_cart (user_id);
+create index if not exists :"cart_user_id_idx"
+  on public.:"cart_table" (user_id);
 
-create index if not exists webshop_cart_updated_at_idx
-  on public.webshop_cart (updated_at);
+create index if not exists :"cart_updated_at_idx"
+  on public.:"cart_table" (updated_at);
 
 -- Auto-update 'updated_at' on every row modification
-create or replace trigger trg_webshop_cart_updated_at
-  before update on public.webshop_cart
+drop trigger if exists :"cart_updated_at_trigger" on public.:"cart_table";
+
+create trigger :"cart_updated_at_trigger"
+  before update on public.:"cart_table"
   for each row
   execute function public.set_updated_at();
 

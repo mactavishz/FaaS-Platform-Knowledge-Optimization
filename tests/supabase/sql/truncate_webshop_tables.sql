@@ -1,5 +1,5 @@
 begin;
 
-truncate table public.webshop_cart;
+truncate table public.:"cart_table";
 
 commit;
