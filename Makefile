@@ -25,13 +25,8 @@ build-tinyfaas-profile:
 	@if [ -z "$(PROFILE)" ]; then echo "Usage: make build-tinyfaas-profile PROFILE=<env-file>"; exit 1; fi
 	vagrant ssh tinyfaas -c "PROJECT_ROOT=/vagrant TF_ENV_FILE=/vagrant/tests/integration/env/$(PROFILE) bash /vagrant/scripts/build-tinyfaas.sh"
 
-.PHONY: tinyfaas-up
-tinyfaas-up: build-tinyfaas
-	@echo "tinyFaaS local development environment is ready"
-	@echo "Gateway: http://localhost:8888"
-
 .PHONY: test-tinyfaas
-test-tinyfaas:
+test-tinyfaas: build-tinyfaas
 	make -C tinyFaaS unit-test
 	make -C tinyFaaS integration-test
 
@@ -40,7 +35,7 @@ test-faasd: build-faasd
 	make -C faasd unit-test
 	make -C faasd integration-test
 
-.PHONY: test-integration
+.PHONY: integration-test
 test-integration: build-faas-cli
 	unset TINYFAAS_GATEWAY_URL && unset FAASD_GATEWAY_URL
 	go test -count=1 -v -timeout 30m ./tests/integration/tinyfaas/...
