@@ -620,6 +620,26 @@ collect_remote_logs() {
   done
 }
 
+resolve_run_public_ip() {
+  local platform="$1"
+  local run_dir="$2"
+  local public_ip=""
+
+  if [[ -f "$run_dir/terraform-outputs.json" ]]; then
+    public_ip="$(jq -r '.public_ip // empty' "$run_dir/terraform-outputs.json" 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$public_ip" && -f "$run_dir/metadata.json" ]]; then
+    public_ip="$(jq -r '.public_ip // empty' "$run_dir/metadata.json" 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$public_ip" && -f "$run_dir/terraform.tfstate" ]]; then
+    public_ip="$(terraform_output_json "$run_dir" public_ips 2>/dev/null | jq -r --arg platform "$platform" '.[$platform] // empty' 2>/dev/null || true)"
+  fi
+
+  printf '%s\n' "$public_ip"
+}
+
 create_run_dirs() {
   local run_dir="$1"
   mkdir -p \
@@ -694,6 +714,14 @@ handle_child_interrupt() {
 
   if [[ "$CHILD_INFRA_ACTIVE" == "true" && "$CHILD_CLEANUP_DONE" != "true" && -n "$CHILD_PLATFORM" && -n "$CHILD_PROFILE_PATH" && -n "$CHILD_RUN_DIR" ]]; then
     CHILD_CLEANUP_DONE="true"
+    local public_ip
+    public_ip="$(resolve_run_public_ip "$CHILD_PLATFORM" "$CHILD_RUN_DIR")"
+    if [[ -n "$public_ip" ]]; then
+      log "collecting interrupted system logs for $CHILD_PLATFORM before destroy"
+      collect_remote_logs "$CHILD_PLATFORM" "$public_ip" "$CHILD_RUN_DIR" || true
+    else
+      log "skipping interrupted system log collection for $CHILD_PLATFORM; public IP is not available"
+    fi
     log "destroying interrupted infrastructure for $CHILD_PLATFORM; log: $CHILD_RUN_DIR/logs/terraform-destroy-after.log"
     terraform_destroy "$CHILD_PLATFORM" "$CHILD_PROFILE_PATH" "$CHILD_RUN_DIR" "$CHILD_RUN_DIR/logs/terraform-destroy-after.log" || true
   fi
