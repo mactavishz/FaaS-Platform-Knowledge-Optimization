@@ -39,6 +39,7 @@ locals {
       deploy_dir              = var.deploy_dir
       go_version              = var.go_version
       nerdctl_version         = var.nerdctl_version
+      buildkit_version        = var.buildkit_version
       containerd_version      = var.containerd_version
       cni_plugin_version      = var.cni_plugin_version
     }

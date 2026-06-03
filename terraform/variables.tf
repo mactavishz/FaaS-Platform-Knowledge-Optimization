@@ -104,6 +104,11 @@ variable "nerdctl_version" {
   default     = "2.2.2"
 }
 
+variable "buildkit_version" {
+  description = "BuildKit version to install for faasd VM-local archive builds"
+  default     = "0.30.0"
+}
+
 variable "containerd_version" {
   description = "containerd version to install for faasd"
   default     = "2.3.0"

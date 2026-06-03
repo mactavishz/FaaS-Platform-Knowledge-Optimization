@@ -10,6 +10,7 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 export DEBIAN_FRONTEND=noninteractive
 export GO_VERSION="${go_version}"
 export NERDCTL_VERSION="${nerdctl_version}"
+export BUILDKIT_VERSION="${buildkit_version}"
 export CONTAINERD_VERSION="${containerd_version}"
 export CNI_PLUGIN_VERSION="${cni_plugin_version}"
 export GATEWAY_PORT="${gateway_port}"
@@ -123,6 +124,35 @@ install_containerd_stack() {
   fi
 }
 
+install_buildkit() {
+  echo "==> Installing BuildKit $BUILDKIT_VERSION..."
+  curl -sSL "https://github.com/moby/buildkit/releases/download/v$BUILDKIT_VERSION/buildkit-v$BUILDKIT_VERSION.linux-$ARCH.tar.gz" -o /tmp/buildkit.tar.gz
+  tar -xzf /tmp/buildkit.tar.gz -C /usr/local
+  buildkitd --version
+  buildctl --version
+
+  echo "==> Configuring BuildKit service..."
+  cat >/etc/systemd/system/buildkit.service <<'EOF'
+[Unit]
+Description=BuildKit
+Documentation=https://github.com/moby/buildkit
+After=network.target containerd.service
+Requires=containerd.service
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/buildkitd --addr unix:///run/buildkit/buildkitd.sock
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable --now buildkit
+}
+
 clone_repo() {
   echo "==> Cloning benchmark repository..."
   rm -rf "$PROJECT_ROOT"
@@ -138,6 +168,11 @@ clone_repo() {
   run_as_deploy_user env GIT_CONFIG_GLOBAL="$git_config" git -C "$PROJECT_ROOT" submodule update --init --recursive
   rm -f "$git_config"
   chown -R "$DEPLOY_USER:$DEPLOY_USER" "$PROJECT_ROOT"
+}
+
+install_faas_cli() {
+  echo "==> Building and installing faas-cli..."
+  run_as_deploy_user_shell "cd '$PROJECT_ROOT/faas-cli' && sudo env HOME='$DEPLOY_HOME' GOPATH='$DEPLOY_GOPATH' GOMODCACHE='$DEPLOY_GOMODCACHE' GOCACHE='$DEPLOY_GOCACHE' GOBIN='/usr/local/bin' PATH='/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin:$PATH' make go-build"
 }
 
 write_environment() {
@@ -212,7 +247,9 @@ main() {
   ensure_deploy_user_environment
   install_common_dependencies
   install_containerd_stack
+  install_buildkit
   clone_repo
+  install_faas_cli
   write_environment
   write_faasd_auth
 
