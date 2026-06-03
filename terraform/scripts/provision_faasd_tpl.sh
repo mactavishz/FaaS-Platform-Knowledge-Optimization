@@ -149,6 +149,10 @@ write_environment() {
     printf '%s' "$ENV_CONTENT_B64" | base64 -d > /etc/default/faasd
   fi
 
+  if ! grep -Eq '^[[:space:]]*archive_upload_timeout=' /etc/default/faasd; then
+    printf '\narchive_upload_timeout=10m5s\n' >> /etc/default/faasd
+  fi
+
   chmod 0644 /etc/default/faasd
 }
 
