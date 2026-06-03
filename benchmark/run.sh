@@ -29,6 +29,7 @@ CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-false}"
 KEEP_INFRA_ON_FAILURE="${KEEP_INFRA_ON_FAILURE:-false}"
 RERUN_OVERWRITE="${RERUN_OVERWRITE:-false}"
 DRY_RUN="${DRY_RUN:-false}"
+REMOTE_DEPLOY_DIR="${REMOTE_DEPLOY_DIR:-/opt/faas-platform}"
 
 INTERRUPTED="false"
 EXIT_STATUS=0
@@ -216,6 +217,7 @@ terraform_args() {
     -var "faas_platforms=[\"$platform\"]" \
     -var "env_file=$profile" \
     -var "machine_type=$MACHINE_TYPE" \
+    -var "deploy_dir=$REMOTE_DEPLOY_DIR" \
     -var "ssh_pubkey=$SSH_PUBLIC_KEY" \
     -var "ssh_user=$SSH_USER"
 }
@@ -297,6 +299,18 @@ ssh_base() {
   shift
   ssh \
     -n \
+    -i "$SSH_PRIVATE_KEY" \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    -o ConnectTimeout=15 \
+    "$SSH_USER@$host" \
+    "$@"
+}
+
+ssh_stream() {
+  local host="$1"
+  shift
+  ssh \
     -i "$SSH_PRIVATE_KEY" \
     -o StrictHostKeyChecking=no \
     -o UserKnownHostsFile=/dev/null \
@@ -521,6 +535,116 @@ deploy_workflow() {
       -f "$stack_path" >>"$log_file" 2>&1 || return
 }
 
+deploy_faasd_workflow_remote() {
+  local stack_path="$1"
+  local public_ip="$2"
+  local auth_user="$3"
+  local auth_password="$4"
+  local log_file="$5"
+  local remote_log_file="$6"
+  local stack_rel remote_stack_path remote_workflow_dir remote_stack_file
+
+  stack_rel="${stack_path#$ROOT_DIR/}"
+  if [[ "$stack_rel" == "$stack_path" ]]; then
+    log "faasd stack path is outside repository root: $stack_path"
+    return 1
+  fi
+
+  remote_stack_path="$REMOTE_DEPLOY_DIR/$stack_rel"
+  remote_workflow_dir="$(dirname "$remote_stack_path")"
+  remote_stack_file="$(basename "$remote_stack_path")"
+
+  log "building and deploying faasd workflow inside VM from $remote_stack_path"
+  log "workflow resource limits: CPU=$WORKFLOW_CPU_LIMIT, Memory=$WORKFLOW_MEMORY_LIMIT"
+
+  {
+    printf 'set -Eeuo pipefail\n'
+    printf 'REMOTE_WORKFLOW_DIR=%q\n' "$remote_workflow_dir"
+    printf 'REMOTE_STACK_FILE=%q\n' "$remote_stack_file"
+    printf 'AUTH_USER=%q\n' "$auth_user"
+    printf 'AUTH_PASSWORD=%q\n' "$auth_password"
+    printf 'RUN_WORKFLOW_CPU_LIMIT=%q\n' "$WORKFLOW_CPU_LIMIT"
+    printf 'RUN_WORKFLOW_MEMORY_LIMIT=%q\n' "$WORKFLOW_MEMORY_LIMIT"
+    printf 'RUN_SUPABASE_URL=%q\n' "${SUPABASE_URL:-}"
+    printf 'RUN_SUPABASE_KEY=%q\n' "${SUPABASE_KEY:-}"
+    cat <<'REMOTE_SCRIPT'
+REMOTE_LOG="/tmp/faasd-workflow-deploy.log"
+exec > >(tee "$REMOTE_LOG") 2>&1
+
+echo "==> Remote faasd workflow deploy started at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "==> Workflow directory: $REMOTE_WORKFLOW_DIR"
+
+if [ -f /etc/default/faasd ]; then
+  set -a
+  . /etc/default/faasd
+  set +a
+fi
+
+WORKFLOW_CPU_LIMIT="$RUN_WORKFLOW_CPU_LIMIT"
+WORKFLOW_MEMORY_LIMIT="$RUN_WORKFLOW_MEMORY_LIMIT"
+if [ -n "${RUN_SUPABASE_URL:-}" ]; then
+  SUPABASE_URL="$RUN_SUPABASE_URL"
+fi
+if [ -n "${RUN_SUPABASE_KEY:-}" ]; then
+  SUPABASE_KEY="$RUN_SUPABASE_KEY"
+fi
+SUPABASE_URL="${SUPABASE_URL:-}"
+SUPABASE_KEY="${SUPABASE_KEY:-}"
+
+export FAASD_GATEWAY_URL="http://127.0.0.1:8080"
+export FAAS_CLI_BUILD_ENGINE="nerdctl"
+export FAAS_CLI_BUILD_PLATFORMS="linux/amd64"
+export BUILDKIT_HOST="unix:///run/buildkit/buildkitd.sock"
+export WORKFLOW_CPU_LIMIT
+export WORKFLOW_MEMORY_LIMIT
+export SUPABASE_URL
+export SUPABASE_KEY
+
+cd "$REMOTE_WORKFLOW_DIR"
+
+echo "==> Build engine: $FAAS_CLI_BUILD_ENGINE"
+echo "==> Build platforms: $FAAS_CLI_BUILD_PLATFORMS"
+echo "==> Gateway: $FAASD_GATEWAY_URL"
+echo "==> Supabase URL present: $([ -n "${SUPABASE_URL:-}" ] && printf yes || printf no)"
+echo "==> Supabase key present: $([ -n "${SUPABASE_KEY:-}" ] && printf yes || printf no)"
+
+sudo env \
+  HOME="$HOME" \
+  PATH="/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin:$PATH" \
+  FAAS_CLI_BUILD_ENGINE="$FAAS_CLI_BUILD_ENGINE" \
+  FAAS_CLI_BUILD_PLATFORMS="$FAAS_CLI_BUILD_PLATFORMS" \
+  BUILDKIT_HOST="$BUILDKIT_HOST" \
+  FAASD_GATEWAY_URL="$FAASD_GATEWAY_URL" \
+  WORKFLOW_CPU_LIMIT="$WORKFLOW_CPU_LIMIT" \
+  WORKFLOW_MEMORY_LIMIT="$WORKFLOW_MEMORY_LIMIT" \
+  SUPABASE_URL="$SUPABASE_URL" \
+  SUPABASE_KEY="$SUPABASE_KEY" \
+  faas-cli build -f "$REMOTE_STACK_FILE"
+
+printf '%s' "$AUTH_PASSWORD" | faas-cli login \
+  --username "$AUTH_USER" \
+  --password-stdin \
+  --gateway "$FAASD_GATEWAY_URL"
+
+faas-cli deploy \
+  --gateway "$FAASD_GATEWAY_URL" \
+  -f "$REMOTE_STACK_FILE"
+
+echo "==> Remote faasd workflow deploy finished at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+REMOTE_SCRIPT
+  } | ssh_stream "$public_ip" "bash -s" >"$log_file" 2>&1 || return
+
+  scp_from_vm "$public_ip" "/tmp/faasd-workflow-deploy.log" "$remote_log_file" >/dev/null 2>&1 || true
+}
+
+collect_vm_provision_log() {
+  local public_ip="$1"
+  local run_dir="$2"
+
+  log "collecting VM provision log"
+  scp_from_vm "$public_ip" "/var/log/vm-provision.log" "$run_dir/logs/vm-provision.log" >/dev/null 2>&1 || true
+}
+
 reset_supabase_tables() {
   local platform="$1"
   local workflow="$2"
@@ -605,12 +729,11 @@ collect_remote_logs() {
 
   case "$platform" in
     tinyfaas) services=(tf-gateway tf-manager tf-rproxy) ;;
-    faasd) services=(faasd faasd-provider faasd-gateway containerd) ;;
+    faasd) services=(faasd faasd-provider faasd-gateway containerd buildkit) ;;
     *) fatal "unsupported platform: $platform" ;;
   esac
 
-  log "collecting VM provision log"
-  scp_from_vm "$public_ip" "/var/log/vm-provision.log" "$run_dir/logs/vm-provision.log" >/dev/null 2>&1 || true
+  collect_vm_provision_log "$public_ip" "$run_dir"
 
   local service
   for service in "${services[@]}"; do
@@ -824,6 +947,7 @@ run_benchmark() {
     CHILD_CLEANUP_DONE="true"
     return 1
   }
+  collect_vm_provision_log "$public_ip" "$run_dir"
 
   if [[ "$platform" == "faasd" ]]; then
     auth_user="$(terraform_output_json "$run_dir" faasd_auth_users | jq -r --arg platform "$platform" '.[$platform]')" || {
@@ -838,10 +962,18 @@ run_benchmark() {
     }
   fi
 
-  if ! deploy_workflow "$platform" "$stack_path" "$gateway_url" "$auth_user" "$auth_password" "$run_dir/logs/workflow-deploy.log"; then
-    mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "workflow deploy failed" "$public_ip"
-    CHILD_CLEANUP_DONE="true"
-    return 1
+  if [[ "$platform" == "faasd" ]]; then
+    if ! deploy_faasd_workflow_remote "$stack_path" "$public_ip" "$auth_user" "$auth_password" "$run_dir/logs/workflow-deploy.log" "$run_dir/logs/workflow-deploy.vm.log"; then
+      mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "workflow deploy failed" "$public_ip"
+      CHILD_CLEANUP_DONE="true"
+      return 1
+    fi
+  else
+    if ! deploy_workflow "$platform" "$stack_path" "$gateway_url" "$auth_user" "$auth_password" "$run_dir/logs/workflow-deploy.log"; then
+      mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "workflow deploy failed" "$public_ip"
+      CHILD_CLEANUP_DONE="true"
+      return 1
+    fi
   fi
 
   if ! reset_supabase_tables "$platform" "$workflow" "$run_dir/logs/supabase-reset.log"; then
@@ -994,6 +1126,7 @@ print_benchmark_configs() {
   echo -e "MACHINE_TYPE: $MACHINE_TYPE"
   echo -e "SSH_PUBLIC_KEY: $SSH_PUBLIC_KEY"
   echo -e "SSH_USER: $SSH_USER"
+  echo -e "REMOTE_DEPLOY_DIR: $REMOTE_DEPLOY_DIR"
   echo -e "PLATFORMS: $PLATFORMS"
   echo -e "WORKFLOWS: $WORKFLOWS"
   echo -e "WORKFLOW_CPU_LIMIT: $WORKFLOW_CPU_LIMIT"
