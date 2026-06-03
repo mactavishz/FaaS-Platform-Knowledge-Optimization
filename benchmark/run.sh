@@ -541,7 +541,6 @@ deploy_faasd_workflow_remote() {
   local auth_user="$3"
   local auth_password="$4"
   local log_file="$5"
-  local remote_log_file="$6"
   local stack_rel remote_stack_path remote_workflow_dir ssh_status
 
   stack_rel="${stack_path#$ROOT_DIR/}"
@@ -633,7 +632,6 @@ echo "==> Remote faasd workflow deploy finished at $(date -u +%Y-%m-%dT%H:%M:%SZ
 REMOTE_SCRIPT
   } | ssh_stream "$public_ip" "bash -s" >"$log_file" 2>&1 || ssh_status="$?"
 
-  scp_from_vm "$public_ip" "/tmp/faasd-workflow-deploy.log" "$remote_log_file" >/dev/null 2>&1 || true
   return "${ssh_status:-0}"
 }
 
@@ -963,7 +961,7 @@ run_benchmark() {
   fi
 
   if [[ "$platform" == "faasd" ]]; then
-    if ! deploy_faasd_workflow_remote "$stack_path" "$public_ip" "$auth_user" "$auth_password" "$run_dir/logs/workflow-deploy.log" "$run_dir/logs/workflow-deploy.vm.log"; then
+    if ! deploy_faasd_workflow_remote "$stack_path" "$public_ip" "$auth_user" "$auth_password" "$run_dir/logs/workflow-deploy.log"; then
       mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "workflow deploy failed" "$public_ip"
       CHILD_CLEANUP_DONE="true"
       return 1
