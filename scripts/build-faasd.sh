@@ -41,6 +41,12 @@ if [ -f "$ENV_FILE" ]; then
     sudo cat $ENV_FILE | sudo tee /etc/default/faasd
 else
 	echo "==> No env file found at $ENV_FILE"
+    sudo install -d -m 0755 /etc/default
+    sudo install -m 0644 /dev/null /etc/default/faasd
+fi
+
+if ! grep -Eq '^[[:space:]]*archive_upload_timeout=' /etc/default/faasd; then
+    printf '\narchive_upload_timeout=10m5s\n' | sudo tee -a /etc/default/faasd >/dev/null
 fi
 
 # Build and install gateway binary first
