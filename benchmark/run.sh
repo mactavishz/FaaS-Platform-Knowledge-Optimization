@@ -542,7 +542,7 @@ deploy_faasd_workflow_remote() {
   local auth_password="$4"
   local log_file="$5"
   local remote_log_file="$6"
-  local stack_rel remote_stack_path remote_workflow_dir remote_stack_file
+  local stack_rel remote_stack_path remote_workflow_dir ssh_status
 
   stack_rel="${stack_path#$ROOT_DIR/}"
   if [[ "$stack_rel" == "$stack_path" ]]; then
@@ -552,7 +552,6 @@ deploy_faasd_workflow_remote() {
 
   remote_stack_path="$REMOTE_DEPLOY_DIR/$stack_rel"
   remote_workflow_dir="$(dirname "$remote_stack_path")"
-  remote_stack_file="$(basename "$remote_stack_path")"
 
   log "building and deploying faasd workflow inside VM from $remote_stack_path"
   log "workflow resource limits: CPU=$WORKFLOW_CPU_LIMIT, Memory=$WORKFLOW_MEMORY_LIMIT"
@@ -560,7 +559,7 @@ deploy_faasd_workflow_remote() {
   {
     printf 'set -Eeuo pipefail\n'
     printf 'REMOTE_WORKFLOW_DIR=%q\n' "$remote_workflow_dir"
-    printf 'REMOTE_STACK_FILE=%q\n' "$remote_stack_file"
+    printf 'REMOTE_STACK_PATH=%q\n' "$remote_stack_path"
     printf 'AUTH_USER=%q\n' "$auth_user"
     printf 'AUTH_PASSWORD=%q\n' "$auth_password"
     printf 'RUN_WORKFLOW_CPU_LIMIT=%q\n' "$WORKFLOW_CPU_LIMIT"
@@ -619,7 +618,7 @@ sudo env \
   WORKFLOW_MEMORY_LIMIT="$WORKFLOW_MEMORY_LIMIT" \
   SUPABASE_URL="$SUPABASE_URL" \
   SUPABASE_KEY="$SUPABASE_KEY" \
-  faas-cli build -f "$REMOTE_STACK_FILE"
+  faas-cli build -f "$REMOTE_STACK_PATH"
 
 printf '%s' "$AUTH_PASSWORD" | faas-cli login \
   --username "$AUTH_USER" \
@@ -628,13 +627,14 @@ printf '%s' "$AUTH_PASSWORD" | faas-cli login \
 
 faas-cli deploy \
   --gateway "$FAASD_GATEWAY_URL" \
-  -f "$REMOTE_STACK_FILE"
+  -f "$REMOTE_STACK_PATH"
 
 echo "==> Remote faasd workflow deploy finished at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 REMOTE_SCRIPT
-  } | ssh_stream "$public_ip" "bash -s" >"$log_file" 2>&1 || return
+  } | ssh_stream "$public_ip" "bash -s" >"$log_file" 2>&1 || ssh_status="$?"
 
   scp_from_vm "$public_ip" "/tmp/faasd-workflow-deploy.log" "$remote_log_file" >/dev/null 2>&1 || true
+  return "${ssh_status:-0}"
 }
 
 collect_vm_provision_log() {
