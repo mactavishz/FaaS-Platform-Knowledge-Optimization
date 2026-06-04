@@ -95,7 +95,24 @@ Run the faasd workflow functionality suite:
 go test ./tests/integration/faasd -run TestWorkflowIntegrationSuite -v
 ```
 
-The faasd workflow suite uses remote images for the deployment of the workflow functions, so it does not require a local build step.
+The faasd workflow suite deploys local OCI archive tars from each workflow's `dist/` directory.
+
+The integration helper builds missing archives before deploy, but it does not detect whether existing archives are stale after function code changes.
+
+Force a rebuild when changing faasd workflow function code:
+
+```bash
+ALWAYS_BUILD=true go test ./tests/integration/faasd -run TestWorkflowIntegrationSuite -v
+# or run the entire faasd integration suite with forced workflow archive rebuilds:
+ALWAYS_BUILD=true make integration-test
+```
+
+You can also delete all local faasd workflow archive tars and let the next test
+run rebuild the missing archives:
+
+```bash
+make clean-faasd-workflow-tars
+```
 
 Additional prerequisites for faasd workflow tests:
 
