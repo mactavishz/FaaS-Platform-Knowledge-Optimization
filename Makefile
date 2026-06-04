@@ -63,6 +63,10 @@ clean-faas-cli:
 .PHONY: clean-faasd
 clean-faasd:
 	make -C faasd clean
+
+.PHONY: clean-faasd-workflow-tars
+clean-faasd-workflow-tars:
+	find tests/workflows/faasd -path '*/dist/*.tar' -type f -exec rm -f {} +
 	
 .PHONY: clean-tinyfaas
 clean-tinyfaas:
