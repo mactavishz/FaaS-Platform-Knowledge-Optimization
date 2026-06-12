@@ -18,7 +18,7 @@ The primary latency source is each experiment's `k6/metrics.csv`:
 
 The tool computes per-run statistics first, then aggregates those run-level statistics. Pooled retained samples are used for distribution plots only, not as independent experiment repeats.
 
-Function-level plots use `stats/functions/*.json`. Function invocation finish times are aligned relative to the entry function start for each retained iteration or operation.
+Function-level plots use `stats/functions/*.json`. Function invocation finish times are aligned relative to the entry function start for each retained iteration or operation. Samples are retained only when the function is reachable in the explicit workflow graph and starts before the next entry invocation. Webshop function plots are operation-windowed: `webshop-addcart-checkout` renders `addcart` and `checkout` subplots, and `webshop-browse-addcart-checkout` renders `browse`, `addcart`, and `checkout` subplots.
 
 ## Usage
 
