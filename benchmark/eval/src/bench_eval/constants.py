@@ -44,4 +44,63 @@ ENTRY_FUNCTIONS = {
     "webshop-addcart-checkout": "webshop-frontend",
 }
 
+WEBSHOP_OPERATIONS = {
+    "webshop-browse-addcart-checkout": ("browse", "addcart", "checkout"),
+    "webshop-addcart-checkout": ("addcart", "checkout"),
+}
+
+WEBSHOP_FRONTEND_OPERATIONS = {
+    "browse": "get",
+    "addcart": "addcart",
+    "checkout": "checkout",
+}
+
+WORKFLOW_CALL_GRAPHS = {
+    "iot": {
+        "iot-i": ("iot-cw", "iot-se", "iot-ct", "iot-cs", "iot-ca"),
+        "iot-ct": ("iot-as",),
+        "iot-cs": ("iot-csl", "iot-csa"),
+        "iot-ca": ("iot-dj", "iot-as"),
+    },
+    "tree": {
+        "tree-a": ("tree-b", "tree-c"),
+        "tree-b": ("tree-d", "tree-e"),
+        "tree-c": ("tree-f", "tree-g"),
+    },
+}
+
+WEBSHOP_OPERATION_CALL_GRAPHS = {
+    "browse": {
+        "webshop-frontend": (
+            "webshop-supportedcurrencies",
+            "webshop-listproducts",
+            "webshop-currency",
+            "webshop-getads",
+            "webshop-getcart",
+            "webshop-listrecommendations",
+        ),
+        "webshop-getcart": ("webshop-cartstorage",),
+        "webshop-listrecommendations": ("webshop-listproducts",),
+    },
+    "addcart": {
+        "webshop-frontend": ("webshop-addcartitem", "webshop-getcart"),
+        "webshop-addcartitem": ("webshop-cartstorage",),
+        "webshop-getcart": ("webshop-cartstorage",),
+    },
+    "checkout": {
+        "webshop-frontend": ("webshop-checkout",),
+        "webshop-checkout": (
+            "webshop-getcart",
+            "webshop-listproducts",
+            "webshop-currency",
+            "webshop-shipmentquote",
+            "webshop-shiporder",
+            "webshop-email",
+            "webshop-emptycart",
+        ),
+        "webshop-getcart": ("webshop-cartstorage",),
+        "webshop-emptycart": ("webshop-cartstorage",),
+    },
+}
+
 SUMMARY_METRICS = ("mean", "median", "p90", "p95")
