@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 RUNS = ()
 PROFILES = ("baseline", "optimized-ema", "optimized-sma")
 PLATFORMS = ("tinyfaas", "faasd")
