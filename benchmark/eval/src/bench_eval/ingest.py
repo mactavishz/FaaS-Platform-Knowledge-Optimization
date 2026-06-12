@@ -59,9 +59,16 @@ def load_latency_samples(
                     frames.append(experiment_samples)
 
     samples = pl.concat(frames, how="vertical_relaxed") if frames else _empty_latency_frame()
+    # Webshop scripts record per-step metrics. Add a computed journey metric so
+    # the distribution/summary plots can compare the full user flow directly.
     samples = _add_journey_samples(samples)
+    # Mark the retained steady-state range once during ingestion; all later
+    # aggregation and plotting code reads this boolean instead of duplicating
+    # trim logic.
     samples = _mark_retained(samples)
 
+    # Validate after journey synthesis and trimming so the error messages match
+    # the exact sample set used by the analysis.
     retained_counts = (
         samples.filter(pl.col("retained"))
         .group_by(["run", "profile", "platform", "workflow", "metric"])
@@ -110,6 +117,8 @@ def load_function_samples(
             return samples
         raise ValueError("No function invocation samples found")
 
+    # Attach the workflow entry function name to every function invocation.
+    # The alignment code uses this to build per-entry timing windows.
     entry_names = pl.DataFrame(
         {
             "workflow": list(ENTRY_FUNCTIONS.keys()),
@@ -118,6 +127,9 @@ def load_function_samples(
     )
     samples = samples.join(entry_names, on="workflow", how="left")
 
+    # Webshop needs operation-aware alignment because one k6 iteration invokes
+    # the frontend two or three times. IoT/tree have one entry invocation per
+    # benchmark iteration and can use the generic workflow alignment.
     generic = samples.filter(~pl.col("workflow").is_in(list(WEBSHOP_OPERATIONS)))
     webshop = samples.filter(pl.col("workflow").is_in(list(WEBSHOP_OPERATIONS)))
 
@@ -130,6 +142,9 @@ def _align_generic_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
     if samples.is_empty():
         return _empty_aligned_function_frame()
 
+    # Entry invocations define iteration windows. The next entry start is the
+    # upper bound, not the current entry finish, because async descendants can
+    # legitimately continue after the entry function has returned.
     entry_samples = (
         samples.filter(pl.col("function") == pl.col("entry_function"))
         .select(
@@ -152,6 +167,9 @@ def _align_generic_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
     if entry_samples.is_empty():
         return _empty_aligned_function_frame()
 
+    # Match each invocation to the latest entry that started at or before it.
+    # This gives every function call an entry window, then the filter below
+    # removes calls that fall outside the window or outside the explicit graph.
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Sortedness of columns cannot be checked.*")
         aligned = samples.sort("started_at_ns").join_asof(
@@ -161,6 +179,9 @@ def _align_generic_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
             by=["run", "profile", "platform", "workflow"],
             strategy="backward",
         )
+    # Normalize generic workflows into the same schema used by webshop. The
+    # operation fields stay null for IoT/tree, but shared plotting code can
+    # still consume the aligned frame uniformly.
     aligned = aligned.with_columns(
         ((pl.col("finished_at_ns") - pl.col("entry_started_at_ns")) / 1_000_000).alias(
             "relative_finished_ms"
@@ -169,6 +190,10 @@ def _align_generic_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
         pl.lit(None, dtype=pl.UInt32).alias("operation_step_index"),
         pl.lit(None, dtype=pl.Utf8).alias("operation"),
     )
+    # The final retained set must satisfy both timing and topology:
+    # invocation starts within the matched entry window, iteration is in the
+    # steady-state trim range, and the function is reachable from the workflow
+    # entry in the explicit call graph.
     aligned = aligned.filter(
         (
             pl.col("started_at_ns").is_between(
@@ -197,6 +222,9 @@ def _align_webshop_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
             continue
 
         operation_count = len(operations)
+        # The k6 webshop scripts call frontend operations in a fixed sequence.
+        # Convert the ordered frontend invocation index into the journey number
+        # and operation label used for subplotting and filtering.
         operation_names = pl.DataFrame(
             {
                 "operation_step_index": list(range(operation_count)),
@@ -234,6 +262,10 @@ def _align_webshop_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
         if entry_windows.is_empty():
             continue
 
+        # As with IoT/tree, assign each function invocation to the latest
+        # frontend operation that started before it. The operation-specific
+        # graph filter below prevents functions from leaking into unrelated
+        # webshop operation panels.
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="Sortedness of columns cannot be checked.*")
             aligned = workflow_samples.sort("started_at_ns").join_asof(
@@ -243,6 +275,9 @@ def _align_webshop_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
                 by=["run", "profile", "platform", "workflow"],
                 strategy="backward",
             )
+        # Use the next frontend invocation as the operation boundary. This
+        # keeps async checkout side effects if they outlive the checkout
+        # frontend response, while still excluding the next operation/journey.
         aligned = aligned.filter(
             (
                 pl.col("started_at_ns").is_between(
@@ -257,6 +292,8 @@ def _align_webshop_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
             )
             & _webshop_reachable_expr()
         )
+        # Plot function finish times relative to the operation start so all
+        # downstream functions share the same x/y reference point per subplot.
         aligned = aligned.with_columns(
             ((pl.col("finished_at_ns") - pl.col("entry_started_at_ns")) / 1_000_000).alias(
                 "relative_finished_ms"
@@ -277,6 +314,8 @@ def _select_aligned_function_columns(samples: pl.DataFrame) -> pl.DataFrame:
 
 
 def _workflow_reachable_expr() -> pl.Expr:
+    # Build a Polars predicate from the explicit workflow graphs. Each row is
+    # kept only if its function is reachable from the workflow entry.
     expr = pl.lit(False)
     for workflow, graph in WORKFLOW_CALL_GRAPHS.items():
         reachable = _reachable_functions(ENTRY_FUNCTIONS[workflow], graph)
@@ -285,6 +324,9 @@ def _workflow_reachable_expr() -> pl.Expr:
 
 
 def _webshop_reachable_expr() -> pl.Expr:
+    # Webshop reachability depends on the frontend operation. A function such
+    # as cartstorage can appear in multiple operations, while functions outside
+    # the current operation graph are filtered even if timings overlap.
     expr = pl.lit(False)
     for operation, graph in WEBSHOP_OPERATION_CALL_GRAPHS.items():
         reachable = _reachable_functions("webshop-frontend", graph)
@@ -293,6 +335,8 @@ def _webshop_reachable_expr() -> pl.Expr:
 
 
 def _reachable_functions(entry: str, graph: dict[str, tuple[str, ...]]) -> set[str]:
+    # Traverse the direct edge map so constants can stay close to the README
+    # topology while filters use a complete transitive reachable set.
     seen: set[str] = set()
     stack = [entry]
     while stack:
@@ -372,6 +416,9 @@ def _load_experiment_metrics(
         df.with_row_index("source_row")
         .filter(pl.col("metric_name").is_in(wanted))
         .sort("source_row")
+        # k6 metric rows arrive interleaved. Count within each metric after
+        # restoring source order to recover the benchmark iteration index for
+        # every latency sample.
         .with_columns((pl.col("metric_name").cum_count().over("metric_name") - 1).alias("iteration_index"))
         .with_columns(
             pl.lit(run).alias("run"),
@@ -433,6 +480,9 @@ def _add_journey_samples(samples: pl.DataFrame) -> pl.DataFrame:
     if webshop.is_empty():
         return samples
 
+    # Sum the step latencies for each webshop journey. The earliest timestamp
+    # represents the journey start for sorting/retention, while the source marks
+    # this as derived data instead of a raw k6 metric.
     journey = (
         webshop.group_by(["run", "profile", "platform", "workflow", "iteration_index"])
         .agg(
@@ -450,6 +500,9 @@ def _add_journey_samples(samples: pl.DataFrame) -> pl.DataFrame:
 
 
 def _mark_retained(samples: pl.DataFrame) -> pl.DataFrame:
+    # Only complete metrics should contribute to retained analysis. This avoids
+    # treating partial failed runs as valid just because their iteration index
+    # falls inside the trim window.
     counts = samples.group_by(["run", "profile", "platform", "workflow", "metric"]).len(name="sample_count")
     samples = samples.join(counts, on=["run", "profile", "platform", "workflow", "metric"], how="left")
     return samples.with_columns(

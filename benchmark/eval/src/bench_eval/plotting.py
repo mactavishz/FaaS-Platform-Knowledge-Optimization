@@ -24,6 +24,9 @@ def write_all_figures(
     figures = out_dir / "figures"
     figures.mkdir(parents=True, exist_ok=True)
 
+    # Generate the same figure set for every platform/workflow combination
+    # present in the latency samples. Function plots are optional because older
+    # result directories may not contain stats/functions output.
     for platform, workflow in _benchmark_config_pairs(samples):
         _plot_distribution(samples, run_stats, platform, workflow, figures)
         _plot_summary(run_stats, platform, workflow, figures)
@@ -39,6 +42,8 @@ def _plot_distribution(
     workflow: str,
     out_dir: Path,
 ) -> None:
+    # Distribution plots use pooled retained samples for shape, while the black
+    # diamonds show independent run means so repeated runs remain visible.
     df = retained_latency(samples).filter(
         (pl.col("platform") == platform)
         & (pl.col("workflow") == workflow)
@@ -50,6 +55,8 @@ def _plot_distribution(
     colors = _profile_colors()
     fig, ax = plt.subplots(figsize=(8, 4.8), constrained_layout=True)
     positions = np.arange(1, len(PROFILES) + 1)
+    # Matplotlib expects one value array per violin. Keep profile order stable
+    # even if a profile has no samples, so colors and labels remain consistent.
     values = [
         df.filter(pl.col("profile") == profile)["latency_ms"].to_numpy()
         for profile in PROFILES
@@ -83,6 +90,8 @@ def _plot_distribution(
 
 
 def _plot_summary(run_stats: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
+    # Summary bars compare profile-level run summaries for the primary metric.
+    # Webshop uses computed journey latency; IoT/tree use workflow latency.
     df = run_stats.filter(
         (pl.col("platform") == platform)
         & (pl.col("workflow") == workflow)
@@ -99,6 +108,8 @@ def _plot_summary(run_stats: pl.DataFrame, platform: str, workflow: str, out_dir
         profile_df = df.filter(pl.col("profile") == profile)
         if profile_df.is_empty():
             continue
+        # Average the per-run statistics for each profile. This mirrors
+        # aggregate_summary and avoids weighting runs by raw sample count.
         heights = [float(profile_df[f"{metric}_ms"].mean()) for metric in SUMMARY_METRICS]
         bars = ax.bar(
             x + offset,
@@ -122,6 +133,8 @@ def _plot_summary(run_stats: pl.DataFrame, platform: str, workflow: str, out_dir
 
 
 def _plot_iterations(samples: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
+    # Thin lines show each retained run trajectory; the bold line is the mean
+    # latency at each retained iteration index across runs for the profile.
     df = retained_latency(samples).filter(
         (pl.col("platform") == platform)
         & (pl.col("workflow") == workflow)
@@ -165,6 +178,9 @@ def _plot_iterations(samples: pl.DataFrame, platform: str, workflow: str, out_di
 
 
 def _plot_functions(function_samples: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
+    # Function samples are already filtered during ingestion by graph
+    # reachability and entry-window timing. Plotting only decides whether the
+    # workflow needs one axis or webshop operation subplots.
     df = function_samples.filter((pl.col("platform") == platform) & (pl.col("workflow") == workflow))
     if df.is_empty():
         return
@@ -190,6 +206,8 @@ def _plot_functions(function_samples: pl.DataFrame, platform: str, workflow: str
 
 def _plot_webshop_functions(df: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
     operations = WEBSHOP_OPERATIONS[workflow]
+    # Each operation can call a different subset of webshop functions, so order
+    # x-axis labels independently per subplot by observed median finish time.
     orders = {
         operation: _function_order(df.filter(pl.col("operation") == operation))
         for operation in operations
@@ -226,6 +244,8 @@ def _plot_webshop_functions(df: pl.DataFrame, platform: str, workflow: str, out_
 def _function_order(df: pl.DataFrame) -> list[str]:
     if df.is_empty():
         return []
+    # Median finish time gives a stable left-to-right execution order that is
+    # less sensitive to outliers than ordering by mean.
     order = (
         df.group_by("function")
         .agg(pl.col("relative_finished_ms").median().alias("median_ms"))
@@ -236,6 +256,8 @@ def _function_order(df: pl.DataFrame) -> list[str]:
 
 
 def _plot_function_axis(ax: plt.Axes, df: pl.DataFrame, order: list[str], title: str) -> None:
+    # Map function names to categorical x positions once; individual samples
+    # receive small deterministic jitter so overlapping invocations are visible.
     xpos = {name: idx for idx, name in enumerate(order)}
 
     colors = _profile_colors()
@@ -254,6 +276,8 @@ def _plot_function_axis(ax: plt.Axes, df: pl.DataFrame, order: list[str], title:
             profile_df.group_by("function")
             .agg(pl.col("relative_finished_ms").mean().alias("mean_ms"))
         )
+        # Overlay profile/function means as diamonds to make the central trend
+        # readable on top of the raw invocation scatter.
         ax.scatter(
             [xpos[name] for name in mean["function"].to_list()],
             mean["mean_ms"].to_numpy(),

@@ -4,6 +4,9 @@ import polars as pl
 
 
 def retained_latency(samples: pl.DataFrame) -> pl.DataFrame:
+    # Downstream tables and figures should only use the steady-state slice.
+    # Keep the identifying dimensions with the latency value so later group-bys
+    # cannot accidentally mix runs, platforms, workflows, or metrics.
     return samples.filter(pl.col("retained")).select(
         "run",
         "profile",
@@ -18,6 +21,9 @@ def retained_latency(samples: pl.DataFrame) -> pl.DataFrame:
 
 def run_summary(samples: pl.DataFrame) -> pl.DataFrame:
     retained = retained_latency(samples)
+    # First summarize each repeated run independently. The thesis analysis
+    # treats runs as the experimental repeats, so this layer must not pool
+    # samples across run boundaries.
     return (
         retained.group_by(["run", "profile", "platform", "workflow", "metric"])
         .agg(
@@ -35,6 +41,9 @@ def run_summary(samples: pl.DataFrame) -> pl.DataFrame:
 
 
 def aggregate_summary(run_stats: pl.DataFrame) -> pl.DataFrame:
+    # Aggregate the per-run summaries, not the raw latency samples. This keeps
+    # each repeated benchmark run weighted equally when reporting profile-level
+    # means and tail statistics.
     return (
         run_stats.group_by(["profile", "platform", "workflow", "metric"])
         .agg(
@@ -56,6 +65,9 @@ def aggregate_summary(run_stats: pl.DataFrame) -> pl.DataFrame:
 
 
 def improvements(summary: pl.DataFrame) -> pl.DataFrame:
+    # Join each optimized profile against the matching baseline for the same
+    # platform/workflow/metric, then express lower latency as positive
+    # improvement percentages.
     baseline = (
         summary.filter(pl.col("profile") == "baseline")
         .select(
