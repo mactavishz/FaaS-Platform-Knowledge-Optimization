@@ -16,6 +16,9 @@ from .constants import (
     PROFILES,
     TRIM_HEAD,
     TRIM_TAIL,
+    WEBSHOP_OPERATIONS,
+    WEBSHOP_OPERATION_CALL_GRAPHS,
+    WORKFLOW_CALL_GRAPHS,
     WORKFLOW_METRICS,
     WORKFLOWS,
 )
@@ -115,6 +118,18 @@ def load_function_samples(
     )
     samples = samples.join(entry_names, on="workflow", how="left")
 
+    generic = samples.filter(~pl.col("workflow").is_in(list(WEBSHOP_OPERATIONS)))
+    webshop = samples.filter(pl.col("workflow").is_in(list(WEBSHOP_OPERATIONS)))
+
+    frames = [_align_generic_function_samples(generic), _align_webshop_function_samples(webshop)]
+    frames = [frame for frame in frames if not frame.is_empty()]
+    return pl.concat(frames, how="vertical_relaxed") if frames else _empty_aligned_function_frame()
+
+
+def _align_generic_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
+    if samples.is_empty():
+        return _empty_aligned_function_frame()
+
     entry_samples = (
         samples.filter(pl.col("function") == pl.col("entry_function"))
         .select(
@@ -124,8 +139,18 @@ def load_function_samples(
             "workflow",
             pl.col("operation_index").alias("entry_operation_index"),
             pl.col("started_at_ns").alias("entry_started_at_ns"),
+            pl.col("finished_at_ns").alias("entry_finished_at_ns"),
+        )
+        .sort(["run", "profile", "platform", "workflow", "entry_started_at_ns"])
+        .with_columns(
+            pl.col("entry_started_at_ns")
+            .shift(-1)
+            .over(["run", "profile", "platform", "workflow"])
+            .alias("next_entry_started_at_ns")
         )
     )
+    if entry_samples.is_empty():
+        return _empty_aligned_function_frame()
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Sortedness of columns cannot be checked.*")
@@ -141,13 +166,142 @@ def load_function_samples(
             "relative_finished_ms"
         ),
         pl.col("entry_operation_index").alias("iteration_index"),
+        pl.lit(None, dtype=pl.UInt32).alias("operation_step_index"),
+        pl.lit(None, dtype=pl.Utf8).alias("operation"),
     )
     aligned = aligned.filter(
-        pl.col("iteration_index").is_between(
+        (
+            pl.col("started_at_ns").is_between(
+                pl.col("entry_started_at_ns"),
+                pl.col("next_entry_started_at_ns"),
+                closed="left",
+            )
+            | (
+                (pl.col("started_at_ns") >= pl.col("entry_started_at_ns"))
+                & pl.col("next_entry_started_at_ns").is_null()
+            )
+        )
+        & pl.col("iteration_index").is_between(
             TRIM_HEAD, EXPECTED_ITERATIONS - TRIM_TAIL - 1, closed="both"
         )
+        & _workflow_reachable_expr()
     )
-    return aligned.filter(pl.col("relative_finished_ms").is_not_null())
+    return _select_aligned_function_columns(aligned.filter(pl.col("relative_finished_ms").is_not_null()))
+
+
+def _align_webshop_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
+    frames: list[pl.DataFrame] = []
+    for workflow, operations in WEBSHOP_OPERATIONS.items():
+        workflow_samples = samples.filter(pl.col("workflow") == workflow)
+        if workflow_samples.is_empty():
+            continue
+
+        operation_count = len(operations)
+        operation_names = pl.DataFrame(
+            {
+                "operation_step_index": list(range(operation_count)),
+                "operation": list(operations),
+            },
+            schema={"operation_step_index": pl.UInt32, "operation": pl.Utf8},
+        )
+        entry_windows = (
+            workflow_samples.filter(pl.col("function") == pl.col("entry_function"))
+            .with_columns(
+                (pl.col("operation_index") // operation_count).alias("journey_index"),
+                (pl.col("operation_index") % operation_count).alias("operation_step_index"),
+            )
+            .join(operation_names, on="operation_step_index", how="left")
+            .select(
+                "run",
+                "profile",
+                "platform",
+                "workflow",
+                "operation",
+                "operation_step_index",
+                pl.col("journey_index").alias("iteration_index"),
+                pl.col("operation_index").alias("entry_operation_index"),
+                pl.col("started_at_ns").alias("entry_started_at_ns"),
+                pl.col("finished_at_ns").alias("entry_finished_at_ns"),
+            )
+            .sort(["run", "profile", "platform", "workflow", "entry_started_at_ns"])
+            .with_columns(
+                pl.col("entry_started_at_ns")
+                .shift(-1)
+                .over(["run", "profile", "platform", "workflow"])
+                .alias("next_entry_started_at_ns")
+            )
+        )
+        if entry_windows.is_empty():
+            continue
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Sortedness of columns cannot be checked.*")
+            aligned = workflow_samples.sort("started_at_ns").join_asof(
+                entry_windows.sort("entry_started_at_ns"),
+                left_on="started_at_ns",
+                right_on="entry_started_at_ns",
+                by=["run", "profile", "platform", "workflow"],
+                strategy="backward",
+            )
+        aligned = aligned.filter(
+            (
+                pl.col("started_at_ns").is_between(
+                    pl.col("entry_started_at_ns"),
+                    pl.col("next_entry_started_at_ns"),
+                    closed="left",
+                )
+                | (
+                    (pl.col("started_at_ns") >= pl.col("entry_started_at_ns"))
+                    & pl.col("next_entry_started_at_ns").is_null()
+                )
+            )
+            & _webshop_reachable_expr()
+        )
+        aligned = aligned.with_columns(
+            ((pl.col("finished_at_ns") - pl.col("entry_started_at_ns")) / 1_000_000).alias(
+                "relative_finished_ms"
+            )
+        )
+        aligned = aligned.filter(
+            pl.col("iteration_index").is_between(
+                TRIM_HEAD, EXPECTED_ITERATIONS - TRIM_TAIL - 1, closed="both"
+            )
+        )
+        frames.append(_select_aligned_function_columns(aligned.filter(pl.col("relative_finished_ms").is_not_null())))
+
+    return pl.concat(frames, how="vertical_relaxed") if frames else _empty_aligned_function_frame()
+
+
+def _select_aligned_function_columns(samples: pl.DataFrame) -> pl.DataFrame:
+    return samples.select(_empty_aligned_function_frame().columns)
+
+
+def _workflow_reachable_expr() -> pl.Expr:
+    expr = pl.lit(False)
+    for workflow, graph in WORKFLOW_CALL_GRAPHS.items():
+        reachable = _reachable_functions(ENTRY_FUNCTIONS[workflow], graph)
+        expr = expr | ((pl.col("workflow") == workflow) & pl.col("function").is_in(sorted(reachable)))
+    return expr
+
+
+def _webshop_reachable_expr() -> pl.Expr:
+    expr = pl.lit(False)
+    for operation, graph in WEBSHOP_OPERATION_CALL_GRAPHS.items():
+        reachable = _reachable_functions("webshop-frontend", graph)
+        expr = expr | ((pl.col("operation") == operation) & pl.col("function").is_in(sorted(reachable)))
+    return expr
+
+
+def _reachable_functions(entry: str, graph: dict[str, tuple[str, ...]]) -> set[str]:
+    seen: set[str] = set()
+    stack = [entry]
+    while stack:
+        function = stack.pop()
+        if function in seen:
+            continue
+        seen.add(function)
+        stack.extend(graph.get(function, ()))
+    return seen
 
 
 def validate_experiment(
@@ -429,5 +583,33 @@ def _empty_function_frame() -> pl.DataFrame:
             "method": pl.Utf8,
             "path": pl.Utf8,
             "status_code": pl.Int64,
+        }
+    )
+
+
+def _empty_aligned_function_frame() -> pl.DataFrame:
+    return pl.DataFrame(
+        schema={
+            "run": pl.Utf8,
+            "profile": pl.Utf8,
+            "platform": pl.Utf8,
+            "workflow": pl.Utf8,
+            "function": pl.Utf8,
+            "operation_index": pl.UInt32,
+            "started_at_ns": pl.Int64,
+            "finished_at_ns": pl.Int64,
+            "duration_ms": pl.Float64,
+            "method": pl.Utf8,
+            "path": pl.Utf8,
+            "status_code": pl.Int64,
+            "entry_function": pl.Utf8,
+            "entry_operation_index": pl.UInt32,
+            "entry_started_at_ns": pl.Int64,
+            "entry_finished_at_ns": pl.Int64,
+            "next_entry_started_at_ns": pl.Int64,
+            "iteration_index": pl.UInt32,
+            "operation_step_index": pl.UInt32,
+            "operation": pl.Utf8,
+            "relative_finished_ms": pl.Float64,
         }
     )

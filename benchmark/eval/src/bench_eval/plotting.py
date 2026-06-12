@@ -11,7 +11,7 @@ import numpy as np
 import polars as pl
 
 from .aggregate import retained_latency
-from .constants import PROFILE_LABELS, PROFILES, SUMMARY_METRICS
+from .constants import PROFILE_LABELS, PROFILES, SUMMARY_METRICS, WEBSHOP_OPERATIONS
 
 
 def write_all_figures(
@@ -169,17 +169,76 @@ def _plot_functions(function_samples: pl.DataFrame, platform: str, workflow: str
     if df.is_empty():
         return
 
+    if workflow in WEBSHOP_OPERATIONS:
+        _plot_webshop_functions(df, platform, workflow, out_dir)
+        return
+
+    order = _function_order(df)
+    if not order:
+        return
+
+    fig_width = max(9, len(order) * 0.55)
+    fig, ax = plt.subplots(figsize=(fig_width, 5.2), constrained_layout=True)
+    _plot_function_axis(
+        ax,
+        df,
+        order,
+        f"{platform} / {workflow}: function completion relative to entry start",
+    )
+    _save_png(fig, out_dir / f"functions_{platform}_{workflow}.png")
+
+
+def _plot_webshop_functions(df: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
+    operations = WEBSHOP_OPERATIONS[workflow]
+    orders = {
+        operation: _function_order(df.filter(pl.col("operation") == operation))
+        for operation in operations
+    }
+    max_functions = max((len(order) for order in orders.values()), default=0)
+    if max_functions == 0:
+        return
+
+    fig_width = max(9, max_functions * 0.55)
+    fig_height = max(4.2, len(operations) * 3.2)
+    fig, axes = plt.subplots(
+        len(operations),
+        1,
+        figsize=(fig_width, fig_height),
+        constrained_layout=True,
+        squeeze=False,
+    )
+    for ax, operation in zip(axes[:, 0], operations, strict=True):
+        operation_df = df.filter(pl.col("operation") == operation)
+        order = orders[operation]
+        if not order:
+            ax.set_visible(False)
+            continue
+        _plot_function_axis(
+            ax,
+            operation_df,
+            order,
+            f"{platform} / {workflow}: {operation}",
+        )
+
+    _save_png(fig, out_dir / f"functions_{platform}_{workflow}.png")
+
+
+def _function_order(df: pl.DataFrame) -> list[str]:
+    if df.is_empty():
+        return []
     order = (
         df.group_by("function")
         .agg(pl.col("relative_finished_ms").median().alias("median_ms"))
         .sort("median_ms")["function"]
         .to_list()
     )
+    return order
+
+
+def _plot_function_axis(ax: plt.Axes, df: pl.DataFrame, order: list[str], title: str) -> None:
     xpos = {name: idx for idx, name in enumerate(order)}
 
     colors = _profile_colors()
-    fig_width = max(9, len(order) * 0.55)
-    fig, ax = plt.subplots(figsize=(fig_width, 5.2), constrained_layout=True)
     rng = np.random.default_rng(7)
 
     for profile in PROFILES:
@@ -207,12 +266,11 @@ def _plot_functions(function_samples: pl.DataFrame, platform: str, workflow: str
             zorder=4,
         )
 
-    ax.set_title(f"{platform} / {workflow}: function completion relative to entry start")
+    ax.set_title(title)
     ax.set_ylabel("Relative finish time (ms)")
     ax.set_xticks(range(len(order)), order, rotation=45, ha="right")
     ax.grid(axis="y", alpha=0.25)
     ax.legend(frameon=False)
-    _save_png(fig, out_dir / f"functions_{platform}_{workflow}.png")
 
 
 def _benchmark_config_pairs(samples: pl.DataFrame) -> list[tuple[str, str]]:
