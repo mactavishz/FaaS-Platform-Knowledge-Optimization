@@ -334,6 +334,7 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphAndPrewarm() {
 		{Caller: "linear3-a", Callee: "linear3-b", Count: 1},
 		{Caller: "linear3-b", Callee: "linear3-c", Count: 1},
 	}, tinyCallgraphWaitTimeout)
+	statsABefore := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-a")
 	statsBBefore := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-b")
 	statsCBefore := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-c")
 
@@ -347,11 +348,19 @@ func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphAndPrewarm() {
 		{Caller: "linear3-a", Callee: "linear3-b", Count: 2},
 		{Caller: "linear3-b", Callee: "linear3-c", Count: 2},
 	}, tinyCallgraphWaitTimeout)
+	statsAAfter := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-a")
 	statsBAfter := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-b")
 	statsCAfter := integrationhelpers.GetFunctionCallGraphStats(t, "linear3-c")
 
-	assert.GreaterOrEqual(t, statsBAfter.TotalPrewarms, statsBBefore.TotalPrewarms+1, "expected linear3-b prewarm count to increase with prewarming enabled, before=%d after=%d", statsBBefore.TotalPrewarms, statsBAfter.TotalPrewarms)
+	s.assertScaleUpAccounting(statsAAfter)
+	s.assertScaleUpAccounting(statsBAfter)
+	s.assertScaleUpAccounting(statsCAfter)
+	assert.Equal(t, statsABefore.TotalScaleUps+1, statsAAfter.TotalScaleUps, "expected one demand scale-up for linear3-a")
+	assert.Equal(t, statsABefore.TotalColdStarts+1, statsAAfter.TotalColdStarts, "expected one cold-start record for linear3-a")
+	assert.Equal(t, statsBBefore.TotalPrewarms+1, statsBAfter.TotalPrewarms, "expected one prewarm record for linear3-b")
+	assert.Equal(t, statsBBefore.TotalScaleUps+1, statsBAfter.TotalScaleUps, "expected no duplicate scale-up records for linear3-b")
 	assert.GreaterOrEqual(t, statsCAfter.TotalPrewarms, statsCBefore.TotalPrewarms, "expected linear3-c prewarm count to stay the same or increase with prewarming enabled, before=%d after=%d", statsCBefore.TotalPrewarms, statsCAfter.TotalPrewarms)
+	assert.LessOrEqual(t, statsCAfter.TotalScaleUps-statsCBefore.TotalScaleUps, 1, "expected at most one scale-up record for linear3-c after the second invocation")
 }
 
 func (s *PlatformIntegrationSuite) assertCallgraphEmpty() {
@@ -361,6 +370,11 @@ func (s *PlatformIntegrationSuite) assertCallgraphEmpty() {
 	cg := integrationhelpers.GetCallGraph(t)
 	assert.Empty(t, cg.Edges, "expected empty callgraph edges when disabled")
 	assert.Empty(t, cg.Functions, "expected empty callgraph functions when disabled")
+}
+
+func (s *PlatformIntegrationSuite) assertScaleUpAccounting(stats integrationhelpers.FunctionCallGraphStats) {
+	s.T().Helper()
+	assert.Equal(s.T(), stats.TotalColdStarts+stats.TotalPrewarms, stats.TotalScaleUps, "scale-up accounting mismatch for %s", stats.Name)
 }
 
 func (s *PlatformIntegrationSuite) assertWorkflowResponse(body []byte) {
