@@ -165,12 +165,14 @@ wait_for_gateway() {
 show_failure_logs() {
   echo "==> tinyFaaS service status:"
   systemctl status tf-gateway --no-pager -l || true
-  systemctl status tf-rproxy --no-pager -l || true
-  systemctl status tf-manager --no-pager -l || true
+  systemctl status tf-nats --no-pager -l || true
+  systemctl status tf-server --no-pager -l || true
+  systemctl status tf-queue-worker --no-pager -l || true
   echo "==> Recent tinyFaaS logs:"
   journalctl -u tf-gateway -n 100 --no-pager || true
-  journalctl -u tf-rproxy -n 100 --no-pager || true
-  journalctl -u tf-manager -n 100 --no-pager || true
+  journalctl -u tf-nats -n 100 --no-pager || true
+  journalctl -u tf-server -n 100 --no-pager || true
+  journalctl -u tf-queue-worker -n 100 --no-pager || true
 }
 
 install_ops_agent() {
@@ -197,11 +199,12 @@ main() {
 
   echo "==> Starting tinyFaaS services..."
   systemctl daemon-reload
+  systemctl enable --now tf-nats
+  systemctl enable --now tf-server
+  systemctl enable --now tf-queue-worker
   systemctl enable --now tf-gateway
-  systemctl enable --now tf-rproxy
-  systemctl enable --now tf-manager
 
-  if ! systemctl is-active --quiet tf-gateway || ! systemctl is-active --quiet tf-rproxy || ! systemctl is-active --quiet tf-manager; then
+  if ! systemctl is-active --quiet tf-gateway || ! systemctl is-active --quiet tf-nats || ! systemctl is-active --quiet tf-server || ! systemctl is-active --quiet tf-queue-worker; then
     show_failure_logs
     exit 1
   fi
