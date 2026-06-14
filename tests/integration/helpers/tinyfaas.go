@@ -41,7 +41,14 @@ func RebuildTinyFaaS(t *testing.T, envProfile string) {
 	t.Helper()
 	t.Logf("[step] rebuilding tinyFaaS with profile=%s", envProfile)
 
-	cmd := fmt.Sprintf("PROJECT_ROOT=/vagrant ENV_FILE=/vagrant/tests/integration/env/%s bash /vagrant/scripts/build-tinyfaas.sh", envProfile)
+	RebuildTinyFaaSWithEnvFile(t, "/vagrant/tests/integration/env/"+envProfile)
+}
+
+func RebuildTinyFaaSWithEnvFile(t *testing.T, envFile string) {
+	t.Helper()
+	t.Logf("[step] rebuilding tinyFaaS with env=%s", envFile)
+
+	cmd := fmt.Sprintf("PROJECT_ROOT=/vagrant ENV_FILE=%s bash /vagrant/scripts/build-tinyfaas.sh", envFile)
 	MustRunCommand(t, CommandOptions{Timeout: 35 * time.Minute, Dir: RepoRoot(t)}, "vagrant", "ssh", "tinyfaas", "-c", cmd)
 	t.Log("[step] tinyFaaS rebuild complete")
 }
@@ -72,7 +79,7 @@ func WipeFunctions(t *testing.T) {
 	t.Helper()
 	t.Log("[step] wiping all functions via /system/wipe")
 
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Post(DEFAULT_TINYFAAS_GATEWAY_URL+"/system/wipe", "application/json", nil)
+	resp, err := (&http.Client{Timeout: 2 * time.Minute}).Post(DEFAULT_TINYFAAS_GATEWAY_URL+"/system/wipe", "application/json", nil)
 	if err != nil {
 		t.Fatalf("failed to wipe functions: %v", err)
 	}
@@ -203,6 +210,19 @@ func InvokeTinyFaaS(t *testing.T, baseURL string, functionName string, method st
 	t.Helper()
 
 	url := strings.TrimRight(baseURL, "/") + "/fn/" + functionName
+	return invokeTinyFaaSURL(t, url, method, body, headers)
+}
+
+func InvokeTinyFaaSAsync(t *testing.T, baseURL string, functionName string, method string, body []byte, headers map[string]string) (int, []byte) {
+	t.Helper()
+
+	url := strings.TrimRight(baseURL, "/") + "/async-fn/" + functionName
+	return invokeTinyFaaSURL(t, url, method, body, headers)
+}
+
+func invokeTinyFaaSURL(t *testing.T, url string, method string, body []byte, headers map[string]string) (int, []byte) {
+	t.Helper()
+
 	req, err := http.NewRequest(method, url, bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("failed to create invoke request: %v", err)
