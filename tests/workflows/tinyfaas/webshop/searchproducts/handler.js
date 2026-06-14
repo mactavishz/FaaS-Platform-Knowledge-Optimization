@@ -7,18 +7,13 @@ const GATEWAY_BASE = process.env.TINYFAAS_GATEWAY_URL || "http://tinyfaas.com";
 
 function callFunction(functionName, data, sync, incomingHeaders) {
     return (async () => {
-        const url = new URL(`${GATEWAY_BASE}/fn/webshop-${functionName}`);
+        const pathPrefix = sync ? "/fn/" : "/async-fn/";
+        const url = new URL(`${GATEWAY_BASE}${pathPrefix}webshop-${functionName}`);
 
         const headers = Object.assign({}, incomingHeaders || {});
         delete headers.host;
         delete headers["content-length"];
         headers["content-type"] = "application/json";
-
-        if (!sync) {
-            headers["x-tinyfaas-async"] = "true";
-        } else {
-            delete headers["x-tinyfaas-async"];
-        }
 
         try {
             const res = await axios.post(url.toString(), data, {
