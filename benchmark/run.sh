@@ -726,7 +726,7 @@ collect_remote_logs() {
   local services=()
 
   case "$platform" in
-    tinyfaas) services=(tf-gateway tf-manager tf-rproxy) ;;
+    tinyfaas) services=(tf-gateway tf-nats tf-server tf-queue-worker) ;;
     faasd) services=(faasd faasd-provider faasd-gateway containerd buildkit) ;;
     *) fatal "unsupported platform: $platform" ;;
   esac
