@@ -107,9 +107,14 @@ func RequireFaasd(t *testing.T) (string, FaasdGatewayAuth) {
 
 func RebuildFaasd(t *testing.T, envProfile string) {
 	t.Helper()
-	t.Logf("[step] rebuilding faasd with profile=%s", envProfile)
+	RebuildFaasdWithEnvFile(t, "/vagrant/tests/integration/env/"+envProfile)
+}
 
-	cmd := fmt.Sprintf("PROJECT_ROOT=/vagrant ENV_FILE=/vagrant/tests/integration/env/%s bash /vagrant/scripts/build-faasd.sh", envProfile)
+func RebuildFaasdWithEnvFile(t *testing.T, envFile string) {
+	t.Helper()
+	t.Logf("[step] rebuilding faasd with env=%s", envFile)
+
+	cmd := fmt.Sprintf("PROJECT_ROOT=/vagrant ENV_FILE=%s bash /vagrant/scripts/build-faasd.sh", envFile)
 	MustRunCommand(t, CommandOptions{Timeout: 35 * time.Minute, Dir: RepoRoot(t)}, "vagrant", "ssh", FAASD_VM_NAME, "-c", cmd)
 	t.Log("[step] faasd rebuild complete")
 }
