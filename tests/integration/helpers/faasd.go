@@ -95,7 +95,7 @@ func RequireFaasd(t *testing.T) (string, FaasdGatewayAuth) {
 		t.Skip("faas-cli not found in PATH")
 	}
 
-	EnsureVagrantVMExclusive(t, FAASD_VM_NAME, "tinyfaas")
+	EnsureFaasdVM(t)
 
 	baseURL := FaasdGatewayURL()
 	waitForFaasdGateway(t, baseURL, 90*time.Second)
@@ -103,6 +103,12 @@ func RequireFaasd(t *testing.T) (string, FaasdGatewayAuth) {
 	auth := readFaasdGatewayAuth(t)
 
 	return baseURL, auth
+}
+
+func EnsureFaasdVM(t *testing.T) {
+	t.Helper()
+	t.Log("[step] verifying faasd VM is running")
+	EnsureVagrantVMExclusive(t, FAASD_VM_NAME, "tinyfaas")
 }
 
 func RebuildFaasd(t *testing.T, envProfile string) {

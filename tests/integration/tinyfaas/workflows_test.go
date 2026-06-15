@@ -19,7 +19,7 @@ func TestWorkflowIntegrationSuite(t *testing.T) {
 
 func (s *WorkflowIntegrationSuite) SetupSuite() {
 	t := s.T()
-	integrationhelpers.RequireTinyFaaSVM(t)
+	integrationhelpers.EnsureTinyFaaSVM(t)
 	integrationhelpers.RebuildTinyFaaS(t, integrationhelpers.NO_AUTOSCALER_PROFILE)
 	integrationhelpers.WaitForGateway(t, integrationhelpers.DEFAULT_TINYFAAS_GATEWAY_URL, 90*time.Second)
 	integrationhelpers.WipeFunctions(t)

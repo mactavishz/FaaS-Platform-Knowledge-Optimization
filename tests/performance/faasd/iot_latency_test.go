@@ -26,6 +26,7 @@ type profileResult struct {
 
 func TestIoTOptimizedProfilesReduceUserLatency(t *testing.T) {
 	integrationhelpers.RequireWorkflowSupabaseEnv(t)
+	integrationhelpers.EnsureFaasdVM(t)
 
 	profiles := []struct {
 		name string

@@ -24,7 +24,7 @@ type FunctionStatus struct {
 	Running bool   `json:"running"`
 }
 
-func RequireTinyFaaSVM(t *testing.T) {
+func EnsureTinyFaaSVM(t *testing.T) {
 	t.Helper()
 	t.Log("[step] verifying tinyfaas VM is running")
 	EnsureVagrantVMExclusive(t, "tinyfaas", "faasd")
@@ -32,7 +32,7 @@ func RequireTinyFaaSVM(t *testing.T) {
 
 func RequireTinyFaaS(t *testing.T) string {
 	t.Helper()
-	RequireTinyFaaSVM(t)
+	EnsureTinyFaaSVM(t)
 	WaitForGateway(t, DEFAULT_TINYFAAS_GATEWAY_URL, 90*time.Second)
 	return DEFAULT_TINYFAAS_GATEWAY_URL
 }
@@ -162,7 +162,7 @@ func SetupFunctionalityScenario(t *testing.T, stackPath string, functionNames []
 	t.Helper()
 	t.Logf("[setup] functionality stack=%s profile=%s", stackPath, NO_AUTOSCALER_PROFILE)
 
-	RequireTinyFaaSVM(t)
+	EnsureTinyFaaSVM(t)
 	RebuildTinyFaaS(t, NO_AUTOSCALER_PROFILE)
 	WaitForGateway(t, DEFAULT_TINYFAAS_GATEWAY_URL, 90*time.Second)
 	WipeFunctions(t)

@@ -46,7 +46,7 @@ func TestPlatformIntegrationSuite(t *testing.T) {
 func (s *PlatformIntegrationSuite) setupScenario(envProfile string, stackPath string, functionNames []string, deployEnvs map[string]string) {
 	t := s.T()
 	t.Logf("[setup] profile=%s stack=%s", envProfile, stackPath)
-	integrationhelpers.RequireTinyFaaSVM(t)
+	integrationhelpers.EnsureTinyFaaSVM(t)
 	integrationhelpers.RebuildTinyFaaS(t, envProfile)
 	integrationhelpers.WaitForGateway(t, integrationhelpers.DEFAULT_TINYFAAS_GATEWAY_URL, 90*time.Second)
 	integrationhelpers.WipeFunctions(t)
