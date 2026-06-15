@@ -48,9 +48,18 @@ integration-test: build-faas-cli
 	make faasd-integration-test
 	make tinyfaas-integration-test
 
+.PHONY: faasd-performance-test
+faasd-performance-test:
+	env -u FAASD_GATEWAY_URL go test -count=1 -v -timeout 90m ./tests/performance/faasd/...
+
+.PHONY: tinyfaas-performance-test
+tinyfaas-performance-test:
+	env -u TINYFAAS_GATEWAY_URL go test -count=1 -v -timeout 90m ./tests/performance/tinyfaas/...
+
 .PHONY: performance-test
 performance-test: build-faas-cli
-	env -u TINYFAAS_GATEWAY_URL go test -count=1 -v -timeout 90m ./tests/performance/tinyfaas/...
+	make faasd-performance-test
+	make tinyfaas-performance-test
 
 .PHONY: unit-test
 unit-test:
