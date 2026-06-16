@@ -16,6 +16,11 @@ type Tracker interface {
 	// caller is empty string for external calls (entry points)
 	RecordEdge(caller, callee string, requestID string, callerExecutionID string, timestamp time.Time)
 
+	// RecordEdgeWithKind is like RecordEdge but also tags the edge with how the
+	// caller dispatched the callee (sync vs async). Pass EdgeKindUnknown to
+	// preserve any previously observed kind.
+	RecordEdgeWithKind(caller, callee string, requestID string, callerExecutionID string, timestamp time.Time, kind EdgeKind)
+
 	// EndExecution marks the end of a function execution for a specific request
 	// It calculates and records function execution stats, then cleans up the execution context
 	EndExecution(functionName string, requestID string, executionID string, timestamp time.Time)

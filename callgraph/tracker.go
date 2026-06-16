@@ -21,7 +21,7 @@ func New(options ...Option) *CallGraphTracker {
 	tracker := &CallGraphTracker{
 		config:            DefaultConfig(),
 		logger:            DefaultLogger(),
-		edgeStats:         make(map[string]*edgeStats),
+		edgeStats:         make(map[string]*EdgeStat),
 		functionStats:     make(map[string]*FunctionStats),
 		callerToCallees:   make(map[string]map[string]bool),
 		calleeToCallers:   make(map[string]map[string]bool),
@@ -196,6 +196,14 @@ func (t *CallGraphTracker) StartExecution(functionName string, requestID string,
 // It automatically calculates edge execution time from the execution context
 // caller is empty string for external calls (entry points)
 func (t *CallGraphTracker) RecordEdge(caller, callee string, requestID string, callerExecutionID string, timestamp time.Time) {
+	t.RecordEdgeWithKind(caller, callee, requestID, callerExecutionID, timestamp, EdgeKindUnknown)
+}
+
+// RecordEdgeWithKind records an edge in the call graph when caller invokes callee
+// and tags the edge with how the caller dispatched the callee (sync/async/unknown).
+// EdgeKindUnknown leaves an existing kind unchanged so callers that do not have
+// dispatch metadata don't accidentally clobber a previously observed kind.
+func (t *CallGraphTracker) RecordEdgeWithKind(caller, callee string, requestID string, callerExecutionID string, timestamp time.Time, kind EdgeKind) {
 	if !t.config.Enabled {
 		return
 	}
@@ -268,14 +276,19 @@ func (t *CallGraphTracker) RecordEdge(caller, callee string, requestID string, c
 	key := edgeKey(caller, callee)
 	stats, exists := t.edgeStats[key]
 	if !exists {
-		stats = &edgeStats{
+		stats = &EdgeStat{
 			caller:        caller,
 			callee:        callee,
+			kind:          kind,
 			minExecTime:   executionTime,
 			maxExecTime:   executionTime,
 			avgCalculator: NewAveragingCalculator(t.averagingMethod, t.GetAverageMethodConfig()),
 		}
 		t.edgeStats[key] = stats
+	} else if kind != EdgeKindUnknown {
+		// Update kind only when we have a definite classification, so callers
+		// that pass EdgeKindUnknown don't overwrite a previously known kind.
+		stats.kind = kind
 	}
 
 	stats.count++
@@ -305,6 +318,7 @@ func (t *CallGraphTracker) RecordEdge(caller, callee string, requestID string, c
 		"callee", callee,
 		"requestID", requestID,
 		"executionID", callerExecutionID,
+		"kind", stats.kind,
 		"edgeExecutionTime", executionTime)
 }
 
@@ -587,6 +601,7 @@ func (t *CallGraphTracker) GetCallGraph() CallGraph {
 		edges = append(edges, AggregatedEdge{
 			Caller:             stats.caller,
 			Callee:             stats.callee,
+			Kind:               stats.kind,
 			Count:              stats.count,
 			TotalExecutionTime: stats.totalExecTime,
 			AvgExecutionTime:   stats.avgCalculator.Average(),
@@ -710,6 +725,7 @@ func (t *CallGraphTracker) GetEdgeStats(caller, callee string) (AggregatedEdge, 
 	return AggregatedEdge{
 		Caller:             stats.caller,
 		Callee:             stats.callee,
+		Kind:               stats.kind,
 		Count:              stats.count,
 		TotalExecutionTime: stats.totalExecTime,
 		AvgExecutionTime:   stats.avgCalculator.Average(),
@@ -723,7 +739,7 @@ func (t *CallGraphTracker) Clear() {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
-	t.edgeStats = make(map[string]*edgeStats)
+	t.edgeStats = make(map[string]*EdgeStat)
 	t.functionStats = make(map[string]*FunctionStats)
 	t.callerToCallees = make(map[string]map[string]bool)
 	t.calleeToCallers = make(map[string]map[string]bool)
@@ -911,8 +927,10 @@ func (t *CallGraphTracker) GetPrewarmTargets(functionName string) []PrewarmTarge
 		// determine when to actually trigger the prewarm.
 		leadTime := max(avgEdgeTime, 0)
 		targets = append(targets, PrewarmTarget{
-			FunctionName: callee,
-			LeadTime:     leadTime,
+			FunctionName:         callee,
+			LeadTime:             leadTime,
+			Kind:                 edgeStats.kind,
+			AvgColdStartDuration: avgColdStartTime,
 		})
 	}
 
@@ -939,7 +957,7 @@ func (t *CallGraphTracker) FromJSON(data []byte) error {
 	defer t.mutex.Unlock()
 
 	// Clear existing data
-	t.edgeStats = make(map[string]*edgeStats)
+	t.edgeStats = make(map[string]*EdgeStat)
 	t.functionStats = make(map[string]*FunctionStats)
 	t.callerToCallees = make(map[string]map[string]bool)
 	t.calleeToCallers = make(map[string]map[string]bool)
@@ -948,9 +966,10 @@ func (t *CallGraphTracker) FromJSON(data []byte) error {
 	// Restore edge stats
 	for _, edge := range graph.Edges {
 		key := edgeKey(edge.Caller, edge.Callee)
-		t.edgeStats[key] = &edgeStats{
+		t.edgeStats[key] = &EdgeStat{
 			caller:        edge.Caller,
 			callee:        edge.Callee,
+			kind:          edge.Kind,
 			count:         edge.Count,
 			totalExecTime: edge.TotalExecutionTime,
 			minExecTime:   edge.MinExecutionTime,

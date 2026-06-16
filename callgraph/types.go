@@ -27,6 +27,47 @@ func (m AveragingMethod) String() string {
 	}
 }
 
+// EdgeKind classifies how a caller dispatched a callee invocation.
+// It is used by prewarm scheduling to deprioritize async edges, which do not
+// affect user-visible latency.
+type EdgeKind int
+
+const (
+	// EdgeKindUnknown is used when no dispatch information is available.
+	EdgeKindUnknown EdgeKind = iota
+	// EdgeKindSync indicates the caller invoked the callee synchronously
+	// (the caller awaits the response on its critical path).
+	EdgeKindSync
+	// EdgeKindAsync indicates the caller invoked the callee asynchronously
+	// (fire-and-forget, no contribution to the caller's user-visible latency).
+	EdgeKindAsync
+)
+
+func (k EdgeKind) String() string {
+	switch k {
+	case EdgeKindSync:
+		return "sync"
+	case EdgeKindAsync:
+		return "async"
+	default:
+		return "unknown"
+	}
+}
+
+// ParseEdgeKind decodes the X-Tinyfaas-Edge-Kind header value (or any
+// equivalent string) into an EdgeKind. Unknown or empty values yield
+// EdgeKindUnknown.
+func ParseEdgeKind(value string) EdgeKind {
+	switch value {
+	case "sync":
+		return EdgeKindSync
+	case "async":
+		return EdgeKindAsync
+	default:
+		return EdgeKindUnknown
+	}
+}
+
 type SMAConfig struct {
 	// WindowSize is the window size for Simple Moving Average
 	// Only used when AveragingMethod is SimpleMovingAverage
@@ -82,7 +123,7 @@ type CallGraphTracker struct {
 	emaConfig *EMAConfig
 
 	// Edge statistics: edgeKey -> stats
-	edgeStats map[string]*edgeStats
+	edgeStats map[string]*EdgeStat
 
 	// Function statistics: functionName -> stats
 	functionStats map[string]*FunctionStats
@@ -123,6 +164,10 @@ type AggregatedEdge struct {
 
 	// Callee is the function name that was called
 	Callee string `json:"callee"`
+
+	// Kind classifies how the caller dispatched the callee (sync/async/unknown).
+	// Reflects the latest observed dispatch type for the edge.
+	Kind EdgeKind `json:"kind"`
 
 	// Count is the number of times this call has been made
 	Count int `json:"count"`
@@ -228,6 +273,15 @@ type PrewarmTarget struct {
 
 	// LeadTime is the time before the function is expected to be called
 	LeadTime time.Duration `json:"lead_time_ns"`
+
+	// Kind classifies how the caller invokes this callee (sync/async/unknown).
+	// Schedulers should prefer prewarming sync callees because async dispatch
+	// does not contribute to user-visible latency on the caller's critical path.
+	Kind EdgeKind `json:"kind"`
+
+	// AvgColdStartDuration is the callee's recent average cold-start duration.
+	// Schedulers use this to estimate expected savings vs lead time.
+	AvgColdStartDuration time.Duration `json:"avg_cold_start_duration_ns"`
 }
 
 // PrewarmConfig holds configuration for prewarming decisions
@@ -243,12 +297,13 @@ func DefaultPrewarmConfig() *PrewarmConfig {
 	}
 }
 
-// edgeStats holds internal statistics for an edge
+// EdgeStat holds internal statistics for an edge
 // the execution time means the time taken for the caller to call the callee, the caller might wait for the callee to finish
 // or the caller might still has some work to do after calling the callee.
-type edgeStats struct {
+type EdgeStat struct {
 	caller        string
 	callee        string
+	kind          EdgeKind
 	count         int
 	totalExecTime time.Duration
 	minExecTime   time.Duration
