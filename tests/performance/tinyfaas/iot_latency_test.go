@@ -22,7 +22,9 @@ var iotFunctions = []string{"iot-i", "iot-as", "iot-ca", "iot-cs", "iot-csa", "i
 type profileResult struct {
 	name    string
 	samples []time.Duration
+	mean    time.Duration
 	median  time.Duration
+	p95     time.Duration
 }
 
 func TestIoTOptimizedProfilesReduceUserLatency(t *testing.T) {
@@ -42,14 +44,16 @@ func TestIoTOptimizedProfilesReduceUserLatency(t *testing.T) {
 	for _, profile := range profiles {
 		result := runIoTProfile(t, profile.name, profile.env)
 		results = append(results, result)
-		t.Logf("[result] profile=%s median=%s samples=%v", result.name, result.median, result.samples)
+		t.Logf("[result] profile=%s mean=%s median=%s p95=%s samples=%v", result.name, result.mean, result.median, result.p95, result.samples)
 	}
 
 	baseline := results[0]
 	for _, result := range results[1:] {
-		if result.median >= baseline.median {
-			t.Fatalf("%s median %s must be lower than baseline median %s\nbaseline samples=%v\n%s samples=%v",
-				result.name, result.median, baseline.median, baseline.samples, result.name, result.samples)
+		if result.mean >= baseline.mean || result.median >= baseline.median || result.p95 >= baseline.p95 {
+			t.Fatalf("%s must improve mean, median, and p95 versus baseline\nbaseline mean=%s median=%s p95=%s samples=%v\n%s mean=%s median=%s p95=%s samples=%v",
+				result.name,
+				baseline.mean, baseline.median, baseline.p95, baseline.samples,
+				result.name, result.mean, result.median, result.p95, result.samples)
 		}
 	}
 }
@@ -86,7 +90,13 @@ func runIoTProfile(t *testing.T, name string, envFile string) profileResult {
 		t.Logf("[profile:%s] iteration=%d latency=%s", name, i+1, elapsed)
 	}
 
-	return profileResult{name: name, samples: samples, median: medianDuration(samples)}
+	return profileResult{
+		name:    name,
+		samples: samples,
+		mean:    meanDuration(samples),
+		median:  medianDuration(samples),
+		p95:     percentileDuration(samples, 0.95),
+	}
 }
 
 func validateIoTEntryResponse(t *testing.T, body []byte) {
@@ -146,11 +156,39 @@ func getSuccessfulInvocations(t *testing.T, functionName string) int {
 }
 
 func medianDuration(samples []time.Duration) time.Duration {
+	return percentileDuration(samples, 0.50)
+}
+
+func meanDuration(samples []time.Duration) time.Duration {
+	if len(samples) == 0 {
+		return 0
+	}
+	var total time.Duration
+	for _, sample := range samples {
+		total += sample
+	}
+	return total / time.Duration(len(samples))
+}
+
+func percentileDuration(samples []time.Duration, percentile float64) time.Duration {
+	if len(samples) == 0 {
+		return 0
+	}
 	sorted := append([]time.Duration(nil), samples...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-	mid := len(sorted) / 2
-	if len(sorted)%2 == 1 {
-		return sorted[mid]
+	if percentile <= 0 {
+		return sorted[0]
 	}
-	return (sorted[mid-1] + sorted[mid]) / 2
+	if percentile >= 1 {
+		return sorted[len(sorted)-1]
+	}
+
+	pos := percentile * float64(len(sorted)-1)
+	lower := int(pos)
+	upper := lower + 1
+	if upper >= len(sorted) {
+		return sorted[lower]
+	}
+	fraction := pos - float64(lower)
+	return sorted[lower] + time.Duration(float64(sorted[upper]-sorted[lower])*fraction)
 }
