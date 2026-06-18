@@ -44,8 +44,14 @@ tinyfaas-integration-test:
 	env -u TINYFAAS_GATEWAY_URL go test -count=1 -v -timeout 30m ./tests/integration/tinyfaas/...
 
 .PHONY: integration-test
+# Rebuild and redeploy each platform before running its suite so the VM runs the
+# current code (and its gateway is brought up). build-faasd / build-tinyfaas are
+# mutually exclusive (each suspends the other VM), so faasd is fully exercised
+# before tinyfaas is brought up.
 integration-test: build-faas-cli
+	make build-faasd
 	make faasd-integration-test
+	make build-tinyfaas
 	make tinyfaas-integration-test
 
 .PHONY: faasd-performance-test
@@ -57,8 +63,11 @@ tinyfaas-performance-test:
 	env -u TINYFAAS_GATEWAY_URL go test -count=1 -v -timeout 90m ./tests/performance/tinyfaas/...
 
 .PHONY: performance-test
+# See integration-test: rebuild/redeploy each platform before its suite.
 performance-test: build-faas-cli
+	make build-faasd
 	make faasd-performance-test
+	make build-tinyfaas
 	make tinyfaas-performance-test
 
 .PHONY: unit-test
