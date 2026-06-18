@@ -25,6 +25,9 @@ K6_ITERATIONS="${K6_ITERATIONS:-70}"
 K6_VUS="${K6_VUS:-1}"
 K6_MAX_DURATION="${K6_MAX_DURATION:-6h}"
 K6_GRACEFUL_STOP="${K6_GRACEFUL_STOP:-30s}"
+# How often the k6 script polls for scale-down between iterations. Lower values
+# shorten the inter-iteration wait (useful for the dev loop); the k6 script default is 15000 if unset.
+K6_POLL_INTERVAL_MS="${K6_POLL_INTERVAL_MS:-2000}"
 CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-false}"
 KEEP_INFRA_ON_FAILURE="${KEEP_INFRA_ON_FAILURE:-false}"
 RERUN_OVERWRITE="${RERUN_OVERWRITE:-false}"
@@ -678,6 +681,7 @@ run_k6() {
     -e "GRACEFUL_STOP=$K6_GRACEFUL_STOP"
     -e "RUN_ID=$run_id"
     -e "RUN_LABEL=$run_id"
+    -e "POLL_INTERVAL_MS=$K6_POLL_INTERVAL_MS"
   )
 
   if [[ "$platform" == "faasd" ]]; then
