@@ -27,7 +27,7 @@ K6_MAX_DURATION="${K6_MAX_DURATION:-6h}"
 K6_GRACEFUL_STOP="${K6_GRACEFUL_STOP:-30s}"
 # How often the k6 script polls for scale-down between iterations. Lower values
 # shorten the inter-iteration wait (useful for the dev loop); the k6 script default is 15000 if unset.
-K6_POLL_INTERVAL_MS="${K6_POLL_INTERVAL_MS:-2000}"
+K6_POLL_INTERVAL_MS="${K6_POLL_INTERVAL_MS:-5000}"
 CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-false}"
 KEEP_INFRA_ON_FAILURE="${KEEP_INFRA_ON_FAILURE:-false}"
 RERUN_OVERWRITE="${RERUN_OVERWRITE:-false}"
