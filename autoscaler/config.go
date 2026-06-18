@@ -8,7 +8,7 @@ import (
 )
 
 const DEFAULT_IDLE_DURATION_MINUTES = 15
-const DEFAULT_CHECK_INTERVAL_SECONDS = 10
+const DEFAULT_CHECK_INTERVAL_SECONDS = 5
 const DEFAULT_MAX_CONCURRENT_SCALE_DOWNS = 4
 
 // Config holds the autoscaler configuration
@@ -47,10 +47,26 @@ func NewConfigFromEnv(platform string) (Config, error) {
 		}
 	}
 
+	// CheckInterval is how often the monitor scans for idle functions. It bounds
+	// the scale-down detection latency: an idle function is scaled down at the
+	// first scan tick after it crosses DefaultIdleDuration, so keep this well
+	// below the idle duration. Configurable via AUTOSCALER_CHECK_INTERVAL.
+	checkInterval := DEFAULT_CHECK_INTERVAL_SECONDS * time.Second
+	if intervalStr := os.Getenv("AUTOSCALER_CHECK_INTERVAL"); intervalStr != "" {
+		parsed, err := time.ParseDuration(intervalStr)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid check interval: %s", intervalStr)
+		}
+		if parsed <= 0 {
+			return Config{}, fmt.Errorf("check interval must be positive: %s", intervalStr)
+		}
+		checkInterval = parsed
+	}
+
 	return Config{
 		Platform:            platform,
 		Enabled:             enabled,
 		DefaultIdleDuration: defaultDuration,
-		CheckInterval:       DEFAULT_CHECK_INTERVAL_SECONDS * time.Second, // Check every 10 seconds
+		CheckInterval:       checkInterval,
 	}, nil
 }

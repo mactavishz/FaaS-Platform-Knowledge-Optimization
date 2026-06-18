@@ -630,7 +630,7 @@ func (as *AutoScaler) GetFunctionStatus() map[string]FunctionState {
 }
 
 func (as *AutoScaler) startMonitor() {
-	as.logger.Info("autoscaler monitor loop started")
+	as.logger.Info("autoscaler monitor loop started", "check_interval", as.config.CheckInterval, "max_concurrent_scale_downs", as.config.MaxConcurrentScaleDowns)
 	ticker := time.NewTicker(as.config.CheckInterval)
 	defer ticker.Stop()
 	defer close(as.doneChan)

@@ -104,3 +104,31 @@ func TestNewConfigFromEnvDefaults(t *testing.T) {
 	assert.Equal(t, DEFAULT_IDLE_DURATION_MINUTES*time.Minute, config.DefaultIdleDuration)
 	assert.Equal(t, DEFAULT_CHECK_INTERVAL_SECONDS*time.Second, config.CheckInterval)
 }
+
+func TestNewConfigFromEnvCheckInterval(t *testing.T) {
+	t.Run("defaults when unset", func(t *testing.T) {
+		os.Unsetenv("AUTOSCALER_CHECK_INTERVAL")
+		config, err := NewConfigFromEnv("tinyfaas")
+		require.NoError(t, err)
+		assert.Equal(t, DEFAULT_CHECK_INTERVAL_SECONDS*time.Second, config.CheckInterval)
+	})
+
+	t.Run("parses a valid override", func(t *testing.T) {
+		t.Setenv("AUTOSCALER_CHECK_INTERVAL", "2s")
+		config, err := NewConfigFromEnv("tinyfaas")
+		require.NoError(t, err)
+		assert.Equal(t, 2*time.Second, config.CheckInterval)
+	})
+
+	t.Run("rejects an unparseable value", func(t *testing.T) {
+		t.Setenv("AUTOSCALER_CHECK_INTERVAL", "soon")
+		_, err := NewConfigFromEnv("tinyfaas")
+		require.Error(t, err)
+	})
+
+	t.Run("rejects a non-positive value", func(t *testing.T) {
+		t.Setenv("AUTOSCALER_CHECK_INTERVAL", "0s")
+		_, err := NewConfigFromEnv("tinyfaas")
+		require.Error(t, err)
+	})
+}
