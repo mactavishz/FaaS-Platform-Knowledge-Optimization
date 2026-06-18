@@ -73,6 +73,8 @@ Run all integration tests for both faasd and tinyFaaS:
 make integration-test
 ```
 
+This rebuilds and redeploys each platform VM (via `build-faasd` / `build-tinyfaas`) before running its suite, so the VM always runs the current code and its gateway is brought up. The two platforms are exercised sequentially because their VMs are mutually exclusive (each build suspends the other). To run a suite against an already-built, running VM without redeploying, use the lower-level `faasd-integration-test` / `tinyfaas-integration-test` targets directly.
+
 ### For tinyFaaS
 
 Run the tinyFaaS workflow functionality suite:

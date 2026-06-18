@@ -358,6 +358,24 @@ func WaitForFunctionsScaledDown(t *testing.T, names []string, timeout time.Durat
 	WaitForFunctionsRunningState(t, names, false, timeout)
 }
 
+// ScaleDownTinyFaaS forces a function (or "*" for all functions) to scale to
+// zero via the /system/scale-down endpoint, bypassing the autoscaler's idle
+// timer. The call blocks until the scale-down completes, so functions are
+// already scaled down when it returns 200.
+func ScaleDownTinyFaaS(t *testing.T, name string) {
+	t.Helper()
+	url := DEFAULT_TINYFAAS_GATEWAY_URL + "/system/scale-down/" + name
+	resp, err := (&http.Client{Timeout: 2 * time.Minute}).Post(url, "application/json", nil)
+	if err != nil {
+		t.Fatalf("scale-down POST failed for %q: %v", name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("scale-down %q expected 200, got %d body=%s", name, resp.StatusCode, string(body))
+	}
+}
+
 func WaitForFunctionsPresent(t *testing.T, names []string, timeout time.Duration) {
 	t.Helper()
 	t.Logf("[step] waiting for functions present names=%v timeout=%s", names, timeout)
