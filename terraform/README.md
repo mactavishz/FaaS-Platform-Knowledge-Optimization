@@ -109,8 +109,7 @@ tinyFaaS services:
 
 ```bash
 sudo journalctl -u tf-gateway -o cat -f
-sudo journalctl -u tf-rproxy -o cat -f
-sudo journalctl -u tf-manager -o cat -f
+sudo journalctl -u tf-server -o cat -f
 ```
 
 faasd services:
