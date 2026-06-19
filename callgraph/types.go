@@ -54,9 +54,7 @@ func (k EdgeKind) String() string {
 	}
 }
 
-// ParseEdgeKind decodes the X-Tinyfaas-Edge-Kind header value (or any
-// equivalent string) into an EdgeKind. Unknown or empty values yield
-// EdgeKindUnknown.
+// ParseEdgeKind decodes the string value into an EdgeKind. Unknown or empty values yield EdgeKindUnknown.
 func ParseEdgeKind(value string) EdgeKind {
 	switch value {
 	case "sync":
