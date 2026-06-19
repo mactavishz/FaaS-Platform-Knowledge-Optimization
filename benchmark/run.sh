@@ -27,7 +27,7 @@ BENCH_MAX_DURATION="${BENCH_MAX_DURATION:-6h}"
 BENCH_GRACEFUL_STOP="${BENCH_GRACEFUL_STOP:-30s}"
 # How often the k6 script polls for scale-down between iterations. Lower values
 # shorten the inter-iteration wait (useful for the dev loop); the k6 script default is 15000 if unset.
-BENCH_POLL_INTERVAL_MS="${BENCH_POLL_INTERVAL_MS:-5000}"
+BENCH_POLL_INTERVAL_MS="${BENCH_POLL_INTERVAL_MS:-15000}"
 CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-false}"
 KEEP_INFRA_ON_FAILURE="${KEEP_INFRA_ON_FAILURE:-false}"
 RERUN_OVERWRITE="${RERUN_OVERWRITE:-false}"
