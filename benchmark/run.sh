@@ -21,13 +21,13 @@ MACHINE_TYPE="${MACHINE_TYPE:-n2-standard-4}"
 SSH_PRIVATE_KEY="${SSH_PRIVATE_KEY:-$TERRAFORM_DIR/gcp}"
 SSH_PUBLIC_KEY="${SSH_PUBLIC_KEY:-$TERRAFORM_DIR/gcp.pub}"
 SSH_USER="${SSH_USER:-bench}"
-K6_ITERATIONS="${K6_ITERATIONS:-70}"
-K6_VUS="${K6_VUS:-1}"
-K6_MAX_DURATION="${K6_MAX_DURATION:-6h}"
-K6_GRACEFUL_STOP="${K6_GRACEFUL_STOP:-30s}"
+BENCH_ITERATIONS="${BENCH_ITERATIONS:-70}"
+BENCH_VUS="${BENCH_VUS:-1}"
+BENCH_MAX_DURATION="${BENCH_MAX_DURATION:-6h}"
+BENCH_GRACEFUL_STOP="${BENCH_GRACEFUL_STOP:-30s}"
 # How often the k6 script polls for scale-down between iterations. Lower values
 # shorten the inter-iteration wait (useful for the dev loop); the k6 script default is 15000 if unset.
-K6_POLL_INTERVAL_MS="${K6_POLL_INTERVAL_MS:-5000}"
+BENCH_POLL_INTERVAL_MS="${BENCH_POLL_INTERVAL_MS:-5000}"
 CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-false}"
 KEEP_INFRA_ON_FAILURE="${KEEP_INFRA_ON_FAILURE:-false}"
 RERUN_OVERWRITE="${RERUN_OVERWRITE:-false}"
@@ -429,8 +429,8 @@ init_metadata() {
     --arg machine_type "$MACHINE_TYPE" \
     --arg ssh_user "$SSH_USER" \
     --arg stack_path "$stack_path" \
-    --argjson k6_iterations "$K6_ITERATIONS" \
-    --argjson k6_vus "$K6_VUS" \
+    --argjson k6_iterations "$BENCH_ITERATIONS" \
+    --argjson k6_vus "$BENCH_VUS" \
     '{
       profile: $profile,
       profile_path: $profile_path,
@@ -675,13 +675,13 @@ run_k6() {
     -e "PLATFORM=$platform"
     -e "WORKFLOW=$(get_k6_env_workflow_name "$workflow")"
     -e "GATEWAY_URL=$gateway_url"
-    -e "ITERATIONS=$K6_ITERATIONS"
-    -e "VUS=$K6_VUS"
-    -e "MAX_DURATION=$K6_MAX_DURATION"
-    -e "GRACEFUL_STOP=$K6_GRACEFUL_STOP"
+    -e "ITERATIONS=$BENCH_ITERATIONS"
+    -e "VUS=$BENCH_VUS"
+    -e "MAX_DURATION=$BENCH_MAX_DURATION"
+    -e "GRACEFUL_STOP=$BENCH_GRACEFUL_STOP"
     -e "RUN_ID=$run_id"
     -e "RUN_LABEL=$run_id"
-    -e "POLL_INTERVAL_MS=$K6_POLL_INTERVAL_MS"
+    -e "POLL_INTERVAL_MS=$BENCH_POLL_INTERVAL_MS"
   )
 
   if [[ "$platform" == "faasd" ]]; then
@@ -1101,8 +1101,8 @@ write_manifest() {
     --arg profiles "$profile_names" \
     --arg platforms "$PLATFORMS" \
     --arg workflows "$WORKFLOWS" \
-    --argjson k6_iterations "$K6_ITERATIONS" \
-    --argjson k6_vus "$K6_VUS" \
+    --argjson k6_iterations "$BENCH_ITERATIONS" \
+    --argjson k6_vus "$BENCH_VUS" \
     '{
       created_at: $created_at,
       output_root: $output_root,
@@ -1133,8 +1133,8 @@ print_benchmark_configs() {
   echo -e "WORKFLOWS: $WORKFLOWS"
   echo -e "WORKFLOW_CPU_LIMIT: $WORKFLOW_CPU_LIMIT"
   echo -e "WORKFLOW_MEMORY_LIMIT: $WORKFLOW_MEMORY_LIMIT"
-  echo -e "K6_ITERATIONS: $K6_ITERATIONS"
-  echo -e "K6_VUS: $K6_VUS"
+  echo -e "BENCH_ITERATIONS: $BENCH_ITERATIONS"
+  echo -e "BENCH_VUS: $BENCH_VUS"
   echo -e "CONTINUE_ON_ERROR: $CONTINUE_ON_ERROR"
   echo -e "KEEP_INFRA_ON_FAILURE: $KEEP_INFRA_ON_FAILURE"
   echo -e "RERUN_OVERWRITE: $RERUN_OVERWRITE"
