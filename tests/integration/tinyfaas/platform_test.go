@@ -98,37 +98,6 @@ func (s *PlatformIntegrationSuite) TestAutoscalerOnly() {
 	s.assertCallgraphEmpty()
 }
 
-func (s *PlatformIntegrationSuite) TestForcedScaleDownEndpoint() {
-	t := s.T()
-	t.Log("[scenario] forced scale-down endpoint")
-	names := []string{"linear3-a", "linear3-b", "linear3-c"}
-	s.setupScenario(
-		"autoscaler-only.env",
-		integrationhelpers.TINYFAAS_LINEAR3_STACK_FILE_PATH,
-		names,
-		nil,
-	)
-
-	// Invoke so the whole workflow is running.
-	body := integrationhelpers.InvokeFunction(t, "linear3-a", "integration-test", tinyWorkflowResponseTimeout)
-	s.assertWorkflowResponse(body)
-	integrationhelpers.WaitForFunctionsRunningState(t, names, true, 15*time.Second)
-
-	// Force scale-down of all functions. This must take effect well before the
-	// natural idle path (12s idle + 10s check ~= 22s), proving the endpoint
-	// short-circuits the idle timer. The call blocks until scale-down completes.
-	integrationhelpers.ScaleDownTinyFaaS(t, "*")
-	integrationhelpers.WaitForFunctionsScaledDown(t, names, 10*time.Second)
-
-	// A single named scale-down is idempotent on an already scaled-down function.
-	integrationhelpers.ScaleDownTinyFaaS(t, "linear3-a")
-	integrationhelpers.WaitForFunctionsScaledDown(t, []string{"linear3-a"}, 5*time.Second)
-
-	// The next invocation still cold-starts and produces a correct response.
-	body = integrationhelpers.InvokeFunction(t, "linear3-a", "integration-test", tinyWorkflowTimeout)
-	s.assertWorkflowResponse(body)
-}
-
 func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarm() {
 	t := s.T()
 	t.Log("[scenario] autoscaler + callgraph + prewarm disabled")

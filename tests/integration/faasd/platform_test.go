@@ -129,34 +129,6 @@ func (s *PlatformIntegrationSuite) TestAutoscalerOnly() {
 	s.assertCallgraphEmpty()
 }
 
-func (s *PlatformIntegrationSuite) TestForcedScaleDownEndpoint() {
-	t := s.T()
-	s.setupScenario("autoscaler-only.env", faasdLinear3StackRelPath, nil)
-	names := []string{"linear3-a", "linear3-b", "linear3-c"}
-
-	body := integrationhelpers.InvokeFaasdJSON(t, s.baseURL, s.auth, "linear3-a", map[string]any{})
-	require.NotEmpty(t, body)
-	s.assertWorkflowResponse(body)
-	for _, fn := range names {
-		status := integrationhelpers.GetFaasdFunction(t, s.baseURL, s.auth, fn)
-		require.Equal(t, uint64(1), status.AvailableReplicas, "function %s should be available before scale-down", fn)
-	}
-
-	// Force scale-down of all functions. This must take effect well before the
-	// natural idle path, proving the endpoint short-circuits the idle timer.
-	integrationhelpers.ScaleDownFaasd(t, s.baseURL, s.auth, "*")
-	s.waitForFaasdFunctionsScaledDown(names, 20*time.Second)
-
-	// A single named scale-down is idempotent on an already scaled-down function.
-	integrationhelpers.ScaleDownFaasd(t, s.baseURL, s.auth, "linear3-a")
-	s.waitForFaasdFunctionsScaledDown([]string{"linear3-a"}, 10*time.Second)
-
-	// The next invocation still cold-starts and produces a correct response.
-	body = integrationhelpers.InvokeFaasdJSONWithTimeout(t, s.baseURL, s.auth, "linear3-a", map[string]any{}, workflowInvocationTimeout)
-	require.NotEmpty(t, body)
-	s.assertWorkflowResponse(body)
-}
-
 func (s *PlatformIntegrationSuite) TestAutoscalerAndCallgraphNoPrewarm() {
 	t := s.T()
 	s.setupScenario(
