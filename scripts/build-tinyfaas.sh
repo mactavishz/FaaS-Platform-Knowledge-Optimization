@@ -29,41 +29,35 @@ echo "==> Reloading systemd daemon..."
 sudo systemctl daemon-reload
 
 echo "==> Starting tinyFaaS services..."
-sudo systemctl enable --now tf-nats
-sudo systemctl enable --now tf-server
-sudo systemctl enable --now tf-queue-worker
 sudo systemctl enable --now tf-gateway
+sudo systemctl enable --now tf-rproxy
+sudo systemctl enable --now tf-manager
 
 # Wait a moment and check if services are running
 sleep 5
-if systemctl is-active --quiet tf-gateway && systemctl is-active --quiet tf-nats && systemctl is-active --quiet tf-server && systemctl is-active --quiet tf-queue-worker; then
+if systemctl is-active --quiet tf-gateway && systemctl is-active --quiet tf-rproxy && systemctl is-active --quiet tf-manager; then
     echo "==> tinyFaaS is running successfully!"
     echo "==> Service status:"
     sudo systemctl status tf-gateway --no-pager -l | head -10
-    sudo systemctl status tf-nats --no-pager -l | head -10
-    sudo systemctl status tf-server --no-pager -l | head -10
-    sudo systemctl status tf-queue-worker --no-pager -l | head -10
+    sudo systemctl status tf-rproxy --no-pager -l | head -10
+    sudo systemctl status tf-manager --no-pager -l | head -10
     echo "==> View logs with:"
     echo "    journalctl -u tf-gateway -f"
-    echo "    journalctl -u tf-server -f"
-    echo "    journalctl -u tf-queue-worker -f"
+    echo "    journalctl -u tf-manager -f"
+    echo "    journalctl -u tf-rproxy -f"
 else
     echo "==> ERROR: tinyFaaS failed to start."
     if ! systemctl is-active --quiet tf-gateway; then
         echo "==> tf-gateway failed:"
         sudo systemctl status tf-gateway --no-pager -l
     fi
-    if ! systemctl is-active --quiet tf-nats; then
-        echo "==> tf-nats failed:"
-        sudo systemctl status tf-nats --no-pager -l
+    if ! systemctl is-active --quiet tf-rproxy; then
+        echo "==> tf-rproxy failed:"
+        sudo systemctl status tf-rproxy --no-pager -l
     fi
-    if ! systemctl is-active --quiet tf-server; then
-        echo "==> tf-server failed:"
-        sudo systemctl status tf-server --no-pager -l
-    fi
-    if ! systemctl is-active --quiet tf-queue-worker; then
-        echo "==> tf-queue-worker failed:"
-        sudo systemctl status tf-queue-worker --no-pager -l
+    if ! systemctl is-active --quiet tf-manager; then
+        echo "==> tf-manager failed:"
+        sudo systemctl status tf-manager --no-pager -l
     fi
     exit 1
 fi
