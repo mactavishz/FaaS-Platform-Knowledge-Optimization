@@ -893,6 +893,14 @@ func (t *CallGraphTracker) GetPrewarmTargets(functionName string) []PrewarmTarge
 		}
 	}
 
+	// The caller's own average cold-start duration. Eager prewarming uses it as
+	// extra lead time, since the callee is not needed until the caller has warmed
+	// up and run to the call site.
+	var callerColdStartTime time.Duration
+	if callerStats, ok := t.functionStats[functionName]; ok {
+		callerColdStartTime = callerStats.avgScaleUpCalculator.Average()
+	}
+
 	for callee := range callees {
 		key := edgeKey(functionName, callee)
 		edgeStats, exists := t.edgeStats[key]
@@ -927,10 +935,11 @@ func (t *CallGraphTracker) GetPrewarmTargets(functionName string) []PrewarmTarge
 		// determine when to actually trigger the prewarm.
 		leadTime := max(avgEdgeTime, 0)
 		targets = append(targets, PrewarmTarget{
-			FunctionName:         callee,
-			LeadTime:             leadTime,
-			Kind:                 edgeStats.kind,
-			AvgColdStartDuration: avgColdStartTime,
+			FunctionName:            callee,
+			LeadTime:                leadTime,
+			Kind:                    edgeStats.kind,
+			AvgColdStartDuration:    avgColdStartTime,
+			CallerColdStartDuration: callerColdStartTime,
 		})
 	}
 

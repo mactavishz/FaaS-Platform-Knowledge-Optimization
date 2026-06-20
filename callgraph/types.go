@@ -280,6 +280,12 @@ type PrewarmTarget struct {
 	// AvgColdStartDuration is the callee's recent average cold-start duration.
 	// Schedulers use this to estimate expected savings vs lead time.
 	AvgColdStartDuration time.Duration `json:"avg_cold_start_duration_ns"`
+
+	// CallerColdStartDuration is the caller's recent average cold-start duration.
+	// Eager prewarming (triggered while the caller is itself cold-starting) uses
+	// it as additional lead time: the callee is not needed until the caller has
+	// warmed up and then run to the call site.
+	CallerColdStartDuration time.Duration `json:"caller_cold_start_duration_ns"`
 }
 
 // PrewarmConfig holds configuration for prewarming decisions
