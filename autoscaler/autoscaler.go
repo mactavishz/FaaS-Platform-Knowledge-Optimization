@@ -400,14 +400,17 @@ func (as *AutoScaler) EndInvocation(name string) {
 
 // ScaleUpWhenReady ensures function runtime is available. StateBlocked is
 // treated as ready because runtime is present and handling in-flight requests.
-func (as *AutoScaler) ScaleUpWhenReady(name string) error {
+// It reports whether THIS caller performed the scaled-down -> active transition
+// (i.e. ran the actual scale operation). Concurrent callers that merely waited
+// for someone else's scale-up to finish get performed=false.
+func (as *AutoScaler) ScaleUpWhenReady(name string) (bool, error) {
 	if !as.config.Enabled {
-		return nil
+		return false, nil
 	}
 
 	entry, ok := as.getFunctionEntry(name)
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrFunctionNotFound, name)
+		return false, fmt.Errorf("%w: %s", ErrFunctionNotFound, name)
 	}
 
 	for {
@@ -423,40 +426,82 @@ func (as *AutoScaler) ScaleUpWhenReady(name string) error {
 			// No state transition, but record the access. We do not need
 			// to notify anyone - timestamp updates are not waited on.
 			entry.mu.Unlock()
-			return nil
+			return false, nil
 		case StateScalingUp, StateScalingDown:
 			if err := entry.waitForChange(as.stopChan); err != nil {
 				entry.mu.Unlock()
-				return err
+				return false, err
 			}
 			entry.mu.Unlock()
 			continue
 		case StateScaledDown:
-			entry.state.State = StateScalingUp
-			entry.notifyLocked()
-			entry.mu.Unlock()
-
-			err := as.scaleOperation.ScaleUp(name)
-
-			entry.mu.Lock()
-			if err != nil {
-				entry.state.State = StateScaledDown
-				entry.notifyLocked()
-				entry.mu.Unlock()
-				return err
+			// This caller performs the actual scale-up transition.
+			if err := as.performScaleUp(entry, name); err != nil {
+				return false, err
 			}
-			now := time.Now()
-			entry.state.State = StateActive
-			entry.state.LastAccessTime = now
-			entry.state.LastActiveTime = now
-			entry.notifyLocked()
-			entry.mu.Unlock()
-			return nil
+			return true, nil
 		default:
 			entry.mu.Unlock()
-			return fmt.Errorf("%w: %s state=%s", ErrInvalidState, name, state)
+			return false, fmt.Errorf("%w: %s state=%s", ErrInvalidState, name, state)
 		}
 	}
+}
+
+// TryScaleUp performs an opportunistic, non-blocking scale-up. If the function
+// is scaled down it transitions it up and reports performed=true; if it is in
+// any other state -- already active, or another caller is scaling it up or down
+// -- it returns performed=false immediately WITHOUT waiting. This is for
+// speculative callers (prewarming): when someone else is already driving a
+// scale-up there is nothing useful for the prewarm to do, and it must not occupy
+// resources (e.g. a concurrency slot) waiting on work it did not initiate.
+func (as *AutoScaler) TryScaleUp(name string) (bool, error) {
+	if !as.config.Enabled {
+		return false, nil
+	}
+
+	entry, ok := as.getFunctionEntry(name)
+	if !ok {
+		return false, fmt.Errorf("%w: %s", ErrFunctionNotFound, name)
+	}
+
+	entry.mu.Lock()
+	if entry.state.State != StateScaledDown {
+		// Already active or a transition is in flight -- nothing for a
+		// speculative caller to do.
+		entry.mu.Unlock()
+		return false, nil
+	}
+
+	if err := as.performScaleUp(entry, name); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// performScaleUp drives an entry from StateScaledDown through the scale operation
+// to StateActive (or back to StateScaledDown on failure). It MUST be called with
+// entry.mu held and the entry currently in StateScaledDown; it releases entry.mu
+// before returning.
+func (as *AutoScaler) performScaleUp(entry *functionEntry, name string) error {
+	entry.state.State = StateScalingUp
+	entry.notifyLocked()
+	entry.mu.Unlock()
+
+	err := as.scaleOperation.ScaleUp(name)
+
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if err != nil {
+		entry.state.State = StateScaledDown
+		entry.notifyLocked()
+		return err
+	}
+	now := time.Now()
+	entry.state.State = StateActive
+	entry.state.LastAccessTime = now
+	entry.state.LastActiveTime = now
+	entry.notifyLocked()
+	return nil
 }
 
 // ScaleDownWhenIdle performs a blocking scale-down transition once no request

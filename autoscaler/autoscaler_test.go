@@ -227,8 +227,9 @@ func TestEnsureActiveFromScaledDown(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
-	err := as.ScaleUpWhenReady("fn")
+	performed, err := as.ScaleUpWhenReady("fn")
 	assert.NoError(t, err)
+	assert.True(t, performed, "caller that scales from zero should report performed=true")
 	assert.Equal(t, 1, m.UpCalls())
 	state, _ := as.GetState("fn")
 	assert.Equal(t, StateActive, state)
@@ -239,14 +240,118 @@ func TestEnsureActiveConcurrentCollapsesScaleUp(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
-	err1 := make(chan error, 1)
-	err2 := make(chan error, 1)
-	go func() { err1 <- as.ScaleUpWhenReady("fn") }()
-	go func() { err2 <- as.ScaleUpWhenReady("fn") }()
+	performedCh := make(chan bool, 2)
+	up := func() {
+		performed, err := as.ScaleUpWhenReady("fn")
+		assert.NoError(t, err)
+		performedCh <- performed
+	}
+	go up()
+	go up()
 
-	assert.NoError(t, <-err1)
-	assert.NoError(t, <-err2)
+	performedCount := 0
+	for i := 0; i < 2; i++ {
+		if <-performedCh {
+			performedCount++
+		}
+	}
 	assert.Equal(t, 1, m.UpCalls())
+	assert.Equal(t, 1, performedCount, "exactly one of the coalesced callers should report performed=true")
+}
+
+func TestScaleUpWhenReadyOnlyPerformerReportsTransition(t *testing.T) {
+	// The first caller transitions the function from scaled-down and runs the
+	// scale operation; a second caller that arrives while it is in flight must
+	// merely wait and report performed=false. This is the attribution the
+	// recording layer relies on (cold start vs prewarm), so it must not depend on
+	// a separate claim that can race the transition.
+	upStarted := make(chan struct{})
+	upRelease := make(chan struct{})
+	m := &mockScaleOperation{upCh: upStarted, upReleaseCh: upRelease}
+	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, nopLogger())
+	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
+
+	// First caller wins the transition and blocks inside the scale operation.
+	firstPerformed := make(chan bool, 1)
+	go func() {
+		performed, err := as.ScaleUpWhenReady("fn")
+		assert.NoError(t, err)
+		firstPerformed <- performed
+	}()
+	<-upStarted // first caller is now mid scale-up (StateScalingUp)
+
+	// Second caller arrives while the first is in flight: it must wait, not scale.
+	secondPerformed := make(chan bool, 1)
+	go func() {
+		performed, err := as.ScaleUpWhenReady("fn")
+		assert.NoError(t, err)
+		secondPerformed <- performed
+	}()
+
+	// Give the second caller time to reach the waiting state, then release.
+	time.Sleep(20 * time.Millisecond)
+	close(upRelease)
+
+	assert.True(t, <-firstPerformed, "first caller performed the transition")
+	assert.False(t, <-secondPerformed, "second (coalesced) caller performed no transition")
+	assert.Equal(t, 1, m.UpCalls(), "the scale operation runs exactly once")
+}
+
+func TestTryScaleUpFromScaledDownPerforms(t *testing.T) {
+	m := &mockScaleOperation{}
+	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, nopLogger())
+	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
+
+	performed, err := as.TryScaleUp("fn")
+	require.NoError(t, err)
+	assert.True(t, performed, "scaling a scaled-down function from a try should perform the transition")
+	assert.Equal(t, 1, m.UpCalls())
+	state, _ := as.GetState("fn")
+	assert.Equal(t, StateActive, state)
+}
+
+func TestTryScaleUpOnActiveDoesNothing(t *testing.T) {
+	m := &mockScaleOperation{}
+	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, nopLogger())
+	as.RegisterFunction("fn", nil) // registered active
+
+	performed, err := as.TryScaleUp("fn")
+	require.NoError(t, err)
+	assert.False(t, performed, "an already-active function performs no transition")
+	assert.Equal(t, 0, m.UpCalls())
+}
+
+func TestTryScaleUpDoesNotWaitForInFlightScaleUp(t *testing.T) {
+	// This is the property speculative prewarms rely on: when another caller is
+	// already scaling the function up, TryScaleUp returns immediately with
+	// performed=false instead of blocking (which would otherwise occupy a prewarm
+	// slot for the duration of someone else's scale-up).
+	upStarted := make(chan struct{})
+	upRelease := make(chan struct{})
+	m := &mockScaleOperation{upCh: upStarted, upReleaseCh: upRelease}
+	as := New(Config{Enabled: true, Platform: "faasd", DefaultIdleDuration: time.Minute}, m, nopLogger())
+	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
+
+	// A demand caller performs the scale-up and blocks inside the scale operation.
+	go func() { _, _ = as.ScaleUpWhenReady("fn") }()
+	<-upStarted // function is now StateScalingUp
+
+	done := make(chan bool, 1)
+	go func() {
+		performed, err := as.TryScaleUp("fn")
+		assert.NoError(t, err)
+		done <- performed
+	}()
+
+	select {
+	case performed := <-done:
+		assert.False(t, performed, "TryScaleUp must not perform while a scale-up is in flight")
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("TryScaleUp blocked waiting for an in-flight scale-up")
+	}
+
+	close(upRelease)
+	assert.Equal(t, 1, m.UpCalls(), "TryScaleUp must not trigger a second scale operation")
 }
 
 func TestConcurrentScaleDownWhenIdleCollapsesScaleDown(t *testing.T) {
@@ -288,8 +393,9 @@ func TestScaleUpFailureReturnsScaledDown(t *testing.T) {
 	as := New(Config{Enabled: true, Platform: "tinyfaas", DefaultIdleDuration: time.Minute}, m, nopLogger())
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
-	err := as.ScaleUpWhenReady("fn")
+	performed, err := as.ScaleUpWhenReady("fn")
 	assert.Error(t, err)
+	assert.False(t, performed, "a failed scale-up should not report performed=true")
 	state, _ := as.GetState("fn")
 	assert.Equal(t, StateScaledDown, state)
 }
@@ -300,8 +406,9 @@ func TestScaleUpWhenReadyBlockedReturnsImmediately(t *testing.T) {
 	as.RegisterFunction("fn", nil)
 
 	require.NoError(t, as.StartInvocation("fn"))
-	err := as.ScaleUpWhenReady("fn")
+	performed, err := as.ScaleUpWhenReady("fn")
 	assert.NoError(t, err)
+	assert.False(t, performed, "a blocked (already-running) function performs no transition")
 	assert.Equal(t, 0, m.UpCalls())
 
 	as.EndInvocation("fn")
@@ -315,8 +422,9 @@ func TestScaleUpWhenReadyRefreshesActiveFunctionActivity(t *testing.T) {
 
 	// ScaleUpWhenReady on an Active function refreshes LastActiveTime
 	// without triggering a scale operation.
-	err := as.ScaleUpWhenReady("fn")
+	performed, err := as.ScaleUpWhenReady("fn")
 	assert.NoError(t, err)
+	assert.False(t, performed, "an already-active function performs no transition")
 	assert.Equal(t, 0, m.UpCalls())
 
 	// The monitor's idle check must respect the refreshed timestamp and
@@ -371,7 +479,8 @@ func TestScaleUpWhenReadyWaitsForScalingDown(t *testing.T) {
 
 	upDone := make(chan error, 1)
 	go func() {
-		upDone <- as.ScaleUpWhenReady("fn")
+		_, err := as.ScaleUpWhenReady("fn")
+		upDone <- err
 	}()
 
 	select {
@@ -473,7 +582,7 @@ func TestStopUnblocksStartInvocationWaiters(t *testing.T) {
 
 	// Drive the function into ScalingUp via a backgrounded ScaleUp.
 	scaleUpDone := make(chan error, 1)
-	go func() { scaleUpDone <- as.ScaleUpWhenReady("fn") }()
+	go func() { _, err := as.ScaleUpWhenReady("fn"); scaleUpDone <- err }()
 	<-upStarted
 
 	// A subsequent StartInvocation should now block waiting for the
@@ -552,7 +661,7 @@ func TestUnregisterReleasesStartInvocationWaiter(t *testing.T) {
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
 	first := make(chan error, 1)
-	go func() { first <- as.ScaleUpWhenReady("fn") }()
+	go func() { _, err := as.ScaleUpWhenReady("fn"); first <- err }()
 	<-upStarted
 
 	startDone := make(chan error, 1)
@@ -602,7 +711,7 @@ func TestReRegisterReleasesOldWaiters(t *testing.T) {
 	as.RegisterFunctionWithState("fn", nil, StateScaledDown)
 
 	first := make(chan error, 1)
-	go func() { first <- as.ScaleUpWhenReady("fn") }()
+	go func() { _, err := as.ScaleUpWhenReady("fn"); first <- err }()
 	<-upStarted
 
 	waitDone := make(chan error, 1)
@@ -735,7 +844,9 @@ func TestNewWithNilScaleOpDisabledIsSafe(t *testing.T) {
 	as.RegisterFunction("fn", nil)
 	require.NoError(t, as.StartInvocation("fn"))
 	as.EndInvocation("fn")
-	require.NoError(t, as.ScaleUpWhenReady("fn"))
+	performedDisabled, errDisabled := as.ScaleUpWhenReady("fn")
+	require.NoError(t, errDisabled)
+	require.False(t, performedDisabled, "disabled autoscaler performs no transition")
 	require.NoError(t, as.ScaleDownWhenIdle("fn"))
 	as.RecordActivity("fn")
 	as.UnregisterFunction("fn")
@@ -799,7 +910,7 @@ func TestStressConcurrentScaleUpAndInvocations(t *testing.T) {
 	for i := 0; i < goroutines/2; i++ {
 		go func() {
 			defer wg.Done()
-			if err := as.ScaleUpWhenReady("fn"); err != nil {
+			if _, err := as.ScaleUpWhenReady("fn"); err != nil {
 				t.Errorf("ScaleUpWhenReady: %v", err)
 			}
 		}()
@@ -895,7 +1006,7 @@ func TestNoGoroutineLeakOnUnregister(t *testing.T) {
 
 	// Drive into ScalingUp (held by upRelease).
 	scaleUpDone := make(chan error, 1)
-	go func() { scaleUpDone <- as.ScaleUpWhenReady("fn") }()
+	go func() { _, err := as.ScaleUpWhenReady("fn"); scaleUpDone <- err }()
 	<-upStarted
 
 	const waiters = 20
