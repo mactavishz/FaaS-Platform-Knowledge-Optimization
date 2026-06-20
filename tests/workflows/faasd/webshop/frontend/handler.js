@@ -23,6 +23,14 @@ function callFunction(functionName, data, sync, incomingHeaders) {
         delete headers.host;
         delete headers["content-length"];
         headers["content-type"] = "application/json";
+        // Mark async hops so the provider can record the call-graph edge kind.
+        // Set only when async; deleted on sync so an inherited value cannot leak
+        // into a downstream sync call.
+        if (!sync) {
+            headers["x-faas-async"] = "true";
+        } else {
+            delete headers["x-faas-async"];
+        }
 
         try {
             const res = await axios.post(url.toString(), data, {
