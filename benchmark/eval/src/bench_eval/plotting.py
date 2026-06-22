@@ -8,8 +8,36 @@ import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 
-from .aggregate import retained_latency
-from .constants import PROFILE_LABELS, PROFILES, SUMMARY_METRICS, WEBSHOP_OPERATIONS
+from .aggregate import retained_latency, run_improvements
+from .constants import (
+    PROFILE_COLORS,
+    PROFILE_LABELS,
+    PROFILES,
+    SUMMARY_METRICS,
+    WEBSHOP_OPERATIONS,
+)
+
+# Vector output so figures stay crisp at any scale when embedded in the thesis.
+# Change to "png" only if a raster preview is needed.
+FIGURE_FORMAT = "svg"
+
+SUMMARY_METRIC_LABELS = {"mean": "Mean", "median": "Median", "p90": "p90", "p95": "p95"}
+
+
+def _apply_style() -> None:
+    # Shared style so every figure is legible after being scaled to text width
+    # in the thesis and uses one consistent look.
+    plt.rcParams.update(
+        {
+            "font.size": 12,
+            "axes.titlesize": 13,
+            "axes.labelsize": 12,
+            "legend.fontsize": 11,
+            "xtick.labelsize": 11,
+            "ytick.labelsize": 11,
+            "savefig.bbox": "tight",
+        }
+    )
 
 
 def write_all_figures(
@@ -19,6 +47,7 @@ def write_all_figures(
     function_samples: pl.DataFrame,
     out_dir: Path,
 ) -> None:
+    _apply_style()
     figures = out_dir / "figures"
     figures.mkdir(parents=True, exist_ok=True)
 
@@ -80,11 +109,14 @@ def _plot_distribution(
         )["mean_ms"].to_numpy()
         ax.scatter(np.full(len(means), idx), means, marker="D", s=36, color="black", zorder=4)
 
+    # Proxy handle so the reader knows the black diamonds are per-run means.
+    ax.scatter([], [], marker="D", s=36, color="black", label="Per-run mean")
     ax.set_title(f"{platform} / {workflow}: retained latency distribution")
     ax.set_ylabel("Latency (ms)")
     ax.set_xticks(positions, [PROFILE_LABELS[p] for p in PROFILES])
     ax.grid(axis="y", alpha=0.25)
-    _save_png(fig, out_dir / f"distribution_{platform}_{workflow}.png")
+    ax.legend(frameon=False)
+    _save_figure(fig, out_dir / f"distribution_{platform}_{workflow}.{FIGURE_FORMAT}")
 
 
 def _plot_summary(run_stats: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
@@ -109,25 +141,29 @@ def _plot_summary(run_stats: pl.DataFrame, platform: str, workflow: str, out_dir
         # Average the per-run statistics for each profile. This mirrors
         # aggregate_summary and avoids weighting runs by raw sample count.
         heights = [float(profile_df[f"{metric}_ms"].mean()) for metric in SUMMARY_METRICS]
+        # Error bars are the between-run standard deviation of each statistic, so
+        # the figure makes run-to-run variability visible rather than hiding it.
+        errors = [_between_run_sd(profile_df, f"{metric}_ms") for metric in SUMMARY_METRICS]
         bars = ax.bar(
             x + offset,
             heights,
             width=width,
+            yerr=errors,
             capsize=4,
             label=PROFILE_LABELS[profile],
             color=colors[profile],
             alpha=0.82,
         )
         if profile != "baseline":
-            _annotate_improvements(ax, bars, heights, _baseline_heights(df))
+            _annotate_improvements(ax, bars, _improvement_stats(df, profile))
 
     ax.set_title(f"{platform} / {workflow}: run-level summary")
     ax.set_ylabel("Latency (ms)")
-    ax.set_xticks(x, ["Mean", "Median", "p90", "p95"])
+    ax.set_xticks(x, [SUMMARY_METRIC_LABELS[m] for m in SUMMARY_METRICS])
     ax.grid(axis="y", alpha=0.25)
     ax.legend(frameon=False)
     ax.margins(y=0.16)
-    _save_png(fig, out_dir / f"summary_{platform}_{workflow}.png")
+    _save_figure(fig, out_dir / f"summary_{platform}_{workflow}.{FIGURE_FORMAT}")
 
 
 def _plot_iterations(samples: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
@@ -172,7 +208,7 @@ def _plot_iterations(samples: pl.DataFrame, platform: str, workflow: str, out_di
     ax.set_ylabel("Latency (ms)")
     ax.grid(axis="y", alpha=0.25)
     ax.legend(frameon=False)
-    _save_png(fig, out_dir / f"iterations_{platform}_{workflow}.png")
+    _save_figure(fig, out_dir / f"iterations_{platform}_{workflow}.{FIGURE_FORMAT}")
 
 
 def _plot_functions(function_samples: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
@@ -199,7 +235,7 @@ def _plot_functions(function_samples: pl.DataFrame, platform: str, workflow: str
         order,
         f"{platform} / {workflow}: function completion relative to entry start",
     )
-    _save_png(fig, out_dir / f"functions_{platform}_{workflow}.png")
+    _save_figure(fig, out_dir / f"functions_{platform}_{workflow}.{FIGURE_FORMAT}")
 
 
 def _plot_webshop_functions(df: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
@@ -236,7 +272,7 @@ def _plot_webshop_functions(df: pl.DataFrame, platform: str, workflow: str, out_
             f"{platform} / {workflow}: {operation}",
         )
 
-    _save_png(fig, out_dir / f"functions_{platform}_{workflow}.png")
+    _save_figure(fig, out_dir / f"functions_{platform}_{workflow}.{FIGURE_FORMAT}")
 
 
 def _function_order(df: pl.DataFrame) -> list[str]:
@@ -304,24 +340,38 @@ def _benchmark_config_pairs(samples: pl.DataFrame) -> list[tuple[str, str]]:
     )
 
 
-def _baseline_heights(df: pl.DataFrame) -> list[float]:
-    baseline_df = df.filter(pl.col("profile") == "baseline")
-    if baseline_df.is_empty():
-        return [0.0 for _ in SUMMARY_METRICS]
-    return [float(baseline_df[f"{metric}_ms"].mean()) for metric in SUMMARY_METRICS]
+def _between_run_sd(profile_df: pl.DataFrame, column: str) -> float:
+    # Sample SD (ddof=1) across the per-run values. Returns 0 for a single run,
+    # where the SD is undefined, so the error bar simply vanishes.
+    if profile_df.height < 2:
+        return 0.0
+    return float(profile_df[column].std())
+
+
+def _improvement_stats(df: pl.DataFrame, profile: str) -> list[tuple[float, float]]:
+    # Per-run paired improvement (see aggregate.run_improvements) summarized as
+    # (mean, SD) for each reported metric. Computed from the same function the
+    # printed table uses, so the figure annotations and the table agree exactly.
+    impr = run_improvements(df).filter(pl.col("profile") == profile)
+    stats: list[tuple[float, float]] = []
+    for metric in SUMMARY_METRICS:
+        column = f"{metric}_impr_pct"
+        mean = float(impr[column].mean())
+        sd = float(impr[column].std()) if impr.height > 1 else 0.0
+        stats.append((mean, sd))
+    return stats
 
 
 def _annotate_improvements(
     ax: plt.Axes,
     bars,
-    heights: list[float],
-    baseline_heights: list[float],
+    stats: list[tuple[float, float]],
 ) -> None:
-    for bar, height, baseline in zip(bars, heights, baseline_heights, strict=True):
-        if baseline <= 0:
-            continue
-        improvement = (baseline - height) / baseline * 100
-        label = f"{improvement:.1f}%"
+    # Label each optimized bar with its improvement over baseline as
+    # "<mean>%" over "(+/-<SD>)", where the SD is the between-run spread of the
+    # per-run improvements (the uncertainty on the improvement itself).
+    for bar, (mean, sd) in zip(bars, stats, strict=True):
+        label = f"{mean:.1f}%\n(±{sd:.1f})"
         ax.annotate(
             label,
             xy=(bar.get_x() + bar.get_width() / 2, bar.get_height()),
@@ -333,18 +383,8 @@ def _annotate_improvements(
         )
 
 
-def _std_or_zero(values: np.ndarray) -> float:
-    if len(values) < 2:
-        return 0.0
-    return float(np.std(values, ddof=1))
-
-
 def _profile_colors() -> dict[str, str]:
-    return {
-        "baseline": "C0",
-        "optimized-ema": "C2",
-        "optimized-sma": "C1",
-    }
+    return dict(PROFILE_COLORS)
 
 
 def _primary_metric(workflow: str) -> str:
@@ -353,6 +393,6 @@ def _primary_metric(workflow: str) -> str:
     return "workflow_latency_ms"
 
 
-def _save_png(fig: plt.Figure, path: Path) -> None:
-    fig.savefig(path, dpi=180)
+def _save_figure(fig: plt.Figure, path: Path) -> None:
+    fig.savefig(path)
     plt.close(fig)

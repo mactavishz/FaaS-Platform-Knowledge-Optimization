@@ -1,7 +1,9 @@
 import argparse
 from pathlib import Path
 
-from .aggregate import aggregate_summary, improvements, run_summary
+import polars as pl
+
+from .aggregate import aggregate_summary, results_table, run_summary
 from .constants import RUNS
 from .ingest import load_function_samples, load_latency_samples
 
@@ -18,7 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     results = resolve_input_path(args.results)
     out = args.out.resolve()
     runs = tuple(args.runs)
-    
+
     if not runs:
         print("No runs specified. Exiting without processing.")
         return 0
@@ -30,8 +32,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     run_stats = run_summary(samples)
     summary = aggregate_summary(run_stats)
-    improvement = improvements(summary)
-    write_tables(out, validation, run_stats, summary, improvement)
+    table = results_table(summary)
+
+    print_validation(validation)
+    print_results_table(table)
 
     from .plotting import write_all_figures
 
@@ -42,17 +46,88 @@ def main(argv: list[str] | None = None) -> int:
     )
     write_all_figures(samples, run_stats, summary, function_samples, out)
 
-    print(f"Wrote evaluation outputs to {out}")
+    print(f"\nWrote figures to {out / 'figures'}")
     return 0
 
 
-def write_tables(out: Path, validation, run_stats, summary, improvement) -> None:
-    tables = out / "tables"
-    tables.mkdir(parents=True, exist_ok=True)
-    validation.write_csv(tables / "validation.csv")
-    run_stats.write_csv(tables / "latency_run_summary.csv")
-    summary.write_csv(tables / "latency_summary.csv")
-    improvement.write_csv(tables / "latency_improvements.csv")
+def print_validation(validation: pl.DataFrame) -> None:
+    if validation.is_empty():
+        print("Validation: passed (no issues)\n")
+        return
+    errors = validation.filter(pl.col("severity") == "error").height
+    warnings = validation.height - errors
+    print(f"Validation: {errors} error(s), {warnings} warning(s)")
+    with _table_config():
+        print(validation)
+    print()
+
+
+def print_results_table(table: pl.DataFrame) -> None:
+    # Round to a single decimal and rename to compact headers for the terminal.
+    # The aggregation already weights each run equally, so these are the numbers
+    # to quote directly in the thesis: mean +/- between-run SD, p90, and the
+    # percentage improvement of each profile relative to its baseline.
+    #
+    # Each improvement is shown as "<mean> +/-<sd>", where the SD is the spread
+    # of the per-run (within-run paired) improvements -- i.e. the uncertainty on
+    # the improvement percentage itself, not on the absolute latency.
+    display = (
+        table.with_columns(
+            pl.col("mean_ms").round(1),
+            pl.col("mean_sd_ms").round(1),
+            pl.col("p90_ms").round(1),
+            _impr_label("mean_impr_pct", "mean_impr_sd_pct").alias("mean_impr"),
+            _impr_label("p90_impr_pct", "p90_impr_sd_pct").alias("p90_impr"),
+        )
+        .select(
+            "platform",
+            "workflow",
+            "metric",
+            "profile",
+            "runs",
+            "retained_samples",
+            "mean_ms",
+            "mean_sd_ms",
+            "p90_ms",
+            "mean_impr",
+            "p90_impr",
+        )
+        .rename(
+            {
+                "retained_samples": "n",
+                "mean_ms": "mean (ms)",
+                "mean_sd_ms": "+/-sd (ms)",
+                "p90_ms": "p90 (ms)",
+                "mean_impr": "mean impr %",
+                "p90_impr": "p90 impr %",
+            }
+        )
+    )
+    print("Latency summary (per-run statistics aggregated across runs):")
+    with _table_config():
+        print(display)
+
+
+def _impr_label(mean_col: str, sd_col: str) -> pl.Expr:
+    # Render an improvement as "44.4 +/-2.3" so the point estimate and its
+    # between-run uncertainty sit in a single column.
+    return (
+        pl.col(mean_col).round(1).cast(pl.Utf8)
+        + " +/-"
+        + pl.col(sd_col).round(1).cast(pl.Utf8)
+    )
+
+
+def _table_config() -> pl.Config:
+    return pl.Config(
+        tbl_formatting="ASCII_FULL_CONDENSED",
+        tbl_hide_dataframe_shape=True,
+        tbl_hide_column_data_types=True,
+        tbl_rows=-1,
+        tbl_cols=-1,
+        tbl_width_chars=200,
+        fmt_str_lengths=50,
+    )
 
 
 def resolve_input_path(path: Path) -> Path:

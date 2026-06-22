@@ -2,7 +2,7 @@
 
 This directory contains the Python evaluation tool for the thesis benchmark results in `benchmark/results`.
 
-It uses `uv` for project management, Polars for data processing, and Matplotlib for PNG figures.
+It uses `uv` for project management, Polars for data processing, and Matplotlib for vector (SVG) figures.
 
 ## Approach
 
@@ -42,32 +42,63 @@ To pass it explicitly:
 ```bash
 uv run bench-eval \
   --results ../results \
-  --runs bench-run-5 bench-run-6 bench-run-7 \
+  --runs bench-run-8 bench-run-9 bench-run-10 \
   --out out
 ```
 
 ## Outputs
 
-Tables are written to `out/tables`:
+The latency summary is printed to the terminal as an ASCII tables. One row per platform/workflow/metric/profile, with the statistics reported in the thesis:
 
-- `latency_run_summary.csv`: per-run statistics
-- `latency_summary.csv`: aggregate of run-level statistics
-- `latency_improvements.csv`: percentage improvement relative to baseline
-- `validation.csv`: validation status per experiment
+- `mean (ms)` and `+/-sd (ms)`: mean latency and the between-run standard
+  deviation (uncertainty across the repeated runs)
+- `p90 (ms)`: 90th-percentile tail latency
+- `mean impr %` and `p90 impr %`: improvement of each profile relative to its
+  matching baseline (positive means lower latency), shown as `<mean> +/-<sd>`
 
-Figures are written to `out/figures` as PNG only:
+All values are aggregates of the per-run statistics, so each repeated run is
+weighted equally. `mean (ms)`, `p90 (ms)` are means of the per-run mean/p90.
 
-- `distribution_<platform>_<workflow>.png`
-- `summary_<platform>_<workflow>.png`
-- `iterations_<platform>_<workflow>.png`
-- `functions_<platform>_<workflow>.png`
+### Improvement uncertainty (per-run pairing)
+
+The improvement percentages are not computed by dividing the two aggregate
+means once. Instead the improvement is computed **per run**, pairing each
+profile against the baseline measured *in the same run*, and the table reports
+the mean and standard deviation of those per-run improvements
+(`<mean> +/-<sd>`). The `+/-<sd>` is therefore an uncertainty estimate on the
+improvement itself, distinct from `+/-sd (ms)`, which is the spread of the
+absolute latency.
+
+Within-run pairing is appropriate because every run is an independent
+re-deployment: a run reprovisions the VM and redeploys all profiles together,
+so the profiles in one run share that run's infrastructure conditions.
+Differencing within the run cancels run-to-run environmental variation. With
+only three runs the SD is a coarse estimate (sample SD, `ddof=1`), so it should
+be read as an indicative spread rather than a formal confidence interval; it is
+reported precisely so the point estimates are not mistaken for exact values.
+
+Figures are written to `out/figures` as vector SVG (set `FIGURE_FORMAT` in
+`plotting.py` to `"png"` for a raster preview):
+
+- `distribution_<platform>_<workflow>.svg`: pooled retained sample distribution
+  (violin + strip), with black diamonds marking per-run means
+- `summary_<platform>_<workflow>.svg`: mean and p90 bars with between-run SD
+  error bars; each optimized bar is annotated with its improvement over baseline
+  as `<mean>%` over `(+/-<sd>)`, using the same per-run pairing as the table
+- `iterations_<platform>_<workflow>.svg`: per-run and mean latency trend across
+  retained iterations (steady-state diagnostic)
+- `functions_<platform>_<workflow>.svg`: per-function completion time relative
+  to entry start, ordered by median finish
 
 ## Validation
 
-By default the tool fails if a experiment does not contain the expected number of samples or if k6 reports failures.
+By default the tool fails if an experiment does not contain the expected number
+of samples or if k6 reports failures. The validation status is printed before
+the latency table.
 
-Pass `--allow-incomplete` to write validation warnings and continue generating outputs:
+Pass `--allow-incomplete` to downgrade validation errors to warnings and
+continue generating outputs:
 
 ```bash
-uv run bench-eval plot --results ../results --out out --allow-incomplete
+uv run bench-eval --results ../results --out out --allow-incomplete
 ```

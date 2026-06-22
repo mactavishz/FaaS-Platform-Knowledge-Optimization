@@ -18,10 +18,11 @@ PROFILE_LABELS = {
     "optimized-sma": "Optimized SMA",
 }
 
+# Applied consistently across every figure so the thesis uses one profile color scheme throughout.
 PROFILE_COLORS = {
-    "baseline": "#4c566a",
-    "optimized-ema": "#2a9d8f",
-    "optimized-sma": "#d08770",
+    "baseline": "#0072B2",
+    "optimized-ema": "#009E73",
+    "optimized-sma": "#D55E00",
 }
 
 WORKFLOW_METRICS = {
@@ -45,12 +46,6 @@ ENTRY_FUNCTIONS = {
 WEBSHOP_OPERATIONS = {
     "webshop-browse-addcart-checkout": ("browse", "addcart", "checkout"),
     "webshop-addcart-checkout": ("addcart", "checkout"),
-}
-
-WEBSHOP_FRONTEND_OPERATIONS = {
-    "browse": "get",
-    "addcart": "addcart",
-    "checkout": "checkout",
 }
 
 WORKFLOW_CALL_GRAPHS = {
@@ -101,4 +96,7 @@ WEBSHOP_OPERATION_CALL_GRAPHS = {
     },
 }
 
-SUMMARY_METRICS = ("mean", "median", "p90", "p95")
+# Reported statistics: the mean (central tendency) and p90 (tail). p95/median
+# are intentionally excluded because p95 from 50 retained samples per run is too
+# noisy to report reliably and median tracks the mean closely here.
+SUMMARY_METRICS = ("mean", "p90")
