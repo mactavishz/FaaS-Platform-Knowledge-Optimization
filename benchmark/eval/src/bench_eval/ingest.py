@@ -3,7 +3,6 @@ import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import parse_qsl
 
 import polars as pl
 
@@ -560,12 +559,6 @@ def _parse_rfc3339_ns(value: str) -> int:
         prefix, fraction = text, "000000000"
     seconds = int(datetime.fromisoformat(prefix).replace(tzinfo=timezone.utc).timestamp())
     return seconds * 1_000_000_000 + int(fraction)
-
-
-def parse_extra_tags(extra_tags: str | None) -> dict[str, str]:
-    if not extra_tags:
-        return {}
-    return dict(parse_qsl(extra_tags, keep_blank_values=True))
 
 
 def _metric_count(metric: dict[str, object]) -> int:
