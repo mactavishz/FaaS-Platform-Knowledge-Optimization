@@ -416,6 +416,7 @@ def _load_experiment_metrics(
         # k6 metric rows arrive interleaved. Count within each metric after
         # restoring source order to recover the benchmark iteration index for
         # every latency sample.
+        # cum_count().over("metric_name") here is to count the nth occurrence of each metric
         .with_columns((pl.col("metric_name").cum_count().over("metric_name") - 1).alias("iteration_index"))
         .with_columns(
             pl.lit(run).alias("run"),

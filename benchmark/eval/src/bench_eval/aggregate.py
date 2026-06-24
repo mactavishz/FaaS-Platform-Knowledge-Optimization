@@ -19,7 +19,7 @@ def retained_latency(samples: pl.DataFrame) -> pl.DataFrame:
 
 def run_summary(samples: pl.DataFrame) -> pl.DataFrame:
     retained = retained_latency(samples)
-    # First summarize each repeated run independently. The thesis analysis
+    # First summarize each repeated run independently. The analysis
     # treats runs as the experimental repeats, so this layer must not pool
     # samples across run boundaries.
     return (
