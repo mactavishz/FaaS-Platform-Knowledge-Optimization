@@ -15,7 +15,9 @@ from .constants import (
     TRIM_TAIL,
     WEBSHOP_OPERATIONS,
     WEBSHOP_OPERATION_CALL_GRAPHS,
+    WEBSHOP_OPERATION_FUNCTION_CALLS,
     WORKFLOW_CALL_GRAPHS,
+    WORKFLOW_FUNCTION_CALLS,
     WORKFLOW_METRICS,
     WORKFLOWS,
 )
@@ -98,7 +100,7 @@ def load_function_samples(
     runs: tuple[str, ...],
     *,
     allow_incomplete: bool = False,
-) -> pl.DataFrame:
+) -> tuple[pl.DataFrame, pl.DataFrame]:
     frames: list[pl.DataFrame] = []
 
     for run in runs:
@@ -111,7 +113,7 @@ def load_function_samples(
     samples = pl.concat(frames, how="vertical_relaxed") if frames else _empty_function_frame()
     if samples.is_empty():
         if allow_incomplete:
-            return samples
+            return samples, _errors_to_frame([])
         raise ValueError("No function invocation samples found")
 
     # Attach the workflow entry function name to every function invocation.
@@ -132,7 +134,15 @@ def load_function_samples(
 
     frames = [_align_generic_function_samples(generic), _align_webshop_function_samples(webshop)]
     frames = [frame for frame in frames if not frame.is_empty()]
-    return pl.concat(frames, how="vertical_relaxed") if frames else _empty_aligned_function_frame()
+    aligned = pl.concat(frames, how="vertical_relaxed") if frames else _empty_aligned_function_frame()
+
+    # Completeness is checked on the retained (post-trim) set only: tail
+    # iterations routinely lose async fire-and-forget descendants to a scrape
+    # race, which is benign because they are trimmed away. A shortfall inside the
+    # retained window would corrupt the reported numbers, so it is surfaced --
+    # but only as a warning, never blocking table/figure generation.
+    validation = _errors_to_frame(_validate_function_counts(aligned))
+    return aligned, validation
 
 
 def load_resource_samples(
@@ -387,6 +397,66 @@ def _reachable_functions(entry: str, graph: dict[str, tuple[str, ...]]) -> set[s
         seen.add(function)
         stack.extend(graph.get(function, ()))
     return seen
+
+
+def _validate_function_counts(aligned: pl.DataFrame) -> list[ValidationError]:
+    # Flag any function whose retained invocation count does not match the exact
+    # per-iteration call counts in WORKFLOW_FUNCTION_CALLS /
+    # WEBSHOP_OPERATION_FUNCTION_CALLS, so a record missing from inside the trim
+    # window does not pass silently. Expectations are enumerated from those
+    # constants (not from the data), so a function dropped from every scope is
+    # still caught. Emitted as warnings only: the benign tail scrape race lands
+    # outside the retained window, and a real shortfall must still not block
+    # table/figure generation.
+    warnings_list: list[ValidationError] = []
+    if aligned.is_empty():
+        return warnings_list
+
+    retained_iterations = EXPECTED_ITERATIONS - TRIM_HEAD - TRIM_TAIL
+
+    # Webshop rows carry a per-journey operation; iot/tree carry a null operation.
+    # A sentinel lets the null case index alongside the webshop operation key.
+    observed = {
+        (row["run"], row["profile"], row["platform"], row["workflow"], row["operation"], row["function"]): row["n"]
+        for row in aligned.with_columns(pl.col("operation").fill_null("__none__"))
+        .group_by(["run", "profile", "platform", "workflow", "operation", "function"])
+        .len(name="n")
+        .iter_rows(named=True)
+    }
+
+    scopes = aligned.select(["run", "profile", "platform", "workflow"]).unique()
+    for scope in scopes.iter_rows(named=True):
+        run, profile, platform, workflow = (
+            scope["run"],
+            scope["profile"],
+            scope["platform"],
+            scope["workflow"],
+        )
+        if workflow in WEBSHOP_OPERATIONS:
+            expectations = [
+                (operation, WEBSHOP_OPERATION_FUNCTION_CALLS[operation])
+                for operation in WEBSHOP_OPERATIONS[workflow]
+            ]
+        else:
+            expectations = [("__none__", WORKFLOW_FUNCTION_CALLS.get(workflow, {}))]
+
+        for operation, calls in expectations:
+            for function, per_iteration in calls.items():
+                expected = per_iteration * retained_iterations
+                count = observed.get((run, profile, platform, workflow, operation, function), 0)
+                if count != expected:
+                    where = workflow if operation == "__none__" else f"{workflow}/{operation}"
+                    warnings_list.append(
+                        _verror(
+                            run,
+                            profile,
+                            platform,
+                            workflow,
+                            "warning",
+                            f"{function} ({where}) has {count} retained invocations, expected {expected}",
+                        )
+                    )
+    return warnings_list
 
 
 def validate_experiment(

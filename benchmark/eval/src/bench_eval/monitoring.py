@@ -18,6 +18,9 @@ Two metric sources are combined:
 - Memory: ``agent.googleapis.com/memory/{percent_used,bytes_used}`` with
   ``state="used"`` (Ops Agent, filtered by ``resource.label.instance_id``).
 
+Further information on the metrics is available in the Cloud Monitoring documentation:
+- https://docs.cloud.google.com/monitoring/api/metrics_gcp
+
 The Ops Agent samples at 60s by default, so a ~37 minute run yields ~37 points.
 That is coarse but sufficient for a steady-state overhead comparison, and the
 instrumentation is identical across every profile.

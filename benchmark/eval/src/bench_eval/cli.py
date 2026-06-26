@@ -57,11 +57,12 @@ def main(argv: list[str] | None = None) -> int:
 
     from .plotting import write_all_figures
 
-    function_samples = load_function_samples(
+    function_samples, function_validation = load_function_samples(
         results,
         runs,
         allow_incomplete=args.allow_incomplete,
     )
+    print_validation(function_validation, title="Function record validation")
 
     if args.fetch_resources or args.refresh_resources:
         from .monitoring import fetch_resource_samples
@@ -78,13 +79,13 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def print_validation(validation: pl.DataFrame) -> None:
+def print_validation(validation: pl.DataFrame, title: str = "Validation") -> None:
     if validation.is_empty():
-        print("Validation: passed (no issues)\n")
+        print(f"{title}: passed (no issues)\n")
         return
     errors = validation.filter(pl.col("severity") == "error").height
     warnings = validation.height - errors
-    print(f"Validation: {errors} error(s), {warnings} warning(s)")
+    print(f"{title}: {errors} error(s), {warnings} warning(s)")
     with _table_config():
         print(validation)
     print()

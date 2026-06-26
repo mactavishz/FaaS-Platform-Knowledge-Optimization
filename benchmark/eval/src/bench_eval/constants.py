@@ -96,6 +96,69 @@ WEBSHOP_OPERATION_CALL_GRAPHS = {
     },
 }
 
+# Exact number of times each function is invoked per benchmark iteration. Used to
+# validate that no invocation record is missing from the retained window.
+#
+# iot/tree run their entry function once per benchmark iteration, so counts are
+# keyed by workflow. Each webshop benchmark iteration is one journey that runs
+# every frontend operation once, so webshop counts are keyed by operation; the
+# per-operation counts are identical across the two webshop workflows that share
+# that operation.
+WORKFLOW_FUNCTION_CALLS = {
+    "iot": {
+        "iot-i": 1,
+        "iot-cw": 1,
+        "iot-se": 1,
+        "iot-ct": 1,
+        "iot-cs": 1,
+        "iot-ca": 1,
+        "iot-as": 2,
+        "iot-csl": 1,
+        "iot-csa": 1,
+        "iot-dj": 1,
+    },
+    "tree": {
+        "tree-a": 1,
+        "tree-b": 1,
+        "tree-c": 1,
+        "tree-d": 1,
+        "tree-e": 1,
+        "tree-f": 1,
+        "tree-g": 1,
+    },
+}
+
+WEBSHOP_OPERATION_FUNCTION_CALLS = {
+    "browse": {
+        "webshop-frontend": 1,
+        "webshop-supportedcurrencies": 1,
+        "webshop-currency": 11,
+        "webshop-listproducts": 2,
+        "webshop-listrecommendations": 1,
+        "webshop-getads": 1,
+        "webshop-getcart": 1,
+        "webshop-cartstorage": 1,
+    },
+    "addcart": {
+        "webshop-frontend": 1,
+        "webshop-addcartitem": 1,
+        "webshop-getcart": 1,
+        "webshop-cartstorage": 2,
+    },
+    "checkout": {
+        "webshop-frontend": 1,
+        "webshop-checkout": 1,
+        "webshop-getcart": 1,
+        "webshop-listproducts": 1,
+        "webshop-currency": 2,
+        "webshop-shipmentquote": 1,
+        "webshop-shiporder": 1,
+        "webshop-email": 1,
+        "webshop-emptycart": 1,
+        "webshop-cartstorage": 2,
+    },
+}
+
 # Reported statistics: the mean (central tendency) and p90 (tail). p95/median
 # are intentionally excluded because p95 from 50 retained samples per run is too
 # noisy to report reliably and median tracks the mean closely here.
