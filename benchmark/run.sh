@@ -28,6 +28,10 @@ BENCH_GRACEFUL_STOP="${BENCH_GRACEFUL_STOP:-30s}"
 # How often the k6 script polls for scale-down between iterations. Lower values
 # shorten the inter-iteration wait (useful for the dev loop); the k6 script default is 15000 if unset.
 BENCH_POLL_INTERVAL_MS="${BENCH_POLL_INTERVAL_MS:-15000}"
+# Before scraping function stats, wait for the last iterations' async (fire-and-forget)
+# descendants to finish and be recorded.
+BENCH_STATS_DRAIN_INTERVAL_S="${BENCH_STATS_DRAIN_INTERVAL_S:-5}"
+BENCH_STATS_DRAIN_MAX_S="${BENCH_STATS_DRAIN_MAX_S:-60}"
 CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-false}"
 KEEP_INFRA_ON_FAILURE="${KEEP_INFRA_ON_FAILURE:-false}"
 RERUN_OVERWRITE="${RERUN_OVERWRITE:-false}"
@@ -700,6 +704,47 @@ run_k6() {
     "$script" >"$run_dir/logs/k6-run.log" 2>&1
 }
 
+total_recorded_invocations() {
+  # Sum recorded (successful + failed) invocations across every function. Used as
+  # the drain signal: it stops rising once the platform has recorded the final
+  # iteration's async descendants.
+  local platform="$1" gateway_url="$2" auth_user="$3" auth_password="$4" names_file="$5"
+  local function_name url count total=0 tmp
+  tmp="$(mktemp)"
+  while IFS= read -r function_name; do
+    [[ -n "$function_name" ]] || continue
+    url="$(get_stats_endpoint "$platform" "$gateway_url" "$function_name")"
+    if curl_json "$platform" "$auth_user" "$auth_password" "$url" "$tmp"; then
+      count="$(jq -r '((.summary.successful_invocations // 0) + (.summary.failed_invocations // 0))' "$tmp" 2>/dev/null || printf '0')"
+      total=$((total + ${count:-0}))
+    fi
+  done <"$names_file"
+  rm -f "$tmp"
+  printf '%s\n' "$total"
+}
+
+drain_async_invocations() {
+  # Wait until the recorded invocation count stops growing so the last
+  # iterations' fire-and-forget descendants are captured before the scrape.
+  local platform="$1" gateway_url="$2" auth_user="$3" auth_password="$4" names_file="$5"
+  local prev=-1 curr waited=0
+  local interval="$BENCH_STATS_DRAIN_INTERVAL_S" max_wait="$BENCH_STATS_DRAIN_MAX_S"
+  while true; do
+    curr="$(total_recorded_invocations "$platform" "$gateway_url" "$auth_user" "$auth_password" "$names_file")"
+    if [[ "$curr" -eq "$prev" ]]; then
+      log "function stats drained: stable at $curr invocations after ${waited}s"
+      return 0
+    fi
+    if [[ "$waited" -ge "$max_wait" ]]; then
+      log "function stats drain cap ${max_wait}s reached (count ${prev} -> ${curr}); proceeding to scrape"
+      return 0
+    fi
+    prev="$curr"
+    sleep "$interval"
+    waited=$((waited + interval))
+  done
+}
+
 collect_stats() {
   local platform="$1"
   local gateway_url="$2"
@@ -710,6 +755,9 @@ collect_stats() {
 
   log "collecting function names from $platform list endpoint"
   collect_function_names "$platform" "$gateway_url" "$auth_user" "$auth_password" "$function_names_file" || return
+
+  log "draining async invocations before stats scrape"
+  drain_async_invocations "$platform" "$gateway_url" "$auth_user" "$auth_password" "$function_names_file"
 
   log "collecting callgraph data"
   curl_json "$platform" "$auth_user" "$auth_password" "$gateway_url/system/callgraph" "$run_dir/stats/callgraph.json" || true
