@@ -3,11 +3,13 @@ name = "bench-eval"
 version = "0.1.0"
 description = "Evaluation tooling for FaaS benchmark results"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
-    "matplotlib>=3.10.0",
-    "numpy>=2.0.0",
-    "polars>=1.30.0",
+    "matplotlib>=3.11.0",
+    "numpy>=2.5.0",
+    "polars>=1.42.0",
+    "google-auth>=2.0.0",
+    "requests>=2.0.0",
 ]
 
 [project.scripts]
@@ -15,7 +17,7 @@ bench-eval = "bench_eval.cli:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0.0",
+    "pytest>=9.1.0",
 ]
 
 [build-system]
