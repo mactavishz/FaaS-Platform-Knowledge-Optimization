@@ -1,11 +1,12 @@
 import argparse
+import os
 from pathlib import Path
 
 import polars as pl
 
 from .aggregate import aggregate_summary, results_table, run_summary
 from .constants import RUNS
-from .ingest import load_function_samples, load_latency_samples
+from .ingest import load_function_samples, load_latency_samples, load_resource_samples
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -15,6 +16,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runs", nargs="+", default=list(RUNS))
     parser.add_argument("--out", type=Path, default=Path("out"))
     parser.add_argument("--allow-incomplete", action="store_true")
+    parser.add_argument(
+        "--fetch-resources",
+        action="store_true",
+        help="Backfill VM host metrics from Cloud Monitoring before plotting "
+        "(requires gcloud auth and a project).",
+    )
+    parser.add_argument(
+        "--refresh-resources",
+        action="store_true",
+        help="Re-fetch host metrics even if a cached resources/vm-usage.csv exists.",
+    )
+    parser.add_argument(
+        "--project",
+        default=os.environ.get("GOOGLE_PROJECT"),
+        help="Google Cloud project holding the benchmark VM metrics "
+        "(defaults to $GOOGLE_PROJECT).",
+    )
 
     args = parser.parse_args(argv)
     results = resolve_input_path(args.results)
@@ -44,7 +62,17 @@ def main(argv: list[str] | None = None) -> int:
         runs,
         allow_incomplete=args.allow_incomplete,
     )
-    write_all_figures(samples, run_stats, summary, function_samples, out)
+
+    if args.fetch_resources or args.refresh_resources:
+        from .monitoring import fetch_resource_samples
+
+        print("\nFetching VM host metrics from Cloud Monitoring:")
+        fetch_resource_samples(
+            results, runs, project=args.project, refresh=args.refresh_resources
+        )
+
+    resource_samples = load_resource_samples(results, runs)
+    write_all_figures(samples, run_stats, summary, function_samples, resource_samples, out)
 
     print(f"\nWrote figures to {out / 'figures'}")
     return 0

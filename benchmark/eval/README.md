@@ -89,6 +89,51 @@ Figures are written to `out/figures` as vector SVG (set `FIGURE_FORMAT` in
   retained iterations (steady-state diagnostic)
 - `functions_<platform>_<workflow>.svg`: per-function completion time relative
   to entry start, ordered by median finish
+- `resources_<platform>_<workflow>.svg`: VM CPU utilization and memory usage
+  over the measured k6 window (per-run lines plus per-profile mean), showing the
+  prewarm optimization's resource overhead relative to baseline
+
+## VM host metrics (CPU/memory)
+
+Every benchmark VM runs the Google Cloud Ops Agent (installed during
+provisioning), which ships host metrics to Cloud Monitoring. The tool can
+backfill those metrics for each experiment's measured window
+(`[k6_run_started_at, k6_run_finished_at]` from `metadata.json`) into a cached
+`resources/vm-usage.csv` per experiment, then plot them. k6 runs on the
+orchestrator rather than the VM, so VM-level CPU/memory reflect only the FaaS
+platform plus deployed functions.
+
+CPU comes from the GCE built-in `compute.googleapis.com/instance/cpu/utilization`
+metric; memory from the Ops Agent `agent.googleapis.com/memory/{percent_used,
+bytes_used}` (`state="used"`). The Ops Agent samples at 60s, so a ~37 minute run
+yields ~37 points -- coarse, but adequate for a steady-state overhead
+comparison, with identical instrumentation across every profile.
+
+Fetching needs an identity with `roles/monitoring.viewer` on the benchmark
+project and the project id via `--project` or `$GOOGLE_PROJECT`. Credentials are
+resolved in this order:
+
+1. `GOOGLE_CREDENTIALS` -- service-account JSON or a path to a key file. This is
+   the variable the benchmark `.envrc` and Terraform already set, so in the same
+   shell that runs the benchmark no extra auth step is needed.
+2. `GOOGLE_APPLICATION_CREDENTIALS` -- a key file path.
+3. The active `gcloud` identity (`gcloud auth print-access-token`).
+
+So with the benchmark environment loaded, this just works:
+
+```bash
+GOOGLE_PROJECT=<benchmark-project> uv run bench-eval \
+  --results ../results \
+  --runs bench-run-8 bench-run-9 bench-run-10 \
+  --out out \
+  --fetch-resources
+```
+
+`--fetch-resources` reuses any existing `resources/vm-usage.csv`; pass
+`--refresh-resources` to re-query. Once the CSVs are cached, normal runs (without
+`--fetch-resources`) read them offline and regenerate the figures with no GCP
+access required. Experiments without a cached CSV are simply omitted from the
+resource figures.
 
 ## Validation
 

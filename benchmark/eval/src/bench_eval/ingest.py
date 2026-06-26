@@ -135,6 +135,50 @@ def load_function_samples(
     return pl.concat(frames, how="vertical_relaxed") if frames else _empty_aligned_function_frame()
 
 
+def load_resource_samples(
+    results: Path,
+    runs: tuple[str, ...],
+) -> pl.DataFrame:
+    """Load cached VM host-metric CSVs written by ``monitoring.fetch_resource_samples``.
+
+    Each experiment may contribute a ``resources/vm-usage.csv`` time series of VM
+    CPU and memory usage over its measured k6 window. Missing files are skipped
+    silently because not every result directory has been backfilled; the latency
+    and function analyses do not depend on this data.
+    """
+    frames: list[pl.DataFrame] = []
+
+    for run in runs:
+        for profile in PROFILES:
+            for platform in PLATFORMS:
+                for workflow in WORKFLOWS:
+                    csv_path = results / run / profile / platform / workflow / "resources" / "vm-usage.csv"
+                    if not csv_path.exists():
+                        continue
+                    df = pl.read_csv(
+                        csv_path,
+                        schema_overrides={
+                            "timestamp": pl.Utf8,
+                            "seconds_since_start": pl.Float64,
+                            "cpu_pct": pl.Float64,
+                            "mem_used_pct": pl.Float64,
+                            "mem_used_bytes": pl.Float64,
+                        },
+                    )
+                    if df.is_empty():
+                        continue
+                    frames.append(
+                        df.with_columns(
+                            pl.lit(run).alias("run"),
+                            pl.lit(profile).alias("profile"),
+                            pl.lit(platform).alias("platform"),
+                            pl.lit(workflow).alias("workflow"),
+                        ).select(_empty_resource_frame().columns)
+                    )
+
+    return pl.concat(frames, how="vertical_relaxed") if frames else _empty_resource_frame()
+
+
 def _align_generic_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
     if samples.is_empty():
         return _empty_aligned_function_frame()
@@ -609,6 +653,22 @@ def _empty_latency_frame() -> pl.DataFrame:
             "latency_ms": pl.Float64,
             "source": pl.Utf8,
             "extra_tags": pl.Utf8,
+        }
+    )
+
+
+def _empty_resource_frame() -> pl.DataFrame:
+    return pl.DataFrame(
+        schema={
+            "run": pl.Utf8,
+            "profile": pl.Utf8,
+            "platform": pl.Utf8,
+            "workflow": pl.Utf8,
+            "timestamp": pl.Utf8,
+            "seconds_since_start": pl.Float64,
+            "cpu_pct": pl.Float64,
+            "mem_used_pct": pl.Float64,
+            "mem_used_bytes": pl.Float64,
         }
     )
 

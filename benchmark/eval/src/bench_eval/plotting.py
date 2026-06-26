@@ -45,6 +45,7 @@ def write_all_figures(
     run_stats: pl.DataFrame,
     summary: pl.DataFrame,
     function_samples: pl.DataFrame,
+    resource_samples: pl.DataFrame,
     out_dir: Path,
 ) -> None:
     _apply_style()
@@ -52,14 +53,17 @@ def write_all_figures(
     figures.mkdir(parents=True, exist_ok=True)
 
     # Generate the same figure set for every platform/workflow combination
-    # present in the latency samples. Function plots are optional because older
-    # result directories may not contain stats/functions output.
+    # present in the latency samples. Function and resource plots are optional
+    # because older result directories may not contain stats/functions output or
+    # backfilled host metrics.
     for platform, workflow in _benchmark_config_pairs(samples):
         _plot_distribution(samples, run_stats, platform, workflow, figures)
         _plot_summary(run_stats, platform, workflow, figures)
         _plot_iterations(samples, platform, workflow, figures)
         if not function_samples.is_empty():
             _plot_functions(function_samples, platform, workflow, figures)
+        if not resource_samples.is_empty():
+            _plot_resources(resource_samples, platform, workflow, figures)
 
 
 def _plot_distribution(
@@ -209,6 +213,61 @@ def _plot_iterations(samples: pl.DataFrame, platform: str, workflow: str, out_di
     ax.grid(axis="y", alpha=0.25)
     ax.legend(frameon=False)
     _save_figure(fig, out_dir / f"iterations_{platform}_{workflow}.{FIGURE_FORMAT}")
+
+
+def _plot_resources(resources: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
+    # VM CPU and memory usage over the measured k6 window, sourced from the Ops
+    # Agent via Cloud Monitoring. Thin lines are individual run trajectories; the
+    # bold line is the per-profile mean at each aligned time bin. This shows the
+    # prewarm optimization's resource overhead is small relative to baseline.
+    df = resources.filter((pl.col("platform") == platform) & (pl.col("workflow") == workflow))
+    if df.is_empty():
+        return
+
+    colors = _profile_colors()
+    panels = (("cpu_pct", "CPU utilization (%)"), ("mem_used_pct", "Memory used (%)"))
+    fig, axes = plt.subplots(2, 1, figsize=(9, 7.2), sharex=True, constrained_layout=True)
+
+    for ax, (column, ylabel) in zip(axes, panels):
+        panel = df.filter(pl.col(column).is_not_null())
+        for profile in PROFILES:
+            profile_df = panel.filter(pl.col("profile") == profile)
+            if profile_df.is_empty():
+                continue
+            for run in sorted(profile_df["run"].unique().to_list()):
+                run_df = profile_df.filter(pl.col("run") == run).sort("seconds_since_start")
+                ax.plot(
+                    run_df["seconds_since_start"].to_numpy(),
+                    run_df[column].to_numpy(),
+                    alpha=0.4,
+                    linewidth=1.0,
+                    color=colors[profile],
+                )
+            # Align runs onto a shared 60s grid before averaging so the mean line
+            # is not skewed by each run's slightly different start offset.
+            mean_df = (
+                profile_df.with_columns(
+                    ((pl.col("seconds_since_start") / 60).round() * 60).alias("time_bin")
+                )
+                .group_by("time_bin")
+                .agg(pl.col(column).mean().alias("value"))
+                .sort("time_bin")
+            )
+            ax.plot(
+                mean_df["time_bin"].to_numpy(),
+                mean_df["value"].to_numpy(),
+                linewidth=2.2,
+                color=colors[profile],
+                label=PROFILE_LABELS[profile],
+            )
+        ax.set_ylabel(ylabel)
+        ax.set_ylim(bottom=0)
+        ax.grid(axis="y", alpha=0.25)
+
+    axes[0].set_title(f"{platform} / {workflow}: VM resource usage during benchmark")
+    axes[-1].set_xlabel("Time since k6 start (s)")
+    axes[0].legend(frameon=False, ncol=len(PROFILES))
+    _save_figure(fig, out_dir / f"resources_{platform}_{workflow}.{FIGURE_FORMAT}")
 
 
 def _plot_functions(function_samples: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
