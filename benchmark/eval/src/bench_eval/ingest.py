@@ -33,14 +33,54 @@ class ValidationError:
     message: str
 
 
+def _iterations_by_run(results: Path, runs: tuple[str, ...]) -> dict[str, int]:
+    return {run: _run_iterations(results, run) for run in runs}
+
+
+def _run_iterations(results: Path, run: str) -> int:
+    # The configured iteration count lives in the run manifest under
+    # k6.iterations. The manifest is a list (one entry per orchestration of the
+    # run); the last entry reflects the most recent configuration. Falls back to
+    # the EXPECTED_ITERATIONS default if the manifest is absent or incomplete.
+    manifest_path = results / run / "manifest.json"
+    if manifest_path.exists():
+        data = json.loads(manifest_path.read_text())
+        entries = data if isinstance(data, list) else [data]
+        for entry in reversed(entries):
+            iterations = entry.get("k6", {}).get("iterations")
+            if iterations is not None:
+                return int(iterations)
+    return EXPECTED_ITERATIONS
+
+
+def _with_run_iterations(frame: pl.DataFrame, iterations_by_run: dict[str, int]) -> pl.DataFrame:
+    # Attach each run's expected iteration count as a column so trim/retention
+    # expressions can use a per-run bound instead of a single constant.
+    mapping = pl.DataFrame(
+        {
+            "run": list(iterations_by_run.keys()),
+            "_expected_iters": list(iterations_by_run.values()),
+        },
+        schema={"run": pl.Utf8, "_expected_iters": pl.Int64},
+    )
+    return frame.join(mapping, on="run", how="left")
+
+
 def load_latency_samples(
     results: Path,
     runs: tuple[str, ...],
     *,
     allow_incomplete: bool = False,
+    trim_head: int = TRIM_HEAD,
+    trim_tail: int = TRIM_TAIL,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     frames: list[pl.DataFrame] = []
     errors: list[ValidationError] = []
+
+    # The expected iteration count is per run, read from each run's manifest
+    # (k6.iterations) rather than assumed, so runs of different sizes validate
+    # against their own configured length.
+    iterations_by_run = _iterations_by_run(results, runs)
 
     for run in runs:
         for profile in PROFILES:
@@ -53,7 +93,9 @@ def load_latency_samples(
                         experiment_dir, run, profile, platform, workflow
                     )
                     errors.extend(
-                        _validate_metric_counts(experiment_samples, run, profile, platform, workflow)
+                        _validate_metric_counts(
+                            experiment_samples, run, profile, platform, workflow, iterations_by_run[run]
+                        )
                     )
                     frames.append(experiment_samples)
 
@@ -64,7 +106,7 @@ def load_latency_samples(
     # Mark the retained steady-state range once during ingestion; all later
     # aggregation and plotting code reads this boolean instead of duplicating
     # trim logic.
-    samples = _mark_retained(samples)
+    samples = _mark_retained(samples, trim_head, trim_tail, iterations_by_run)
 
     # Validate after journey synthesis and trimming so the error messages match
     # the exact sample set used by the analysis.
@@ -74,7 +116,7 @@ def load_latency_samples(
         .len(name="retained_samples")
     )
     for row in retained_counts.iter_rows(named=True):
-        if row["retained_samples"] != EXPECTED_ITERATIONS - TRIM_HEAD - TRIM_TAIL:
+        if row["retained_samples"] != iterations_by_run[row["run"]] - trim_head - trim_tail:
             errors.append(
                 ValidationError(
                     row["run"],
@@ -100,8 +142,12 @@ def load_function_samples(
     runs: tuple[str, ...],
     *,
     allow_incomplete: bool = False,
+    trim_head: int = TRIM_HEAD,
+    trim_tail: int = TRIM_TAIL,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     frames: list[pl.DataFrame] = []
+
+    iterations_by_run = _iterations_by_run(results, runs)
 
     for run in runs:
         for profile in PROFILES:
@@ -132,7 +178,10 @@ def load_function_samples(
     generic = samples.filter(~pl.col("workflow").is_in(list(WEBSHOP_OPERATIONS)))
     webshop = samples.filter(pl.col("workflow").is_in(list(WEBSHOP_OPERATIONS)))
 
-    frames = [_align_generic_function_samples(generic), _align_webshop_function_samples(webshop)]
+    frames = [
+        _align_generic_function_samples(generic, trim_head, trim_tail, iterations_by_run),
+        _align_webshop_function_samples(webshop, trim_head, trim_tail, iterations_by_run),
+    ]
     frames = [frame for frame in frames if not frame.is_empty()]
     aligned = pl.concat(frames, how="vertical_relaxed") if frames else _empty_aligned_function_frame()
 
@@ -141,7 +190,9 @@ def load_function_samples(
     # race, which is benign because they are trimmed away. A shortfall inside the
     # retained window would corrupt the reported numbers, so it is surfaced --
     # but only as a warning, never blocking table/figure generation.
-    validation = _errors_to_frame(_validate_function_counts(aligned))
+    validation = _errors_to_frame(
+        _validate_function_counts(aligned, trim_head, trim_tail, iterations_by_run)
+    )
     return aligned, validation
 
 
@@ -189,7 +240,9 @@ def load_resource_samples(
     return pl.concat(frames, how="vertical_relaxed") if frames else _empty_resource_frame()
 
 
-def _align_generic_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
+def _align_generic_function_samples(
+    samples: pl.DataFrame, trim_head: int, trim_tail: int, iterations_by_run: dict[str, int]
+) -> pl.DataFrame:
     if samples.is_empty():
         return _empty_aligned_function_frame()
 
@@ -243,8 +296,10 @@ def _align_generic_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
     )
     # The final retained set must satisfy both timing and topology:
     # invocation starts within the matched entry window, iteration is in the
-    # steady-state trim range, and the function is reachable from the workflow
-    # entry in the explicit call graph.
+    # steady-state trim range (bounded by the run's configured iteration count),
+    # and the function is reachable from the workflow entry in the explicit call
+    # graph.
+    aligned = _with_run_iterations(aligned, iterations_by_run)
     aligned = aligned.filter(
         (
             pl.col("started_at_ns").is_between(
@@ -258,14 +313,16 @@ def _align_generic_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
             )
         )
         & pl.col("iteration_index").is_between(
-            TRIM_HEAD, EXPECTED_ITERATIONS - TRIM_TAIL - 1, closed="both"
+            trim_head, pl.col("_expected_iters") - trim_tail - 1, closed="both"
         )
         & _workflow_reachable_expr()
     )
     return _select_aligned_function_columns(aligned.filter(pl.col("relative_finished_ms").is_not_null()))
 
 
-def _align_webshop_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
+def _align_webshop_function_samples(
+    samples: pl.DataFrame, trim_head: int, trim_tail: int, iterations_by_run: dict[str, int]
+) -> pl.DataFrame:
     frames: list[pl.DataFrame] = []
     for workflow, operations in WEBSHOP_OPERATIONS.items():
         workflow_samples = samples.filter(pl.col("workflow") == workflow)
@@ -350,9 +407,10 @@ def _align_webshop_function_samples(samples: pl.DataFrame) -> pl.DataFrame:
                 "relative_finished_ms"
             )
         )
+        aligned = _with_run_iterations(aligned, iterations_by_run)
         aligned = aligned.filter(
             pl.col("iteration_index").is_between(
-                TRIM_HEAD, EXPECTED_ITERATIONS - TRIM_TAIL - 1, closed="both"
+                trim_head, pl.col("_expected_iters") - trim_tail - 1, closed="both"
             )
         )
         frames.append(_select_aligned_function_columns(aligned.filter(pl.col("relative_finished_ms").is_not_null())))
@@ -399,7 +457,12 @@ def _reachable_functions(entry: str, graph: dict[str, tuple[str, ...]]) -> set[s
     return seen
 
 
-def _validate_function_counts(aligned: pl.DataFrame) -> list[ValidationError]:
+def _validate_function_counts(
+    aligned: pl.DataFrame,
+    trim_head: int,
+    trim_tail: int,
+    iterations_by_run: dict[str, int],
+) -> list[ValidationError]:
     # Flag any function whose retained invocation count does not match the exact
     # per-iteration call counts in WORKFLOW_FUNCTION_CALLS /
     # WEBSHOP_OPERATION_FUNCTION_CALLS, so a record missing from inside the trim
@@ -411,8 +474,6 @@ def _validate_function_counts(aligned: pl.DataFrame) -> list[ValidationError]:
     warnings_list: list[ValidationError] = []
     if aligned.is_empty():
         return warnings_list
-
-    retained_iterations = EXPECTED_ITERATIONS - TRIM_HEAD - TRIM_TAIL
 
     # Webshop rows carry a per-journey operation; iot/tree carry a null operation.
     # A sentinel lets the null case index alongside the webshop operation key.
@@ -440,6 +501,7 @@ def _validate_function_counts(aligned: pl.DataFrame) -> list[ValidationError]:
         else:
             expectations = [("__none__", WORKFLOW_FUNCTION_CALLS.get(workflow, {}))]
 
+        retained_iterations = iterations_by_run[run] - trim_head - trim_tail
         for operation, calls in expectations:
             for function, per_iteration in calls.items():
                 expected = per_iteration * retained_iterations
@@ -563,7 +625,11 @@ def _validate_metric_counts(
     profile: str,
     platform: str,
     workflow: str,
+    expected_iterations: int,
 ) -> list[ValidationError]:
+    # Verify the metrics data actually holds one sample per configured iteration
+    # (expected_iterations comes from the run manifest), so a truncated or padded
+    # k6 export is caught before any analysis.
     errors: list[ValidationError] = []
     counts = {
         row["metric"]: row["sample_count"]
@@ -571,7 +637,7 @@ def _validate_metric_counts(
     }
     for metric in WORKFLOW_METRICS[workflow]:
         count = counts.get(metric, 0)
-        if count != EXPECTED_ITERATIONS:
+        if count != expected_iterations:
             errors.append(
                 _verror(
                     run,
@@ -579,7 +645,7 @@ def _validate_metric_counts(
                     platform,
                     workflow,
                     "error",
-                    f"{metric} has {count} samples, expected {EXPECTED_ITERATIONS}",
+                    f"{metric} has {count} samples, expected {expected_iterations}",
                 )
             )
     return errors
@@ -611,20 +677,27 @@ def _add_journey_samples(samples: pl.DataFrame) -> pl.DataFrame:
     return pl.concat([samples, journey], how="vertical")
 
 
-def _mark_retained(samples: pl.DataFrame) -> pl.DataFrame:
+def _mark_retained(
+    samples: pl.DataFrame,
+    trim_head: int,
+    trim_tail: int,
+    iterations_by_run: dict[str, int],
+) -> pl.DataFrame:
     # Only complete metrics should contribute to retained analysis. This avoids
     # treating partial failed runs as valid just because their iteration index
-    # falls inside the trim window.
+    # falls inside the trim window. Completeness and the trim window are both
+    # measured against the run's configured iteration count.
     counts = samples.group_by(["run", "profile", "platform", "workflow", "metric"]).len(name="sample_count")
     samples = samples.join(counts, on=["run", "profile", "platform", "workflow", "metric"], how="left")
+    samples = _with_run_iterations(samples, iterations_by_run)
     return samples.with_columns(
         (
-            (pl.col("sample_count") == EXPECTED_ITERATIONS)
+            (pl.col("sample_count") == pl.col("_expected_iters"))
             & pl.col("iteration_index").is_between(
-                TRIM_HEAD, EXPECTED_ITERATIONS - TRIM_TAIL - 1, closed="both"
+                trim_head, pl.col("_expected_iters") - trim_tail - 1, closed="both"
             )
         ).alias("retained")
-    )
+    ).drop("_expected_iters")
 
 
 def _load_experiment_functions(

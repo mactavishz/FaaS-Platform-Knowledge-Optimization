@@ -5,7 +5,7 @@ from pathlib import Path
 import polars as pl
 
 from .aggregate import aggregate_summary, results_table, run_summary
-from .constants import RUNS
+from .constants import RUNS, TRIM_HEAD, TRIM_TAIL
 from .ingest import load_function_samples, load_latency_samples, load_resource_samples
 
 
@@ -16,6 +16,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runs", nargs="+", default=list(RUNS))
     parser.add_argument("--out", type=Path, default=Path("out"))
     parser.add_argument("--allow-incomplete", action="store_true")
+    parser.add_argument(
+        "--trim-head",
+        type=int,
+        default=TRIM_HEAD,
+        help="Number of leading warm-up iterations to drop before analysis "
+        f"(default: {TRIM_HEAD}). The retained sample count is the total "
+        "iterations minus the head and tail cutoffs.",
+    )
+    parser.add_argument(
+        "--trim-tail",
+        type=int,
+        default=TRIM_TAIL,
+        help=f"Number of trailing iterations to drop before analysis (default: {TRIM_TAIL}).",
+    )
     parser.add_argument(
         "--fetch-resources",
         action="store_true",
@@ -47,6 +61,8 @@ def main(argv: list[str] | None = None) -> int:
         results,
         runs,
         allow_incomplete=args.allow_incomplete,
+        trim_head=args.trim_head,
+        trim_tail=args.trim_tail,
     )
     run_stats = run_summary(samples)
     summary = aggregate_summary(run_stats)
@@ -61,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
         results,
         runs,
         allow_incomplete=args.allow_incomplete,
+        trim_head=args.trim_head,
+        trim_tail=args.trim_tail,
     )
     print_validation(function_validation, title="Function record validation")
 
