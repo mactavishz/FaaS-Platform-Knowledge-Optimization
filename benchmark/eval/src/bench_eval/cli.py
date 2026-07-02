@@ -47,6 +47,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Google Cloud project holding the benchmark VM metrics "
         "(defaults to $GOOGLE_PROJECT).",
     )
+    parser.add_argument(
+        "--fig-format",
+        choices=("svg", "pdf"),
+        default="svg",
+        help="File format for exported figures (default: svg).",
+    )
 
     args = parser.parse_args(argv)
     results = resolve_input_path(args.results)
@@ -91,7 +97,15 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     resource_samples = load_resource_samples(results, runs)
-    write_all_figures(samples, run_stats, summary, function_samples, resource_samples, out)
+    write_all_figures(
+        samples,
+        run_stats,
+        summary,
+        function_samples,
+        resource_samples,
+        out,
+        fig_format=args.fig_format,
+    )
 
     print(f"\nWrote figures to {out / 'figures'}")
     return 0

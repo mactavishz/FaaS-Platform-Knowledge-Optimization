@@ -18,7 +18,7 @@ from .constants import (
 )
 
 # Vector output so figures stay crisp at any scale when embedded in the thesis.
-# Change to "png" only if a raster preview is needed.
+# Defaults to "svg"; pass fig_format="pdf" to write_all_figures for PDF output.
 FIGURE_FORMAT = "svg"
 
 SUMMARY_METRIC_LABELS = {"mean": "Mean", "median": "Median", "p90": "p90", "p95": "p95"}
@@ -47,6 +47,7 @@ def write_all_figures(
     function_samples: pl.DataFrame,
     resource_samples: pl.DataFrame,
     out_dir: Path,
+    fig_format: str = FIGURE_FORMAT,
 ) -> None:
     _apply_style()
     figures = out_dir / "figures"
@@ -57,13 +58,13 @@ def write_all_figures(
     # because older result directories may not contain stats/functions output or
     # backfilled host metrics.
     for platform, workflow in _benchmark_config_pairs(samples):
-        _plot_distribution(samples, run_stats, platform, workflow, figures)
-        _plot_summary(run_stats, platform, workflow, figures)
-        _plot_iterations(samples, platform, workflow, figures)
+        _plot_distribution(samples, run_stats, platform, workflow, figures, fig_format)
+        _plot_summary(run_stats, platform, workflow, figures, fig_format)
+        _plot_iterations(samples, platform, workflow, figures, fig_format)
         if not function_samples.is_empty():
-            _plot_functions(function_samples, platform, workflow, figures)
+            _plot_functions(function_samples, platform, workflow, figures, fig_format)
         if not resource_samples.is_empty():
-            _plot_resources(resource_samples, platform, workflow, figures)
+            _plot_resources(resource_samples, platform, workflow, figures, fig_format)
 
 
 def _plot_distribution(
@@ -72,6 +73,7 @@ def _plot_distribution(
     platform: str,
     workflow: str,
     out_dir: Path,
+    fig_format: str = FIGURE_FORMAT,
 ) -> None:
     # Distribution plots use pooled retained samples for shape, while the black
     # diamonds show independent run means so repeated runs remain visible.
@@ -120,10 +122,16 @@ def _plot_distribution(
     ax.set_xticks(positions, [PROFILE_LABELS[p] for p in PROFILES])
     ax.grid(axis="y", alpha=0.25)
     ax.legend(frameon=False)
-    _save_figure(fig, out_dir / f"distribution_{platform}_{workflow}.{FIGURE_FORMAT}")
+    _save_figure(fig, out_dir / f"distribution_{platform}_{workflow}.{fig_format}")
 
 
-def _plot_summary(run_stats: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
+def _plot_summary(
+    run_stats: pl.DataFrame,
+    platform: str,
+    workflow: str,
+    out_dir: Path,
+    fig_format: str = FIGURE_FORMAT,
+) -> None:
     # Summary bars compare profile-level run summaries for the primary metric.
     # Webshop uses computed journey latency; IoT/tree use workflow latency.
     df = run_stats.filter(
@@ -167,10 +175,16 @@ def _plot_summary(run_stats: pl.DataFrame, platform: str, workflow: str, out_dir
     ax.grid(axis="y", alpha=0.25)
     ax.legend(frameon=False)
     ax.margins(y=0.16)
-    _save_figure(fig, out_dir / f"summary_{platform}_{workflow}.{FIGURE_FORMAT}")
+    _save_figure(fig, out_dir / f"summary_{platform}_{workflow}.{fig_format}")
 
 
-def _plot_iterations(samples: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
+def _plot_iterations(
+    samples: pl.DataFrame,
+    platform: str,
+    workflow: str,
+    out_dir: Path,
+    fig_format: str = FIGURE_FORMAT,
+) -> None:
     # Thin lines show each retained run trajectory; the bold line is the mean
     # latency at each retained iteration index across runs for the profile.
     df = retained_latency(samples).filter(
@@ -212,10 +226,16 @@ def _plot_iterations(samples: pl.DataFrame, platform: str, workflow: str, out_di
     ax.set_ylabel("Latency (ms)")
     ax.grid(axis="y", alpha=0.25)
     ax.legend(frameon=False)
-    _save_figure(fig, out_dir / f"iterations_{platform}_{workflow}.{FIGURE_FORMAT}")
+    _save_figure(fig, out_dir / f"iterations_{platform}_{workflow}.{fig_format}")
 
 
-def _plot_resources(resources: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
+def _plot_resources(
+    resources: pl.DataFrame,
+    platform: str,
+    workflow: str,
+    out_dir: Path,
+    fig_format: str = FIGURE_FORMAT,
+) -> None:
     # VM CPU and memory usage over the measured k6 window, sourced from the Ops
     # Agent via Cloud Monitoring. Thin lines are individual run trajectories; the
     # bold line is the per-profile mean at each aligned time bin. This shows the
@@ -267,10 +287,16 @@ def _plot_resources(resources: pl.DataFrame, platform: str, workflow: str, out_d
     axes[0].set_title(f"{platform} / {workflow}: VM resource usage during benchmark")
     axes[-1].set_xlabel("Time since k6 start (s)")
     axes[0].legend(frameon=False, ncol=len(PROFILES))
-    _save_figure(fig, out_dir / f"resources_{platform}_{workflow}.{FIGURE_FORMAT}")
+    _save_figure(fig, out_dir / f"resources_{platform}_{workflow}.{fig_format}")
 
 
-def _plot_functions(function_samples: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
+def _plot_functions(
+    function_samples: pl.DataFrame,
+    platform: str,
+    workflow: str,
+    out_dir: Path,
+    fig_format: str = FIGURE_FORMAT,
+) -> None:
     # Function samples are already filtered during ingestion by graph
     # reachability and entry-window timing. Plotting only decides whether the
     # workflow needs one axis or webshop operation subplots.
@@ -279,7 +305,7 @@ def _plot_functions(function_samples: pl.DataFrame, platform: str, workflow: str
         return
 
     if workflow in WEBSHOP_OPERATIONS:
-        _plot_webshop_functions(df, platform, workflow, out_dir)
+        _plot_webshop_functions(df, platform, workflow, out_dir, fig_format)
         return
 
     order = _function_order(df)
@@ -294,10 +320,16 @@ def _plot_functions(function_samples: pl.DataFrame, platform: str, workflow: str
         order,
         f"{platform} / {workflow}: function completion relative to entry start",
     )
-    _save_figure(fig, out_dir / f"functions_{platform}_{workflow}.{FIGURE_FORMAT}")
+    _save_figure(fig, out_dir / f"functions_{platform}_{workflow}.{fig_format}")
 
 
-def _plot_webshop_functions(df: pl.DataFrame, platform: str, workflow: str, out_dir: Path) -> None:
+def _plot_webshop_functions(
+    df: pl.DataFrame,
+    platform: str,
+    workflow: str,
+    out_dir: Path,
+    fig_format: str = FIGURE_FORMAT,
+) -> None:
     operations = WEBSHOP_OPERATIONS[workflow]
     # Each operation can call a different subset of webshop functions, so order
     # x-axis labels independently per subplot by observed median finish time.
@@ -331,7 +363,7 @@ def _plot_webshop_functions(df: pl.DataFrame, platform: str, workflow: str, out_
             f"{platform} / {workflow}: {operation}",
         )
 
-    _save_figure(fig, out_dir / f"functions_{platform}_{workflow}.{FIGURE_FORMAT}")
+    _save_figure(fig, out_dir / f"functions_{platform}_{workflow}.{fig_format}")
 
 
 def _function_order(df: pl.DataFrame) -> list[str]:
