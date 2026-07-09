@@ -95,19 +95,32 @@ Figures are written to `out/figures` as vector SVG (set `FIGURE_FORMAT` in
 
 ## VM host metrics (CPU/memory)
 
-Every benchmark VM runs the Google Cloud Ops Agent (installed during
-provisioning), which ships host metrics to Cloud Monitoring. The tool can
-backfill those metrics for each experiment's measured window
-(`[k6_run_started_at, k6_run_finished_at]` from `metadata.json`) into a cached
-`resources/vm-usage.csv` per experiment, then plot them. k6 runs on the
+All resource figures read from one contract per experiment:
+`resources/vm-usage.csv`, trimmed to the measured window
+(`[k6_run_started_at, k6_run_finished_at]` from `metadata.json`). k6 runs on the
 orchestrator rather than the VM, so VM-level CPU/memory reflect only the FaaS
-platform plus deployed functions.
+platform plus deployed functions. A `resources/vm-usage.meta.json` sidecar
+records which instrumentation produced the file and its resolution. Two sources
+feed it:
 
-CPU comes from the GCE built-in `compute.googleapis.com/instance/cpu/utilization`
-metric; memory from the Ops Agent `agent.googleapis.com/memory/{percent_used,
-bytes_used}` (`state="used"`). The Ops Agent samples at 60s, so a ~37 minute run
-yields ~37 points -- coarse, but adequate for a steady-state overhead
-comparison, with identical instrumentation across every profile.
+**On-VM sampler (primary, new runs).** `benchmark/run.sh` pushes
+`benchmark/scripts/vm-sampler.sh` to the VM and samples whole-VM CPU
+(`/proc/stat` deltas; idle + iowait count as idle) and memory
+(`MemTotal - MemAvailable` from `/proc/meminfo`) every
+`BENCH_VM_SAMPLE_INTERVAL_S` seconds (default 5) from workflow deploy until
+after the stats scrape, then downloads the raw series to
+`resources/vm-samples.csv`. The tool derives `vm-usage.csv` from it
+automatically -- no flag, no credentials. Local samples always win: the cloud
+backfill below skips any experiment that has a `vm-samples.csv`.
+
+**Cloud Monitoring backfill (fallback, historical runs).** Every benchmark VM
+runs the Google Cloud Ops Agent (installed during provisioning), which ships
+host metrics to Cloud Monitoring. With `--fetch-resources` the tool backfills
+runs that lack local samples: CPU from the GCE built-in
+`compute.googleapis.com/instance/cpu/utilization` metric; memory from the Ops
+Agent `agent.googleapis.com/memory/{percent_used, bytes_used}`
+(`state="used"`). The Ops Agent samples at 60s, so a ~37 minute run yields ~37
+points -- coarse, which is why new runs use the 5s sampler instead.
 
 Fetching needs an identity with `roles/monitoring.viewer` on the benchmark
 project and the project id via `--project` or `$GOOGLE_PROJECT`. Credentials are
@@ -130,10 +143,11 @@ GOOGLE_PROJECT=<benchmark-project> uv run bench-eval \
 ```
 
 `--fetch-resources` reuses any existing `resources/vm-usage.csv`; pass
-`--refresh-resources` to re-query. Once the CSVs are cached, normal runs (without
-`--fetch-resources`) read them offline and regenerate the figures with no GCP
-access required. Experiments without a cached CSV are simply omitted from the
-resource figures.
+`--refresh-resources` to rebuild it (from local samples when available,
+otherwise by re-querying Cloud Monitoring). Once the CSVs are cached, normal
+runs (without `--fetch-resources`) read them offline and regenerate the figures
+with no GCP access required. Experiments without a cached CSV are simply omitted
+from the resource figures.
 
 ## Validation
 

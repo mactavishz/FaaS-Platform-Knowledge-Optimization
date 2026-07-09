@@ -22,8 +22,9 @@ Further information on the metrics is available in the Cloud Monitoring document
 - https://docs.cloud.google.com/monitoring/api/metrics_gcp
 
 The Ops Agent samples at 60s by default, so a ~37 minute run yields ~37 points.
-That is coarse but sufficient for a steady-state overhead comparison, and the
-instrumentation is identical across every profile.
+That coarse series is the *fallback* for historical runs only: newer runs carry
+a 5s on-VM sample file (``resources/vm-samples.csv``, see ``resources.py``),
+which takes precedence -- this backfill skips any experiment that has one.
 
 Authentication prefers a service account taken from the environment --
 ``GOOGLE_CREDENTIALS`` (the variable the benchmark ``.envrc`` and Terraform
@@ -100,6 +101,11 @@ def _fetch_one_experiment(
     if not metadata_path.exists():
         return
 
+    # Local sampler data wins; resources.materialize_resource_usage derives
+    # vm-usage.csv from it, so never overwrite that with the coarse cloud series.
+    if (experiment_dir / "resources" / "vm-samples.csv").exists():
+        return
+
     output_path = experiment_dir / "resources" / "vm-usage.csv"
     if output_path.exists() and not refresh:
         return
@@ -173,7 +179,14 @@ def _fetch_one_experiment(
         writer = csv.writer(handle)
         writer.writerow(RESOURCE_CSV_COLUMNS)
         writer.writerows(rows)
-    print(f"  wrote {label}/resources/vm-usage.csv ({len(rows)} points)")
+    meta_path = experiment_dir / "resources" / "vm-usage.meta.json"
+    meta_path.write_text(
+        json.dumps(
+            {"source": "cloud-monitoring", "interval_s": _ALIGNMENT_PERIOD_S}, indent=2
+        )
+        + "\n"
+    )
+    print(f"  wrote {label}/resources/vm-usage.csv ({len(rows)} points, cloud-monitoring)")
 
 
 def _build_rows(

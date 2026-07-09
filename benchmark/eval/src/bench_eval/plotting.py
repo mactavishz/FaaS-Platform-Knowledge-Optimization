@@ -236,8 +236,9 @@ def _plot_resources(
     out_dir: Path,
     fig_format: str = FIGURE_FORMAT,
 ) -> None:
-    # VM CPU and memory usage over the measured k6 window, sourced from the Ops
-    # Agent via Cloud Monitoring. Thin lines are individual run trajectories; the
+    # VM CPU and memory usage over the measured k6 window, sourced from the on-VM
+    # 5s sampler (older runs fall back to the 60s Cloud Monitoring backfill).
+    # Thin lines are individual run trajectories; the
     # bold line is the per-profile mean at each aligned time bin. This shows the
     # prewarm optimization's resource overhead is small relative to baseline.
     df = resources.filter((pl.col("platform") == platform) & (pl.col("workflow") == workflow))

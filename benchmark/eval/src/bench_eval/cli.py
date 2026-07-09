@@ -34,12 +34,14 @@ def main(argv: list[str] | None = None) -> int:
         "--fetch-resources",
         action="store_true",
         help="Backfill VM host metrics from Cloud Monitoring before plotting "
-        "(requires gcloud auth and a project).",
+        "(requires gcloud auth and a project). Only applies to runs without a "
+        "local resources/vm-samples.csv; sampled runs are derived automatically.",
     )
     parser.add_argument(
         "--refresh-resources",
         action="store_true",
-        help="Re-fetch host metrics even if a cached resources/vm-usage.csv exists.",
+        help="Rebuild resources/vm-usage.csv even if a cached one exists, from "
+        "local samples when available, otherwise from Cloud Monitoring.",
     )
     parser.add_argument(
         "--project",
@@ -87,6 +89,12 @@ def main(argv: list[str] | None = None) -> int:
         trim_tail=args.trim_tail,
     )
     print_validation(function_validation, title="Function record validation")
+
+    # Local sampler output needs no credentials, so it is always materialized;
+    # the Cloud Monitoring backfill stays opt-in and covers only runs without it.
+    from .resources import materialize_resource_usage
+
+    materialize_resource_usage(results, runs, refresh=args.refresh_resources)
 
     if args.fetch_resources or args.refresh_resources:
         from .monitoring import fetch_resource_samples

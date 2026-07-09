@@ -32,6 +32,13 @@ BENCH_POLL_INTERVAL_MS="${BENCH_POLL_INTERVAL_MS:-15000}"
 # descendants to finish and be recorded.
 BENCH_STATS_DRAIN_INTERVAL_S="${BENCH_STATS_DRAIN_INTERVAL_S:-5}"
 BENCH_STATS_DRAIN_MAX_S="${BENCH_STATS_DRAIN_MAX_S:-60}"
+# On-VM whole-VM CPU/memory sampler (benchmark/scripts/vm-sampler.sh). Runs from
+# workflow deploy until after the stats scrape; the eval side trims to the k6 window.
+BENCH_VM_SAMPLE_INTERVAL_S="${BENCH_VM_SAMPLE_INTERVAL_S:-5}"
+VM_SAMPLER_SCRIPT="$BENCHMARK_DIR/scripts/vm-sampler.sh"
+VM_SAMPLER_REMOTE_PATH="/tmp/vm-sampler.sh"
+VM_SAMPLER_PIDFILE="/tmp/vm-sampler.pid"
+VM_SAMPLES_REMOTE_PATH="/tmp/vm-samples.csv"
 CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-false}"
 KEEP_INFRA_ON_FAILURE="${KEEP_INFRA_ON_FAILURE:-false}"
 RERUN_OVERWRITE="${RERUN_OVERWRITE:-false}"
@@ -338,6 +345,51 @@ scp_from_vm() {
     "$SSH_USER@$host:$remote_path" "$local_path"
 }
 
+scp_to_vm() {
+  local host="$1"
+  local local_path="$2"
+  local remote_path="$3"
+  scp \
+    -i "$SSH_PRIVATE_KEY" \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    -o ConnectTimeout=15 \
+    "$local_path" "$SSH_USER@$host:$remote_path"
+}
+
+start_vm_sampler() {
+  local public_ip="$1"
+  log "starting VM resource sampler (interval ${BENCH_VM_SAMPLE_INTERVAL_S}s)"
+  scp_to_vm "$public_ip" "$VM_SAMPLER_SCRIPT" "$VM_SAMPLER_REMOTE_PATH" >/dev/null 2>&1 || {
+    log "WARNING: failed to push VM resource sampler; continuing without 5s samples"
+    return 0
+  }
+  ssh_base "$public_ip" \
+    "rm -f '$VM_SAMPLES_REMOTE_PATH' '$VM_SAMPLER_PIDFILE'; nohup bash '$VM_SAMPLER_REMOTE_PATH' '$BENCH_VM_SAMPLE_INTERVAL_S' '$VM_SAMPLES_REMOTE_PATH' >/dev/null 2>&1 & echo \$! >'$VM_SAMPLER_PIDFILE'" \
+    >/dev/null 2>&1 || log "WARNING: failed to start VM resource sampler; continuing without 5s samples"
+}
+
+stop_vm_sampler() {
+  local public_ip="$1"
+  ssh_base "$public_ip" \
+    "kill \"\$(cat '$VM_SAMPLER_PIDFILE' 2>/dev/null)\" 2>/dev/null || pkill -f vm-sampler.sh 2>/dev/null || true" \
+    >/dev/null 2>&1 || log "WARNING: failed to stop VM resource sampler"
+}
+
+collect_vm_samples() {
+  local public_ip="$1"
+  local run_dir="$2"
+  local output="$run_dir/resources/vm-samples.csv"
+
+  stop_vm_sampler "$public_ip"
+  mkdir -p "$run_dir/resources"
+  if scp_from_vm "$public_ip" "$VM_SAMPLES_REMOTE_PATH" "$output" >/dev/null 2>&1; then
+    log "collected VM resource samples: $(wc -l <"$output" | tr -d ' ') lines (incl. header)"
+  else
+    log "WARNING: failed to collect VM resource samples from $public_ip"
+  fi
+}
+
 http_auth_args() {
   local platform="$1"
   local auth_user="${2:-}"
@@ -435,6 +487,7 @@ init_metadata() {
     --arg stack_path "$stack_path" \
     --argjson k6_iterations "$BENCH_ITERATIONS" \
     --argjson k6_vus "$BENCH_VUS" \
+    --arg vm_sample_interval_s "$BENCH_VM_SAMPLE_INTERVAL_S" \
     '{
       profile: $profile,
       profile_path: $profile_path,
@@ -451,6 +504,9 @@ init_metadata() {
       k6: {
         iterations: $k6_iterations,
         vus: $k6_vus
+      },
+      vm_sampler: {
+        interval_s: ($vm_sample_interval_s | tonumber)
       },
       provision_started_at: null,
       provision_finished_at: null,
@@ -818,6 +874,7 @@ create_run_dirs() {
   mkdir -p \
     "$run_dir/k6" \
     "$run_dir/stats/functions" \
+    "$run_dir/resources" \
     "$run_dir/logs"
 }
 
@@ -891,6 +948,7 @@ handle_child_interrupt() {
     public_ip="$(resolve_run_public_ip "$CHILD_PLATFORM" "$CHILD_RUN_DIR")"
     if [[ -n "$public_ip" ]]; then
       log "collecting interrupted system logs for $CHILD_PLATFORM before destroy"
+      collect_vm_samples "$public_ip" "$CHILD_RUN_DIR" || true
       collect_remote_logs "$CHILD_PLATFORM" "$public_ip" "$CHILD_RUN_DIR" || true
     else
       log "skipping interrupted system log collection for $CHILD_PLATFORM; public IP is not available"
@@ -912,6 +970,7 @@ mark_failed_and_cleanup() {
   set_metadata_status "$run_dir/metadata.json" "failed" "$message" || true
   if ! bool_true "$KEEP_INFRA_ON_FAILURE"; then
     if [[ -n "$public_ip" ]]; then
+      collect_vm_samples "$public_ip" "$run_dir" || true
       collect_remote_logs "$platform" "$public_ip" "$run_dir" || true
     fi
     terraform_destroy "$platform" "$profile_path" "$run_dir" "$run_dir/logs/terraform-destroy-after.log" || true
@@ -1026,6 +1085,8 @@ run_benchmark() {
     fi
   fi
 
+  start_vm_sampler "$public_ip" || true
+
   if ! reset_supabase_tables "$platform" "$workflow" "$run_dir/logs/supabase-reset.log"; then
     mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "supabase reset failed" "$public_ip"
     CHILD_CLEANUP_DONE="true"
@@ -1055,6 +1116,7 @@ run_benchmark() {
     return 1
   fi
 
+  collect_vm_samples "$public_ip" "$run_dir" || true
   collect_remote_logs "$platform" "$public_ip" "$run_dir" || true
   set_metadata_status "$run_dir/metadata.json" "success" || {
     if ! bool_true "$KEEP_INFRA_ON_FAILURE"; then
@@ -1183,6 +1245,7 @@ print_benchmark_configs() {
   echo -e "WORKFLOW_MEMORY_LIMIT: $WORKFLOW_MEMORY_LIMIT"
   echo -e "BENCH_ITERATIONS: $BENCH_ITERATIONS"
   echo -e "BENCH_VUS: $BENCH_VUS"
+  echo -e "BENCH_VM_SAMPLE_INTERVAL_S: $BENCH_VM_SAMPLE_INTERVAL_S"
   echo -e "CONTINUE_ON_ERROR: $CONTINUE_ON_ERROR"
   echo -e "KEEP_INFRA_ON_FAILURE: $KEEP_INFRA_ON_FAILURE"
   echo -e "RERUN_OVERWRITE: $RERUN_OVERWRITE"
