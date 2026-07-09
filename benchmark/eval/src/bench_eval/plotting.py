@@ -440,29 +440,37 @@ def _between_run_sd(profile_df: pl.DataFrame, column: str) -> float:
     return float(profile_df[column].std())
 
 
-def _improvement_stats(df: pl.DataFrame, profile: str) -> list[tuple[float, float]]:
+def _improvement_stats(df: pl.DataFrame, profile: str) -> list[tuple[float, float] | None]:
     # Per-run paired improvement (see aggregate.run_improvements) summarized as
     # (mean, SD) for each reported metric. Computed from the same function the
     # printed table uses, so the figure annotations and the table agree exactly.
+    # An entry is None when no paired baseline run exists (e.g. a pilot that only
+    # ran an optimized profile), in which case the bar gets no annotation.
     impr = run_improvements(df).filter(pl.col("profile") == profile)
-    stats: list[tuple[float, float]] = []
+    stats: list[tuple[float, float] | None] = []
     for metric in SUMMARY_METRICS:
         column = f"{metric}_impr_pct"
-        mean = float(impr[column].mean())
+        mean = impr[column].mean()
+        if mean is None:
+            stats.append(None)
+            continue
         sd = float(impr[column].std()) if impr.height > 1 else 0.0
-        stats.append((mean, sd))
+        stats.append((float(mean), sd))
     return stats
 
 
 def _annotate_improvements(
     ax: plt.Axes,
     bars,
-    stats: list[tuple[float, float]],
+    stats: list[tuple[float, float] | None],
 ) -> None:
     # Label each optimized bar with its improvement over baseline as
     # "<mean>%" over "(+/-<SD>)", where the SD is the between-run spread of the
     # per-run improvements (the uncertainty on the improvement itself).
-    for bar, (mean, sd) in zip(bars, stats, strict=True):
+    for bar, stat in zip(bars, stats, strict=True):
+        if stat is None:
+            continue
+        mean, sd = stat
         label = f"{mean:.1f}%\n(±{sd:.1f})"
         ax.annotate(
             label,
