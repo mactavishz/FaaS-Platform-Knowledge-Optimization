@@ -55,6 +55,7 @@ CHILD_PROFILE_PATH=""
 CHILD_RUN_DIR=""
 CHILD_INFRA_ACTIVE="false"
 CHILD_CLEANUP_DONE="false"
+VM_SAMPLER_STARTED="false"
 
 log() {
   printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2
@@ -364,9 +365,13 @@ start_vm_sampler() {
     log "WARNING: failed to push VM resource sampler; continuing without 5s samples"
     return 0
   }
-  ssh_base "$public_ip" \
+  if ssh_base "$public_ip" \
     "rm -f '$VM_SAMPLES_REMOTE_PATH' '$VM_SAMPLER_PIDFILE'; nohup bash '$VM_SAMPLER_REMOTE_PATH' '$BENCH_VM_SAMPLE_INTERVAL_S' '$VM_SAMPLES_REMOTE_PATH' >/dev/null 2>&1 & echo \$! >'$VM_SAMPLER_PIDFILE'" \
-    >/dev/null 2>&1 || log "WARNING: failed to start VM resource sampler; continuing without 5s samples"
+    >/dev/null 2>&1; then
+    VM_SAMPLER_STARTED="true"
+  else
+    log "WARNING: failed to start VM resource sampler; continuing without 5s samples"
+  fi
 }
 
 stop_vm_sampler() {
@@ -380,6 +385,10 @@ collect_vm_samples() {
   local public_ip="$1"
   local run_dir="$2"
   local output="$run_dir/resources/vm-samples.csv"
+
+  # Nothing to collect (and no warning worth logging) when the run failed
+  # before the sampler was ever started, e.g. a terraform apply failure.
+  [[ "$VM_SAMPLER_STARTED" == "true" ]] || return 0
 
   stop_vm_sampler "$public_ip"
   mkdir -p "$run_dir/resources"
@@ -838,6 +847,9 @@ collect_remote_logs() {
     faasd) services=(faasd faasd-provider faasd-gateway containerd buildkit) ;;
     *) fatal "unsupported platform: $platform" ;;
   esac
+  # The GCE startup-script journal captures provisioning output even when
+  # /var/log/vm-provision.log is missing or truncated (e.g. a very early crash).
+  services+=(google-startup-scripts)
 
   collect_vm_provision_log "$public_ip" "$run_dir"
 
@@ -1027,7 +1039,12 @@ run_benchmark() {
   }
   if ! terraform_apply "$platform" "$profile_path" "$run_dir" "$run_dir/logs/terraform-apply.log"; then
     set_metadata_time "$run_dir/metadata.json" "provision_finished_at" || true
-    mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "terraform apply failed"
+    # A failed apply (typically the gateway health check timing out) usually
+    # leaves the VM running with SSH reachable; recover its IP from the partial
+    # tfstate so the provision log is salvaged before the destroy wipes it.
+    local apply_failed_ip
+    apply_failed_ip="$(resolve_run_public_ip "$platform" "$run_dir")"
+    mark_failed_and_cleanup "$platform" "$profile_path" "$run_dir" "terraform apply failed" "$apply_failed_ip"
     CHILD_CLEANUP_DONE="true"
     return 1
   fi
