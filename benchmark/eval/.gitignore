@@ -2,6 +2,6 @@
 .matplotlib-cache/
 .uv-cache/
 .venv/
-out/
+out*/
 __pycache__/
 .pytest_cache/
