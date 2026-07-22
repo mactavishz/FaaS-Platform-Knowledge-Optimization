@@ -45,7 +45,7 @@ def write_all_figures(
     run_stats: pl.DataFrame,
     summary: pl.DataFrame,
     function_samples: pl.DataFrame,
-    resource_samples: pl.DataFrame,
+    resource_minutes: pl.DataFrame,
     out_dir: Path,
     fig_format: str = FIGURE_FORMAT,
 ) -> None:
@@ -63,8 +63,8 @@ def write_all_figures(
         _plot_iterations(samples, platform, workflow, figures, fig_format)
         if not function_samples.is_empty():
             _plot_functions(function_samples, platform, workflow, figures, fig_format)
-        if not resource_samples.is_empty():
-            _plot_resources(resource_samples, platform, workflow, figures, fig_format)
+        if not resource_minutes.is_empty():
+            _plot_resources(resource_minutes, platform, workflow, figures, fig_format)
 
 
 def _plot_distribution(
@@ -236,57 +236,50 @@ def _plot_resources(
     out_dir: Path,
     fig_format: str = FIGURE_FORMAT,
 ) -> None:
-    # VM CPU and memory usage over the measured k6 window, sourced from the on-VM
-    # 5s sampler (older runs fall back to the 60s Cloud Monitoring backfill).
-    # Thin lines are individual run trajectories; the
-    # bold line is the per-profile mean at each aligned time bin. This shows the
-    # prewarm optimization's resource overhead is small relative to baseline.
+    # Each point is the equal-weight mean of the repeated runs' one-minute
+    # averages. The ribbon is the between-run sample SD, so temporal detail stays
+    # readable without hiding experimental variability.
     df = resources.filter((pl.col("platform") == platform) & (pl.col("workflow") == workflow))
     if df.is_empty():
         return
 
     colors = _profile_colors()
-    panels = (("cpu_pct", "CPU utilization (%)"), ("mem_used_pct", "Memory used (%)"))
+    panels = (
+        ("cpu_mean_pct", "cpu_sd_pct", "CPU utilization (%)"),
+        ("mem_mean_pct", "mem_sd_pct", "Memory used (%)"),
+    )
     fig, axes = plt.subplots(2, 1, figsize=(9, 7.2), sharex=True, constrained_layout=True)
 
-    for ax, (column, ylabel) in zip(axes, panels):
-        panel = df.filter(pl.col(column).is_not_null())
+    for ax, (mean_column, sd_column, ylabel) in zip(axes, panels, strict=True):
+        panel = df.filter(pl.col(mean_column).is_not_null())
         for profile in PROFILES:
-            profile_df = panel.filter(pl.col("profile") == profile)
+            profile_df = panel.filter(pl.col("profile") == profile).sort("minute")
             if profile_df.is_empty():
                 continue
-            for run in sorted(profile_df["run"].unique().to_list()):
-                run_df = profile_df.filter(pl.col("run") == run).sort("seconds_since_start")
-                ax.plot(
-                    run_df["seconds_since_start"].to_numpy(),
-                    run_df[column].to_numpy(),
-                    alpha=0.4,
-                    linewidth=1.0,
-                    color=colors[profile],
-                )
-            # Align runs onto a shared 60s grid before averaging so the mean line
-            # is not skewed by each run's slightly different start offset.
-            mean_df = (
-                profile_df.with_columns(
-                    ((pl.col("seconds_since_start") / 60).round() * 60).alias("time_bin")
-                )
-                .group_by("time_bin")
-                .agg(pl.col(column).mean().alias("value"))
-                .sort("time_bin")
-            )
+            x = profile_df["minute_midpoint"].to_numpy()
+            mean = profile_df[mean_column].to_numpy()
+            sd = profile_df[sd_column].to_numpy()
             ax.plot(
-                mean_df["time_bin"].to_numpy(),
-                mean_df["value"].to_numpy(),
+                x,
+                mean,
                 linewidth=2.2,
                 color=colors[profile],
                 label=PROFILE_LABELS[profile],
+            )
+            ax.fill_between(
+                x,
+                np.maximum(mean - sd, 0),
+                mean + sd,
+                color=colors[profile],
+                alpha=0.16,
+                linewidth=0,
             )
         ax.set_ylabel(ylabel)
         ax.set_ylim(bottom=0)
         ax.grid(axis="y", alpha=0.25)
 
-    axes[0].set_title(f"{platform} / {workflow}: VM resource usage during benchmark")
-    axes[-1].set_xlabel("Time since k6 start (s)")
+    axes[0].set_title(f"{platform} / {workflow}: mean VM resource usage (±SD)")
+    axes[-1].set_xlabel("Elapsed time since k6 start (min)")
     axes[0].legend(frameon=False, ncol=len(PROFILES))
     _save_figure(fig, out_dir / f"resources_{platform}_{workflow}.{fig_format}")
 

@@ -3,6 +3,7 @@ import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from statistics import median
 
 import polars as pl
 
@@ -228,16 +229,50 @@ def load_resource_samples(
                     )
                     if df.is_empty():
                         continue
+                    resource_source, sample_interval_s = _resource_metadata(
+                        csv_path.parent, df
+                    )
                     frames.append(
                         df.with_columns(
                             pl.lit(run).alias("run"),
                             pl.lit(profile).alias("profile"),
                             pl.lit(platform).alias("platform"),
                             pl.lit(workflow).alias("workflow"),
+                            pl.lit(resource_source).alias("resource_source"),
+                            pl.lit(sample_interval_s).alias("sample_interval_s"),
                         ).select(_empty_resource_frame().columns)
                     )
 
     return pl.concat(frames, how="vertical_relaxed") if frames else _empty_resource_frame()
+
+
+def _resource_metadata(resources_dir: Path, samples: pl.DataFrame) -> tuple[str, float]:
+    meta_path = resources_dir / "vm-usage.meta.json"
+    metadata = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+
+    source = metadata.get("source")
+    if not source:
+        # Historical Cloud Monitoring caches predate the metadata sidecar. A
+        # local raw sampler file is unambiguous; otherwise the legacy cache was
+        # produced by the monitoring backfill.
+        source = (
+            "sampler"
+            if (resources_dir / "vm-samples.csv").exists()
+            else "cloud-monitoring"
+        )
+
+    interval = metadata.get("interval_s")
+    if interval is None:
+        seconds = samples["seconds_since_start"].sort().to_list()
+        deltas = [
+            later - earlier
+            for earlier, later in zip(seconds, seconds[1:])
+            if later > earlier
+        ]
+        if not deltas:
+            raise ValueError(f"Cannot infer resource sampling interval from {resources_dir}")
+        interval = median(deltas)
+    return str(source), float(interval)
 
 
 def _align_generic_function_samples(
@@ -812,6 +847,8 @@ def _empty_resource_frame() -> pl.DataFrame:
             "cpu_pct": pl.Float64,
             "mem_used_pct": pl.Float64,
             "mem_used_bytes": pl.Float64,
+            "resource_source": pl.Utf8,
+            "sample_interval_s": pl.Float64,
         }
     )
 

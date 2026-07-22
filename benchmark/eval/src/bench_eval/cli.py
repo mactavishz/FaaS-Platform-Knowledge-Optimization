@@ -4,8 +4,13 @@ from pathlib import Path
 
 import polars as pl
 
-from .aggregate import aggregate_summary, results_table, run_summary
-from .constants import RUNS, TRIM_HEAD, TRIM_TAIL
+from .aggregate import (
+    aggregate_summary,
+    analyze_resources,
+    results_table,
+    run_summary,
+)
+from .constants import PROFILES, RUNS, TRIM_HEAD, TRIM_TAIL
 from .ingest import load_function_samples, load_latency_samples, load_resource_samples
 
 
@@ -105,12 +110,20 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     resource_samples = load_resource_samples(results, runs)
+    resource_analysis = analyze_resources(
+        resource_samples,
+        expected_runs=runs,
+        expected_profiles=PROFILES,
+    )
+    print_validation(resource_analysis.validation, title="Resource usage validation")
+    _raise_resource_validation(resource_analysis.validation)
+    print_resource_table(resource_analysis.summary)
     write_all_figures(
         samples,
         run_stats,
         summary,
         function_samples,
-        resource_samples,
+        resource_analysis.minutes,
         out,
         fig_format=args.fig_format,
     )
@@ -177,13 +190,76 @@ def print_results_table(table: pl.DataFrame) -> None:
         print(display)
 
 
+def print_resource_table(summary: pl.DataFrame) -> None:
+    if summary.is_empty():
+        print("Resource summary: no VM resource data available")
+        return
+
+    display = (
+        summary.with_columns(
+            pl.col("cpu_mean_pct").round(1),
+            pl.col("cpu_sd_pct").round(1),
+            _impr_label("cpu_increase_pct", "cpu_increase_sd_pct").alias(
+                "cpu_increase"
+            ),
+            pl.col("mem_mean_pct").round(1),
+            pl.col("mem_sd_pct").round(1),
+            _impr_label("mem_increase_pct", "mem_increase_sd_pct").alias(
+                "mem_increase"
+            ),
+        )
+        .select(
+            "platform",
+            "workflow",
+            "profile",
+            "runs",
+            "cpu_mean_pct",
+            "cpu_sd_pct",
+            "cpu_increase",
+            "mem_mean_pct",
+            "mem_sd_pct",
+            "mem_increase",
+        )
+        .rename(
+            {
+                "cpu_mean_pct": "CPU mean %",
+                "cpu_sd_pct": "CPU +/-sd",
+                "cpu_increase": "CPU increase %",
+                "mem_mean_pct": "memory mean %",
+                "mem_sd_pct": "memory +/-sd",
+                "mem_increase": "memory increase %",
+            }
+        )
+    )
+    print("\nResource summary (per-run time averages aggregated across runs):")
+    with _table_config():
+        print(display)
+
+
+def _raise_resource_validation(validation: pl.DataFrame) -> None:
+    if validation.is_empty():
+        return
+    errors = validation.filter(pl.col("severity") == "error")
+    if errors.is_empty():
+        return
+    details = "\n".join(errors["message"].head(10).to_list())
+    raise ValueError(
+        f"Resource usage validation failed with {errors.height} error(s):\n{details}"
+    )
+
+
 def _impr_label(mean_col: str, sd_col: str) -> pl.Expr:
     # Render an improvement as "44.4 +/-2.3" so the point estimate and its
     # between-run uncertainty sit in a single column.
+    sd_label = (
+        pl.when(pl.col(sd_col).is_null())
+        .then(pl.lit("n/a"))
+        .otherwise(pl.col(sd_col).round(1).cast(pl.Utf8))
+    )
     return (
         pl.col(mean_col).round(1).cast(pl.Utf8)
         + " +/-"
-        + pl.col(sd_col).round(1).cast(pl.Utf8)
+        + sd_label
     )
 
 

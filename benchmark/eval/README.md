@@ -59,6 +59,15 @@ The latency summary is printed to the terminal as an ASCII tables. One row per p
 All values are aggregates of the per-run statistics, so each repeated run is
 weighted equally. `mean (ms)`, `p90 (ms)` are means of the per-run mean/p90.
 
+When VM metrics are available, a second terminal table reports average resource
+overhead. `CPU mean %` and `memory mean %` are means of the independent run-level
+time averages, with their between-run sample SD in the adjacent columns.
+`CPU increase %` and `memory increase %` pair each optimized profile with the
+baseline from the same run before reporting the mean `+/-sd` increase. These
+values support claims about **average** resource overhead; they are not peak or
+tail-utilization statistics. With only one selected run, sample SD is undefined
+and is displayed as unavailable rather than as zero.
+
 ### Improvement uncertainty (per-run pairing)
 
 The improvement percentages are not computed by dividing the two aggregate
@@ -90,8 +99,9 @@ Figures are written to `out/figures` as vector SVG (set `FIGURE_FORMAT` in
 - `functions_<platform>_<workflow>.svg`: per-function completion time relative
   to entry start, ordered by median finish
 - `resources_<platform>_<workflow>.svg`: VM CPU utilization and memory usage
-  over the measured k6 window (per-run lines plus per-profile mean), showing the
-  prewarm optimization's resource overhead relative to baseline
+  over the measured k6 window (per-profile one-minute mean with between-run SD
+  ribbon), showing the prewarm optimization's resource overhead relative to
+  baseline
 
 ## VM host metrics (CPU/memory)
 
@@ -102,6 +112,21 @@ orchestrator rather than the VM, so VM-level CPU/memory reflect only the FaaS
 platform plus deployed functions. A `resources/vm-usage.meta.json` sidecar
 records which instrumentation produced the file and its resolution. Two sources
 feed it:
+
+For figures and terminal statistics, raw samples are preserved and resampled in
+memory. Samples are assigned to floor-aligned elapsed-time windows (`[0, 60)`,
+`[60, 120)`, and so on). The tool first averages within every run-minute and
+then gives those run means equal weight when calculating the plotted mean and
+between-run SD. Only complete one-minute windows shared by every selected run
+are retained; a window counts as complete only when the recorded series reaches
+its next minute boundary, so an incomplete trailing window is dropped. The
+terminal resource summary averages the retained minute values once more within
+each run before aggregating the independent runs.
+
+Resource aggregation fails when a figure would mix instrumentation sources or
+sampling intervals, when a selected run/profile is absent, or when an interior
+run-minute is missing. This keeps the number and provenance of experimental
+repeats constant along every curve.
 
 **On-VM sampler (primary, new runs).** `benchmark/run.sh` pushes
 `benchmark/scripts/vm-sampler.sh` to the VM and samples whole-VM CPU
@@ -146,8 +171,9 @@ GOOGLE_PROJECT=<benchmark-project> uv run bench-eval \
 `--refresh-resources` to rebuild it (from local samples when available,
 otherwise by re-querying Cloud Monitoring). Once the CSVs are cached, normal
 runs (without `--fetch-resources`) read them offline and regenerate the figures
-with no GCP access required. Experiments without a cached CSV are simply omitted
-from the resource figures.
+with no GCP access required. Missing cached data for a selected run/profile
+fails resource validation; use `--fetch-resources` to backfill historical runs
+before comparing them.
 
 ## Validation
 
