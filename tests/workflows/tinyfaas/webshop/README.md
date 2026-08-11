@@ -26,7 +26,7 @@ This document describes the webshop workflow deployed under `webshop/` for the t
 | `payment`             | `payment/`             | Simulates payment processing (CPU load, returns transaction ID) |
 | `email`               | `email/`               | Simulates sending a confirmation email (CPU load via worker)    |
 
-> **Note:** `payment` is part of the reference architecture but is not called by the current
+> **Note:** `payment` and `getproduct` is part of the reference architecture but is not called by the current
 > workflow graph. It is included for completeness and future extension.
 
 ## High-Level Call Graph
