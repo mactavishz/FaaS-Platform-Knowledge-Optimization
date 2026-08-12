@@ -117,7 +117,7 @@ def _plot_distribution(
 
     # Proxy handle so the reader knows the black diamonds are per-run means.
     ax.scatter([], [], marker="D", s=36, color="black", label="Per-run mean")
-    ax.set_title(f"{platform} / {workflow}: retained latency distribution")
+    ax.set_title(f"{platform} / {workflow}: latency distribution")
     ax.set_ylabel("Latency (ms)")
     ax.set_xticks(positions, [PROFILE_LABELS[p] for p in PROFILES])
     ax.grid(axis="y", alpha=0.25)
@@ -169,7 +169,7 @@ def _plot_summary(
         if profile != "baseline":
             _annotate_improvements(ax, bars, _improvement_stats(df, profile))
 
-    ax.set_title(f"{platform} / {workflow}: run-level summary")
+    ax.set_title(f"{platform} / {workflow}: latency summary")
     ax.set_ylabel("Latency (ms)")
     ax.set_xticks(x, [SUMMARY_METRIC_LABELS[m] for m in SUMMARY_METRICS])
     ax.grid(axis="y", alpha=0.25)
@@ -221,8 +221,8 @@ def _plot_iterations(
             label=PROFILE_LABELS[profile],
         )
 
-    ax.set_title(f"{platform} / {workflow}: retained iteration trend")
-    ax.set_xlabel("Retained iteration index")
+    ax.set_title(f"{platform} / {workflow}: latencies across iterations")
+    ax.set_xlabel("iteration index")
     ax.set_ylabel("Latency (ms)")
     ax.grid(axis="y", alpha=0.25)
     ax.legend(frameon=False)
@@ -278,7 +278,7 @@ def _plot_resources(
         ax.set_ylim(bottom=0)
         ax.grid(axis="y", alpha=0.25)
 
-    axes[0].set_title(f"{platform} / {workflow}: mean VM resource usage (±SD)")
+    axes[0].set_title(f"{platform} / {workflow}: aggregated mean VM resource usage (±SD)")
     axes[-1].set_xlabel("Elapsed time since k6 start (min)")
     axes[0].legend(frameon=False, ncol=len(PROFILES))
     _save_figure(fig, out_dir / f"resources_{platform}_{workflow}.{fig_format}")

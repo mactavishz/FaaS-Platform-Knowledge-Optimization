@@ -14,8 +14,8 @@ EXPECTED_ITERATIONS = 70
 
 PROFILE_LABELS = {
     "baseline": "Baseline",
-    "optimized-ema": "Optimized EMA",
-    "optimized-sma": "Optimized SMA",
+    "optimized-ema": "EMA",
+    "optimized-sma": "SMA",
 }
 
 # Applied consistently across every figure so the thesis uses one profile color scheme throughout.
