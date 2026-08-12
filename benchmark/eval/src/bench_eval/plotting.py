@@ -374,6 +374,10 @@ def _function_order(df: pl.DataFrame) -> list[str]:
     return order
 
 
+def _function_label(name: str) -> str:
+    return name.split("-", maxsplit=1)[-1]
+
+
 def _plot_function_axis(ax: plt.Axes, df: pl.DataFrame, order: list[str], title: str) -> None:
     # Map function names to categorical x positions once; individual samples
     # receive small deterministic jitter so overlapping invocations are visible.
@@ -411,7 +415,12 @@ def _plot_function_axis(ax: plt.Axes, df: pl.DataFrame, order: list[str], title:
 
     ax.set_title(title)
     ax.set_ylabel("Relative finish time (ms)")
-    ax.set_xticks(range(len(order)), order, rotation=45, ha="right")
+    ax.set_xticks(
+        range(len(order)),
+        [_function_label(name) for name in order],
+        rotation=45,
+        ha="right",
+    )
     ax.grid(axis="y", alpha=0.25)
     ax.legend(frameon=False)
 
