@@ -199,13 +199,13 @@ def print_resource_table(summary: pl.DataFrame) -> None:
         summary.with_columns(
             pl.col("cpu_mean_pct").round(1),
             pl.col("cpu_sd_pct").round(1),
-            _impr_label("cpu_increase_pct", "cpu_increase_sd_pct").alias(
-                "cpu_increase"
+            _resource_change_label("cpu_change_pp", "cpu_change_sd_pp").alias(
+                "cpu_change"
             ),
             pl.col("mem_mean_pct").round(1),
             pl.col("mem_sd_pct").round(1),
-            _impr_label("mem_increase_pct", "mem_increase_sd_pct").alias(
-                "mem_increase"
+            _resource_change_label("mem_change_pp", "mem_change_sd_pp").alias(
+                "mem_change"
             ),
         )
         .select(
@@ -215,19 +215,19 @@ def print_resource_table(summary: pl.DataFrame) -> None:
             "runs",
             "cpu_mean_pct",
             "cpu_sd_pct",
-            "cpu_increase",
+            "cpu_change",
             "mem_mean_pct",
             "mem_sd_pct",
-            "mem_increase",
+            "mem_change",
         )
         .rename(
             {
                 "cpu_mean_pct": "CPU mean %",
                 "cpu_sd_pct": "CPU +/-sd",
-                "cpu_increase": "CPU increase %",
+                "cpu_change": "CPU change ±SD (pp)",
                 "mem_mean_pct": "memory mean %",
                 "mem_sd_pct": "memory +/-sd",
-                "mem_increase": "memory increase %",
+                "mem_change": "memory change ±SD (pp)",
             }
         )
     )
@@ -260,6 +260,22 @@ def _impr_label(mean_col: str, sd_col: str) -> pl.Expr:
         pl.col(mean_col).round(1).cast(pl.Utf8)
         + " +/-"
         + sd_label
+    )
+
+
+def _resource_change_label(mean_col: str, sd_col: str) -> pl.Expr:
+    return (
+        pl.when(pl.col("profile") == "baseline")
+        .then(pl.lit("—"))
+        .otherwise(
+            pl.struct(mean=mean_col, sd=sd_col).map_elements(
+                lambda values: (
+                    f"{values['mean']:+.2f} ± "
+                    + ("n/a" if values["sd"] is None else f"{values['sd']:.2f}")
+                ),
+                return_dtype=pl.Utf8,
+            )
+        )
     )
 
 

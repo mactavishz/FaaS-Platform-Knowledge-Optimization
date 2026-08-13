@@ -62,29 +62,37 @@ weighted equally. `mean (ms)`, `p90 (ms)` are means of the per-run mean/p90.
 When VM metrics are available, a second terminal table reports average resource
 overhead. `CPU mean %` and `memory mean %` are means of the independent run-level
 time averages, with their between-run sample SD in the adjacent columns.
-`CPU increase %` and `memory increase %` pair each optimized profile with the
-baseline from the same run before reporting the mean `+/-sd` increase. These
-values support claims about **average** resource overhead; they are not peak or
-tail-utilization statistics. With only one selected run, sample SD is undefined
-and is displayed as unavailable rather than as zero.
+`CPU change ±SD (pp)` and `memory change ±SD (pp)` pair each optimized profile
+with the baseline from the same run, subtract the baseline utilization, and then
+report the mean signed change and its between-run sample SD. The change is
+expressed in utilization percentage points (`pp`), not as a percentage relative
+to the baseline. For example, a change from 7.9% to 8.2% is approximately
+`+0.30 pp`. The baseline row displays an em dash because it is not a comparison.
+These values support claims about **average** resource overhead; they are not
+peak or tail-utilization statistics. With only one selected run, sample SD is
+undefined and is displayed as unavailable rather than as zero.
 
-### Improvement uncertainty (per-run pairing)
+### Resource-change variation (per-run pairing)
 
-The improvement percentages are not computed by dividing the two aggregate
-means once. Instead the improvement is computed **per run**, pairing each
-profile against the baseline measured *in the same run*, and the table reports
-the mean and standard deviation of those per-run improvements
-(`<mean> +/-<sd>`). The `+/-<sd>` is therefore an uncertainty estimate on the
-improvement itself, distinct from `+/-sd (ms)`, which is the spread of the
-absolute latency.
+The resource changes are computed **per run**, pairing each profile against the
+baseline measured *in the same run*:
+
+`change = optimized utilization - baseline utilization`
+
+The table reports the mean and standard deviation of those signed per-run
+changes (`<mean> ± <sd>`). Positive values mean that the optimized profile used
+more of the resource; negative values mean that it used less. This change SD is
+distinct from the adjacent `CPU +/-sd` and `memory +/-sd` columns, which describe
+the spread of the absolute run-level utilization means.
 
 Within-run pairing is appropriate because every run is an independent
 re-deployment: a run reprovisions the VM and redeploys all profiles together,
 so the profiles in one run share that run's infrastructure conditions.
-Differencing within the run cancels run-to-run environmental variation. With
-only three runs the SD is a coarse estimate (sample SD, `ddof=1`), so it should
-be read as an indicative spread rather than a formal confidence interval; it is
-reported precisely so the point estimates are not mistaken for exact values.
+Differencing within the run cancels run-to-run environmental variation. With a
+small number of runs the SD is a coarse estimate (sample SD, `ddof=1`), so it
+should be read as an indicative spread rather than a formal confidence interval;
+it is reported precisely so the point estimates are not mistaken for exact
+values.
 
 Figures are written to `out/figures` as vector SVG (set `FIGURE_FORMAT` in
 `plotting.py` to `"png"` for a raster preview):

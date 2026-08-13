@@ -109,16 +109,12 @@ def analyze_resources(
     paired_summary = run_summary.join(
         baseline, on=[*scope, "run"], how="left"
     ).with_columns(
-        (
-            (pl.col("cpu_mean_pct") - pl.col("baseline_cpu_mean_pct"))
-            / pl.col("baseline_cpu_mean_pct")
-            * 100
-        ).alias("cpu_increase_pct"),
-        (
-            (pl.col("mem_mean_pct") - pl.col("baseline_mem_mean_pct"))
-            / pl.col("baseline_mem_mean_pct")
-            * 100
-        ).alias("mem_increase_pct"),
+        (pl.col("cpu_mean_pct") - pl.col("baseline_cpu_mean_pct")).alias(
+            "cpu_change_pp"
+        ),
+        (pl.col("mem_mean_pct") - pl.col("baseline_mem_mean_pct")).alias(
+            "mem_change_pp"
+        ),
     )
     summary = (
         paired_summary.group_by([*scope, "profile"])
@@ -126,12 +122,12 @@ def analyze_resources(
             pl.len().alias("runs"),
             pl.col("cpu_mean_pct").mean().alias("cpu_mean_pct"),
             pl.col("cpu_mean_pct").std().alias("cpu_sd_pct"),
-            pl.col("cpu_increase_pct").mean().alias("cpu_increase_pct"),
-            pl.col("cpu_increase_pct").std().alias("cpu_increase_sd_pct"),
+            pl.col("cpu_change_pp").mean().alias("cpu_change_pp"),
+            pl.col("cpu_change_pp").std().alias("cpu_change_sd_pp"),
             pl.col("mem_mean_pct").mean().alias("mem_mean_pct"),
             pl.col("mem_mean_pct").std().alias("mem_sd_pct"),
-            pl.col("mem_increase_pct").mean().alias("mem_increase_pct"),
-            pl.col("mem_increase_pct").std().alias("mem_increase_sd_pct"),
+            pl.col("mem_change_pp").mean().alias("mem_change_pp"),
+            pl.col("mem_change_pp").std().alias("mem_change_sd_pp"),
         )
         .sort([*scope, "profile"])
     )
