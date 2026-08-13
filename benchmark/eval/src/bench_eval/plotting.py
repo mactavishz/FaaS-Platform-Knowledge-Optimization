@@ -66,6 +66,13 @@ def write_all_figures(
         if not resource_minutes.is_empty():
             _plot_resources(resource_minutes, platform, workflow, figures, fig_format)
 
+    if not function_samples.is_empty():
+        platforms = function_samples["platform"].unique().sort().to_list()
+        for platform in platforms:
+            _plot_function_platform_overview(
+                function_samples, platform, figures, fig_format
+            )
+
 
 def _plot_distribution(
     samples: pl.DataFrame,
@@ -360,6 +367,94 @@ def _plot_webshop_functions(
     _save_figure(fig, out_dir / f"functions_{platform}_{workflow}.{fig_format}")
 
 
+def _plot_function_platform_overview(
+    function_samples: pl.DataFrame,
+    platform: str,
+    out_dir: Path,
+    fig_format: str = FIGURE_FORMAT,
+) -> None:
+    """Plot every function-completion panel for one platform in one figure."""
+    df = function_samples.filter(pl.col("platform") == platform)
+    if df.is_empty():
+        return
+
+    # The final checkout panel spans both columns because it has the widest set
+    # of function labels. The other six panels form three comparison rows.
+    panel_specs = (
+        ("iot", None, "IoT", (0, 0)),
+        ("tree", None, "Tree", (0, 1)),
+        (
+            "webshop-addcart-checkout",
+            "addcart",
+            "Addcart-checkout: addcart",
+            (1, 0),
+        ),
+        (
+            "webshop-addcart-checkout",
+            "checkout",
+            "Addcart-checkout: checkout",
+            (1, 1),
+        ),
+        (
+            "webshop-browse-addcart-checkout",
+            "browse",
+            "Browse-addcart-checkout: browse",
+            (2, 0),
+        ),
+        (
+            "webshop-browse-addcart-checkout",
+            "addcart",
+            "Browse-addcart-checkout: addcart",
+            (2, 1),
+        ),
+        (
+            "webshop-browse-addcart-checkout",
+            "checkout",
+            "Browse-addcart-checkout: checkout",
+            (3, -1),
+        ),
+    )
+
+    fig = plt.figure(figsize=(10, 12.8), constrained_layout=True)
+    grid = fig.add_gridspec(4, 2)
+    visible_axes: list[plt.Axes] = []
+
+    for workflow, operation, title, (row, column) in panel_specs:
+        slot = grid[row, :] if column == -1 else grid[row, column]
+        ax = fig.add_subplot(slot)
+        panel = df.filter(pl.col("workflow") == workflow)
+        if operation is None:
+            panel = panel.filter(pl.col("operation").is_null())
+        else:
+            panel = panel.filter(pl.col("operation") == operation)
+
+        order = _function_order(panel)
+        if not order:
+            ax.set_visible(False)
+            continue
+
+        _plot_function_axis(
+            ax,
+            panel,
+            order,
+            title,
+            show_ylabel=False,
+            show_legend=False,
+        )
+        ax.title.set_fontsize(11)
+        ax.tick_params(axis="both", labelsize=9)
+        visible_axes.append(ax)
+
+    if not visible_axes:
+        plt.close(fig)
+        return
+
+    handles, labels = visible_axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="outside upper center", ncol=len(PROFILES), frameon=False)
+    fig.supylabel("Relative finish time (ms)")
+    _save_figure(fig, out_dir / f"functions_{platform}_overview.{fig_format}")
+
+
 def _function_order(df: pl.DataFrame) -> list[str]:
     if df.is_empty():
         return []
@@ -378,7 +473,15 @@ def _function_label(name: str) -> str:
     return name.split("-", maxsplit=1)[-1]
 
 
-def _plot_function_axis(ax: plt.Axes, df: pl.DataFrame, order: list[str], title: str) -> None:
+def _plot_function_axis(
+    ax: plt.Axes,
+    df: pl.DataFrame,
+    order: list[str],
+    title: str,
+    *,
+    show_ylabel: bool = True,
+    show_legend: bool = True,
+) -> None:
     # Map function names to categorical x positions once; individual samples
     # receive small deterministic jitter so overlapping invocations are visible.
     xpos = {name: idx for idx, name in enumerate(order)}
@@ -414,7 +517,8 @@ def _plot_function_axis(ax: plt.Axes, df: pl.DataFrame, order: list[str], title:
         )
 
     ax.set_title(title)
-    ax.set_ylabel("Relative finish time (ms)")
+    if show_ylabel:
+        ax.set_ylabel("Relative finish time (ms)")
     ax.set_xticks(
         range(len(order)),
         [_function_label(name) for name in order],
@@ -422,7 +526,8 @@ def _plot_function_axis(ax: plt.Axes, df: pl.DataFrame, order: list[str], title:
         ha="right",
     )
     ax.grid(axis="y", alpha=0.25)
-    ax.legend(frameon=False)
+    if show_legend:
+        ax.legend(frameon=False)
 
 
 def _benchmark_config_pairs(samples: pl.DataFrame) -> list[tuple[str, str]]:

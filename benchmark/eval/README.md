@@ -106,6 +106,8 @@ Figures are written to `out/figures` as vector SVG (set `FIGURE_FORMAT` in
   retained iterations (steady-state diagnostic)
 - `functions_<platform>_<workflow>.svg`: per-function completion time relative
   to entry start, ordered by median finish
+- `functions_<platform>_overview.svg`: all function-completion panels for one
+  platform in a compact overview with a shared profile legend
 - `resources_<platform>_<workflow>.svg`: VM CPU utilization and memory usage
   over the measured k6 window (per-profile one-minute mean with between-run SD
   ribbon), showing the prewarm optimization's resource overhead relative to
