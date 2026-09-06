@@ -2,7 +2,8 @@
 
 This directory contains the Python evaluation tool for the thesis benchmark results in `benchmark/results`.
 
-It uses `uv` for project management, Polars for data processing, and Matplotlib for vector (SVG) figures.
+It uses `uv` for project management, Polars for data processing, and Matplotlib for vector (SVG) figures. The output is written to `benchmark/eval/out` by default.
+Figures are generated in PDF or SVG format, specified by the `--fig-format` option.
 
 ## Approach
 
@@ -16,9 +17,9 @@ The primary latency source is each experiment's `k6/metrics.csv`:
 - `webshop-addcart-checkout`: step metrics `addcart_latency_ms`,
   `checkout_latency_ms`, plus a computed journey total
 
-The tool computes per-run statistics first, then aggregates those run-level statistics. Pooled retained samples are used for distribution plots only, not as independent experiment repeats.
+The tool computes per-run statistics first, then aggregates those run-level statistics.
 
-Function-level plots use `stats/functions/*.json`. Function invocation finish times are aligned relative to the entry function start for each retained iteration or operation. Samples are retained only when the function is reachable in the explicit workflow graph and starts before the next entry invocation. Webshop function plots are operation-windowed: `webshop-addcart-checkout` renders `addcart` and `checkout` subplots, and `webshop-browse-addcart-checkout` renders `browse`, `addcart`, and `checkout` subplots.
+Function-level plots use `stats/functions/*.json`. Function invocation finish times are aligned relative to the entry function start for each retained iteration or operation. Samples are retained only when the function is reachable in the explicit workflow graph and starts before the next entry invocation.
 
 ## Usage
 
@@ -26,7 +27,7 @@ Run commands from this directory:
 
 ```bash
 cd benchmark/eval
-uv run bench-eval --results ../results --out out
+uv run bench-eval --results ../results --runs bench-run-1 bench-run-2 bench-run-3 bench-run-4 bench-run-5 --out out
 ```
 
 Equivalent commands from the repository root:
@@ -42,7 +43,7 @@ To pass it explicitly:
 ```bash
 uv run bench-eval \
   --results ../results \
-  --runs bench-run-8 bench-run-9 bench-run-10 \
+  --runs bench-run-1 bench-run-2 bench-run-3 \
   --out out
 ```
 
