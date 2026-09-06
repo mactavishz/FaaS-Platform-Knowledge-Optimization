@@ -100,6 +100,7 @@ See `tests/integration/README.md` for suite details and `tests/supabase/README.m
 - `tests/integration/`: repo-level integration suites
 - `tests/workflows/`: example workflows and stack files for each platform
 - `benchmark/`: k6-based benchmarking tools
+- `benchmark/eval/`: evaluation tools for benchmark results
 - `terraform/`: remote benchmarking infrastructure
 - `scripts/`: local build and remote deployment helpers
 
@@ -108,6 +109,7 @@ See `tests/integration/README.md` for suite details and `tests/supabase/README.m
 - `tests/integration/README.md`
 - `tests/supabase/README.md`
 - `benchmark/README.md`
+- `benchmark/eval/README.md`
 - `terraform/README.md`
 - `tests/workflows/faasd/*/README.md`
 - `tests/workflows/tinyfaas/*/README.md`
