@@ -21,6 +21,8 @@ The tool computes per-run statistics first, then aggregates those run-level stat
 
 Function-level plots use `stats/functions/*.json`. Function invocation finish times are aligned relative to the entry function start for each retained iteration or operation. Samples are retained only when the function is reachable in the explicit workflow graph and starts before the next entry invocation.
 
+CPU and memory analysis uses the `resources/vm-usage.csv` file produced by the benchmark runs. Runs without those samples are left unchanged.
+
 ## Usage
 
 Run commands from this directory:
