@@ -1,5 +1,4 @@
 import argparse
-import os
 from pathlib import Path
 
 import polars as pl
@@ -34,25 +33,6 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=TRIM_TAIL,
         help=f"Number of trailing iterations to drop before analysis (default: {TRIM_TAIL}).",
-    )
-    parser.add_argument(
-        "--fetch-resources",
-        action="store_true",
-        help="Backfill VM host metrics from Cloud Monitoring before plotting "
-        "(requires gcloud auth and a project). Only applies to runs without a "
-        "local resources/vm-samples.csv; sampled runs are derived automatically.",
-    )
-    parser.add_argument(
-        "--refresh-resources",
-        action="store_true",
-        help="Rebuild resources/vm-usage.csv even if a cached one exists, from "
-        "local samples when available, otherwise from Cloud Monitoring.",
-    )
-    parser.add_argument(
-        "--project",
-        default=os.environ.get("GOOGLE_PROJECT"),
-        help="Google Cloud project holding the benchmark VM metrics "
-        "(defaults to $GOOGLE_PROJECT).",
     )
     parser.add_argument(
         "--fig-format",
@@ -95,19 +75,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     print_validation(function_validation, title="Function record validation")
 
-    # Local sampler output needs no credentials, so it is always materialized;
-    # the Cloud Monitoring backfill stays opt-in and covers only runs without it.
-    from .resources import materialize_resource_usage
+    from .resources import process_resource_usage
 
-    materialize_resource_usage(results, runs, refresh=args.refresh_resources)
-
-    if args.fetch_resources or args.refresh_resources:
-        from .monitoring import fetch_resource_samples
-
-        print("\nFetching VM host metrics from Cloud Monitoring:")
-        fetch_resource_samples(
-            results, runs, project=args.project, refresh=args.refresh_resources
-        )
+    process_resource_usage(results, runs)
 
     resource_samples = load_resource_samples(results, runs)
     resource_analysis = analyze_resources(

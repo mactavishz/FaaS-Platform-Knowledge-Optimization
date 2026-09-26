@@ -56,7 +56,7 @@ def write_all_figures(
     # Generate the same figure set for every platform/workflow combination
     # present in the latency samples. Function and resource plots are optional
     # because older result directories may not contain stats/functions output or
-    # backfilled host metrics.
+    # local host metrics.
     for platform, workflow in _benchmark_config_pairs(samples):
         _plot_distribution(samples, run_stats, platform, workflow, figures, fig_format)
         _plot_summary(run_stats, platform, workflow, figures, fig_format)

@@ -201,12 +201,10 @@ def load_resource_samples(
     results: Path,
     runs: tuple[str, ...],
 ) -> pl.DataFrame:
-    """Load cached VM host-metric CSVs written by ``monitoring.fetch_resource_samples``.
+    """Load VM host-metric CSVs from local result directories.
 
-    Each experiment may contribute a ``resources/vm-usage.csv`` time series of VM
-    CPU and memory usage over its measured k6 window. Missing files are skipped
-    silently because not every result directory has been backfilled; the latency
-    and function analyses do not depend on this data.
+    Each experiment creates ``resources/vm-usage.csv`` time series of VM
+    CPU and memory usage over its measured k6 window.
     """
     frames: list[pl.DataFrame] = []
 
